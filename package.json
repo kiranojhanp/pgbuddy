@@ -1,6 +1,6 @@
 {
   "name": "pgbuddy",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "A lightweight set of helper functions for Postgres.js to simplify simple CRUD operations.",
   "files": [
     "dist/*"
