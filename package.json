@@ -1,0 +1,54 @@
+{
+  "name": "easy-pg",
+  "version": "0.0.1",
+  "description": "A lightweight set of helper functions for Postgres.js to simplify simple CRUD operations.",
+  "files": [
+    "dist/*"
+  ],
+  "types": "dist/index.d.mts",
+  "main": "dist/index.esm.js",
+  "typesVersions": {
+    "*": {
+      ".": [
+        "./dist/index.d.mts"
+      ]
+    }
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+git@github.com:kiranojhanp/easy-pg.git.git"
+  },
+  "keywords": [
+    "easy-pg",
+    "postgres",
+    "postgres.js",
+    "sql",
+    "crud",
+    "query-builder",
+    "helper-functions"
+  ],
+  "author": "Kiran Ojha",
+  "license": "MIT",
+  "bugs": {
+    "url": "git@github.com:kiranojhanp/easy-pg.git/issues"
+  },
+  "homepage": "git@github.com:kiranojhanp/easy-pg.git#readme",
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "postgres": "^3.4.5"
+  }
+}
