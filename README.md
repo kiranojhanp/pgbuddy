@@ -31,7 +31,14 @@ npm install pgbuddy
 import postgres from "postgres";
 import { PGBuddy } from "pgbuddy";
 
-const sql = postgres();
+const sql = postgres({
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    database: env.DB_NAME,
+    username: env.DB_USER,
+    password: env.DB_PASSWORD,
+});
+
 const db = new PGBuddy(sql);
 ```
 
@@ -92,6 +99,16 @@ Constructs a `SELECT` query with optional search, sort, and pagination features.
 - `PaginatedQueryResult`:
   - `queries` (string[]): The constructed SQL query strings.
   - `values` (any[]): The parameterized values for the query.
+
+---
+
+## Roadmap
+
+- [ ] Insert, update, upsert, and delete functionality
+- [ ] Improved TypeScript support
+- [ ] Advanced Filter support for select
+- [x] Pagination support for select
+- [x] Sorting and search support
 
 ---
 
