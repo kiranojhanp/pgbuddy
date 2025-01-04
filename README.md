@@ -1,5 +1,7 @@
 # PGBuddy
 
+![PGBuddy banner](assets/pg-buddy-banner.png)
+
 **PGBuddy** is a set of lightweight helper functions for Postgres.js designed to make writing simple CRUD operations quick and painless. It is not intended to replace raw SQL for complex queries or become a full-fledged query builder. Instead, PGBuddy focuses on simplicity, allowing you to easily handle straightforward database interactions.
 
 ---
