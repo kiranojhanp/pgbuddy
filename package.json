@@ -1,5 +1,5 @@
 {
-  "name": "easy-pg",
+  "name": "@kiranojhanp/easy-pg",
   "version": "0.0.1",
   "description": "A lightweight set of helper functions for Postgres.js to simplify simple CRUD operations.",
   "files": [
