@@ -1,6 +1,6 @@
-# EasyPG
+# PGBuddy
 
-**EasyPG** is a set of lightweight helper functions for Postgres.js designed to make writing simple CRUD operations quick and painless. It is not intended to replace raw SQL for complex queries or become a full-fledged query builder. Instead, EasyPG focuses on simplicity, allowing you to easily handle straightforward database interactions.
+**PGBuddy** is a set of lightweight helper functions for Postgres.js designed to make writing simple CRUD operations quick and painless. It is not intended to replace raw SQL for complex queries or become a full-fledged query builder. Instead, PGBuddy focuses on simplicity, allowing you to easily handle straightforward database interactions.
 
 ---
 
@@ -27,10 +27,10 @@ npm install pgbuddy
 
 ```typescript
 import postgres from "postgres";
-import { EasyPG } from "pgbuddy";
+import { PGBuddy } from "pgbuddy";
 
 const sql = postgres();
-const db = new EasyPG(sql);
+const db = new PGBuddy(sql);
 ```
 
 ### Select Queries
@@ -98,10 +98,10 @@ Constructs a `SELECT` query with optional search, sort, and pagination features.
 ### Basic Setup
 ```typescript
 import postgres from "postgres";
-import { EasyPG } from "pgbuddy";
+import { PGBuddy } from "pgbuddy";
 
 const sql = postgres();
-const db = new EasyPG(sql);
+const db = new PGBuddy(sql);
 
 const users = db.select({
   table: "users",
