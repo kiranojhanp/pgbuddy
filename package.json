@@ -1,19 +1,12 @@
 {
   "name": "pgbuddy",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A lightweight set of helper functions for Postgres.js to simplify simple CRUD operations.",
   "files": [
     "dist/*"
   ],
   "types": "dist/index.d.mts",
   "main": "dist/index.esm.js",
-  "typesVersions": {
-    "*": {
-      ".": [
-        "./dist/index.d.mts"
-      ]
-    }
-  },
   "exports": {
     ".": {
       "import": "./dist/index.esm.js",
