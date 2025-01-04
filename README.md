@@ -16,7 +16,7 @@
 ## Installation
 
 ```bash
-npm install easy-pg
+npm install pgbuddy
 ```
 
 ---
@@ -27,7 +27,7 @@ npm install easy-pg
 
 ```typescript
 import postgres from "postgres";
-import { EasyPG } from "easy-pg";
+import { EasyPG } from "pgbuddy";
 
 const sql = postgres();
 const db = new EasyPG(sql);
@@ -98,7 +98,7 @@ Constructs a `SELECT` query with optional search, sort, and pagination features.
 ### Basic Setup
 ```typescript
 import postgres from "postgres";
-import { EasyPG } from "easy-pg";
+import { EasyPG } from "pgbuddy";
 
 const sql = postgres();
 const db = new EasyPG(sql);
@@ -121,8 +121,8 @@ We welcome contributions! Feel free to open an issue or submit a pull request.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/kiranojhanp/easy-pg.git
-   cd easy-pg
+   git clone https://github.com/kiranojhanp/pgbuddy.git
+   cd pgbuddy
    ```
 
 2. Install dependencies:

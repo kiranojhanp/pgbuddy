@@ -13,7 +13,7 @@ interface SelectParams {
     };
     orderBy?: string;
 }
-declare class EasyPG {
+declare class PgBuddy {
     private sql;
     constructor(sql: Sql<{}>);
     /**
@@ -24,4 +24,4 @@ declare class EasyPG {
     select(params: SelectParams): Promise<postgres.RowList<postgres.Row[]>>;
 }
 
-export { EasyPG };
+export { PgBuddy };

@@ -1,5 +1,5 @@
 {
-  "name": "@kiranojhanp/easy-pg",
+  "name": "pgbuddy",
   "version": "0.0.1",
   "description": "A lightweight set of helper functions for Postgres.js to simplify simple CRUD operations.",
   "files": [
@@ -26,10 +26,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+git@github.com:kiranojhanp/easy-pg.git.git"
+    "url": "git+git@github.com:kiranojhanp/pgbuddy.git"
   },
   "keywords": [
-    "easy-pg",
+    "pgbuddy",
     "postgres",
     "postgres.js",
     "sql",
@@ -40,9 +40,9 @@
   "author": "Kiran Ojha",
   "license": "MIT",
   "bugs": {
-    "url": "git@github.com:kiranojhanp/easy-pg.git/issues"
+    "url": "git@github.com:kiranojhanp/pgbuddy.git/issues"
   },
-  "homepage": "git@github.com:kiranojhanp/easy-pg.git#readme",
+  "homepage": "git@github.com:kiranojhanp/pgbuddy.git#readme",
   "devDependencies": {
     "@types/node": "^22.10.5",
     "tsup": "^8.3.5",

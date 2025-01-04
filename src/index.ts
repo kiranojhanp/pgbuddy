@@ -13,7 +13,7 @@ interface SelectParams {
   orderBy?: string;
 }
 
-export class EasyPG {
+export class PgBuddy {
   private sql: Sql<{}>;
 
   constructor(sql: Sql<{}>) {
