@@ -7,4 +7,3 @@ var h=(q,l,t)=>new Promise((i,e)=>{var o=s=>{try{a(t.next(s))}catch(n){e(n)}},m=
     ${o?this.sql`ORDER BY ${this.sql`${o}`}`:this.sql``}
     LIMIT ${a} OFFSET ${n}
   `;return t&&(yield u.describe()),yield u})}};export{y as PgBuddy};
-//# sourceMappingURL=index.esm.js.map

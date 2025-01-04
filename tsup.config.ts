@@ -12,7 +12,7 @@ export default defineConfig((options) => ({
       js: `.${format}.js`,
     };
   },
-  sourcemap: true,
+  sourcemap: false,
   clean: true,
   target: tsconfig.compilerOptions.target as "ES2016",
   minify: !options.watch,
