@@ -5,8 +5,8 @@ export default defineConfig((options) => ({
   entry: ["src/index.ts"],
   dts: true,
   outDir: "dist",
-  format: ["esm"],
-  name: "easy-pg",
+  format: ["cjs", "esm"],
+  name: "pgbuddy",
   outExtension({ format }) {
     return {
       js: `.${format}.js`,
