@@ -118,6 +118,98 @@ export class PgBuddy {
   }
 
   /**
+   * Updates records in a specified table that match given conditions
+   * @async
+   * @param {QueryParams} params - The parameters for the UPDATE operation
+   * @param {string} params.table - The name of the database table to update
+   * @param {Record<string, any>} params.data - Object containing column-value pairs to update
+   * @param {Record<string, any>} params.conditions - WHERE conditions for filtering records to update
+   * @param {string[]} [params.returning=["*"]] - Columns to return after update
+   * @param {boolean} [params.debug=false] - Enable debug mode to log query details
+   * @returns {Promise<any>} The result of the UPDATE operation
+   * @throws {Error} If table name is invalid, data is empty, or conditions are missing
+   *
+   * @example
+   * // Update a single record by ID
+   * async function updateUser() {
+   *   const result = await db.update({
+   *     table: "user",
+   *     data: {
+   *       name: "Updated Name",
+   *       email: "updated@example.com"
+   *     },
+   *     conditions: { id: 1 },
+   *     returning: ["id", "name", "email", "updated_at"],
+   *   });
+   *   console.log("Updated User:", result);
+   * }
+   *
+   * // Update multiple records matching a condition
+   * async function deactivateGuests() {
+   *   const result = await db.update({
+   *     table: "user",
+   *     data: { active: false },
+   *     conditions: { role: "guest" },
+   *     returning: ["id", "name"],
+   *   });
+   *   console.log("Deactivated Guests:", result);
+   * }
+   */
+
+  async update(params: QueryParams) {
+    const {
+      table,
+      data,
+      conditions,
+      returning = ["*"],
+      debug = false,
+    } = params;
+
+    // Validate the table name
+    if (!table || typeof table !== "string" || !table.trim()) {
+      throw new Error("Invalid or empty table name");
+    }
+
+    // Validate data object
+    if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
+      throw new Error("Invalid or empty data to insert");
+    }
+
+    // Validate conditions to prevent accidental table-wide updates
+    if (
+      !conditions ||
+      typeof conditions !== "object" ||
+      Object.keys(conditions).length === 0
+    ) {
+      throw new Error(
+        "Conditions are required for updates to prevent accidental table-wide updates"
+      );
+    }
+
+    // Construct and execute the UPDATE query
+    const query = this.sql`
+        UPDATE ${this.sql(table)}
+        SET ${this.sql(data, Object.keys(data))}
+        WHERE ${Object.entries(conditions).reduce(
+          (acc, [key, value], index) =>
+            index === 0
+              ? this.sql`${this.sql(key)} = ${value}`
+              : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
+          this.sql``
+        )}
+        RETURNING ${
+          returning.length === 1 && returning[0] === "*"
+            ? this.sql`*`
+            : this.sql(returning)
+        }
+    `;
+
+    // Log query details if debug mode is enabled
+    if (debug) await query.describe();
+    return await query;
+  }
+
+  /**
    * Performs a SELECT query with optional pagination, searching, and ordering
    * @async
    * @param {SelectParams} params - Parameters for the SELECT operation
