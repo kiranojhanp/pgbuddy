@@ -80,6 +80,45 @@ declare class PgBuddy {
      */
     input(params: QueryParams): Promise<postgres.RowList<postgres.Row[]>>;
     /**
+     * Updates records in a specified table that match given conditions
+     * @async
+     * @param {QueryParams} params - The parameters for the UPDATE operation
+     * @param {string} params.table - The name of the database table to update
+     * @param {Record<string, any>} params.data - Object containing column-value pairs to update
+     * @param {Record<string, any>} params.conditions - WHERE conditions for filtering records to update
+     * @param {string[]} [params.returning=["*"]] - Columns to return after update
+     * @param {boolean} [params.debug=false] - Enable debug mode to log query details
+     * @returns {Promise<any>} The result of the UPDATE operation
+     * @throws {Error} If table name is invalid, data is empty, or conditions are missing
+     *
+     * @example
+     * // Update a single record by ID
+     * async function updateUser() {
+     *   const result = await db.update({
+     *     table: "user",
+     *     data: {
+     *       name: "Updated Name",
+     *       email: "updated@example.com"
+     *     },
+     *     conditions: { id: 1 },
+     *     returning: ["id", "name", "email", "updated_at"],
+     *   });
+     *   console.log("Updated User:", result);
+     * }
+     *
+     * // Update multiple records matching a condition
+     * async function deactivateGuests() {
+     *   const result = await db.update({
+     *     table: "user",
+     *     data: { active: false },
+     *     conditions: { role: "guest" },
+     *     returning: ["id", "name"],
+     *   });
+     *   console.log("Deactivated Guests:", result);
+     * }
+     */
+    update(params: QueryParams): Promise<postgres.RowList<postgres.Row[]>>;
+    /**
      * Performs a SELECT query with optional pagination, searching, and ordering
      * @async
      * @param {SelectParams} params - Parameters for the SELECT operation

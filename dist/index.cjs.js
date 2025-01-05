@@ -1,13 +1,18 @@
-"use strict";var m=Object.defineProperty;var b=Object.getOwnPropertyDescriptor;var d=Object.getOwnPropertyNames;var f=Object.prototype.hasOwnProperty;var $=(n,t)=>{for(var a in t)m(n,a,{get:t[a],enumerable:!0})},w=(n,t,a,e)=>{if(t&&typeof t=="object"||typeof t=="function")for(let r of d(t))!f.call(n,r)&&r!==a&&m(n,r,{get:()=>t[r],enumerable:!(e=b(t,r))||e.enumerable});return n};var E=n=>w(m({},"__esModule",{value:!0}),n);var u=(n,t,a)=>new Promise((e,r)=>{var o=s=>{try{l(a.next(s))}catch(c){r(c)}},y=s=>{try{l(a.throw(s))}catch(c){r(c)}},l=s=>s.done?e(s.value):Promise.resolve(s.value).then(o,y);l((a=a.apply(n,t)).next())});var I={};$(I,{PgBuddy:()=>h});module.exports=E(I);var h=class{constructor(t){this.sql=t}input(t){return u(this,null,function*(){let{table:a,data:e,returning:r=["*"],debug:o=!1}=t;if(!a||typeof a!="string"||!a.trim())throw new Error("Invalid or empty table name");if(!e||Array.isArray(e)&&e.length===0)throw new Error("Invalid data to insert");let y=Array.isArray(e)?Object.keys(e[0]):Object.keys(e),l=this.sql`
-      INSERT INTO ${this.sql(a)} 
-      ${this.sql(e,y)}
+"use strict";var q=Object.defineProperty;var p=Object.getOwnPropertyDescriptor;var f=Object.getOwnPropertyNames;var $=Object.prototype.hasOwnProperty;var w=(l,i)=>{for(var e in i)q(l,e,{get:i[e],enumerable:!0})},E=(l,i,e,t)=>{if(i&&typeof i=="object"||typeof i=="function")for(let r of f(i))!$.call(l,r)&&r!==e&&q(l,r,{get:()=>i[r],enumerable:!(t=p(i,r))||t.enumerable});return l};var I=l=>E(q({},"__esModule",{value:!0}),l);var u=(l,i,e)=>new Promise((t,r)=>{var o=s=>{try{a(e.next(s))}catch(c){r(c)}},h=s=>{try{a(e.throw(s))}catch(c){r(c)}},a=s=>s.done?t(s.value):Promise.resolve(s.value).then(o,h);a((e=e.apply(l,i)).next())});var R={};w(R,{PgBuddy:()=>m});module.exports=I(R);var m=class{constructor(i){this.sql=i}input(i){return u(this,null,function*(){let{table:e,data:t,returning:r=["*"],debug:o=!1}=i;if(!e||typeof e!="string"||!e.trim())throw new Error("Invalid or empty table name");if(!t||Array.isArray(t)&&t.length===0)throw new Error("Invalid data to insert");let h=Array.isArray(t)?Object.keys(t[0]):Object.keys(t),a=this.sql`
+      INSERT INTO ${this.sql(e)} 
+      ${this.sql(t,h)}
       RETURNING ${r.length===1&&r[0]==="*"?this.sql`*`:this.sql(r)}
-    `;return o&&(yield l.describe()),yield l})}select(t){return u(this,null,function*(){let{debug:a=!1,table:e,columns:r=["*"],orderBy:o,page:y=1,pageSize:l=10,search:s}=t;if(!e||typeof e!="string"||!e.trim())throw new Error("Invalid or empty table name");if(!Array.isArray(r)||r.some(i=>!i||typeof i!="string"||!i.trim()))throw new Error("Invalid or empty column names");if(s&&(!Array.isArray(s.columns)||s.columns.some(i=>!i||typeof i!="string"||!i.trim())||!s.query))throw new Error("Invalid search parameters");let c=(y-1)*l,q=this.sql`
+    `;return o&&(yield a.describe()),yield a})}update(i){return u(this,null,function*(){let{table:e,data:t,conditions:r,returning:o=["*"],debug:h=!1}=i;if(!e||typeof e!="string"||!e.trim())throw new Error("Invalid or empty table name");if(!t||typeof t!="object"||Object.keys(t).length===0)throw new Error("Invalid or empty data to insert");if(!r||typeof r!="object"||Object.keys(r).length===0)throw new Error("Conditions are required for updates to prevent accidental table-wide updates");let a=this.sql`
+        UPDATE ${this.sql(e)}
+        SET ${this.sql(t,Object.keys(t))}
+        WHERE ${Object.entries(r).reduce((s,[c,y],d)=>d===0?this.sql`${this.sql(c)} = ${y}`:this.sql`${s} AND ${this.sql(c)} = ${y}`,this.sql``)}
+        RETURNING ${o.length===1&&o[0]==="*"?this.sql`*`:this.sql(o)}
+    `;return h&&(yield a.describe()),yield a})}select(i){return u(this,null,function*(){let{debug:e=!1,table:t,columns:r=["*"],orderBy:o,page:h=1,pageSize:a=10,search:s}=i;if(!t||typeof t!="string"||!t.trim())throw new Error("Invalid or empty table name");if(!Array.isArray(r)||r.some(n=>!n||typeof n!="string"||!n.trim()))throw new Error("Invalid or empty column names");if(s&&(!Array.isArray(s.columns)||s.columns.some(n=>!n||typeof n!="string"||!n.trim())||!s.query))throw new Error("Invalid search parameters");let c=(h-1)*a,y=this.sql`
     SELECT ${r.length===1&&r[0]==="*"?this.sql`*`:this.sql(r)}
-    FROM ${this.sql(e)}
+    FROM ${this.sql(t)}
     ${s&&s.query&&s.columns&&Array.isArray(s.columns)?this.sql`
-            WHERE ${s.columns.map(i=>this.sql`${this.sql(i)} ILIKE ${"%"+s.query+"%"}`).reduce((i,g,p)=>p===0?g:this.sql`${i} OR ${g}`)}
+            WHERE ${s.columns.map(n=>this.sql`${this.sql(n)} ILIKE ${"%"+s.query+"%"}`).reduce((n,g,b)=>b===0?g:this.sql`${n} OR ${g}`)}
           `:this.sql``}
     ${o?this.sql`ORDER BY ${this.sql`${o}`}`:this.sql``}
-    LIMIT ${l} OFFSET ${c}
-  `;return a&&(yield q.describe()),yield q})}};0&&(module.exports={PgBuddy});
+    LIMIT ${a} OFFSET ${c}
+  `;return e&&(yield y.describe()),yield y})}};0&&(module.exports={PgBuddy});
