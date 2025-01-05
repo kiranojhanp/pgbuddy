@@ -2,30 +2,31 @@
 
 ![PGBuddy banner](assets/pg-buddy-banner.png)
 
-**PGBuddy** is a set of lightweight helper functions for Postgres.js designed to make writing simple CRUD operations quick and painless. It is not intended to replace raw SQL for complex queries or become a full-fledged query builder. Instead, PGBuddy focuses on simplicity, allowing you to easily handle straightforward database interactions.
+**PGBuddy** is your no-nonsense, tiny sidekick for `postgres.js`. At just 3KB, it's like that friend who shows up with exactly what you need, no extra baggage. Perfect for those "I just want a simple CRUD query" moments.
 
 ---
 
-## Features
+## Features 🌟
 
-- **Simple CRUD Support**: Simplifies common database operations like search, sorting, and pagination.
-- **Focused Scope**: Aims to assist with simple queries without overcomplicating things.
-- **SQL Injection Prevention**: Leverages Postgres.js's tagged template literals for safety.
-- **Lightweight and Minimal**: Designed to complement, not replace, raw SQL queries.
+- **Simple CRUD Support**: Just the essentials you need, nothing you don't! 🎯
+- **Focused Scope**: In a world of Swiss Army knives, PGBuddy is your trusty pocket knife – small but mighty! 💪
+- **SQL Injection Prevention**:  Keeps your queries safer than your phone's face ID 🔒
+- **Lightweight and Minimal**: At under 3KB, it's like a backyard barbie – no fancy stuff, just what you need ✨
 
 ---
 
-## Installation
+## Installation 🚀
 
 ```bash
+npm install postgres@^3.4.5
 npm install pgbuddy
 ```
 
 ---
 
-## Usage
+## Usage 🛠️
 
-### Import and Initialize
+### Initial Setup
 
 ```typescript
 import postgres from "postgres";
@@ -44,7 +45,7 @@ const db = new PGBuddy(sql);
 
 ### Select Queries
 
-#### Basic Query
+#### The Basic Stuff
 ```typescript
 const result = db.select({
   table: "users",
@@ -53,7 +54,7 @@ const result = db.select({
 console.log(result);
 ```
 
-#### Search with Pagination
+#### Search & Pagination
 ```typescript
 const result = db.select({
   table: "users",
@@ -75,9 +76,56 @@ const result = db.select({
 console.log(result);
 ```
 
+### Insert Queries
+
+#### Single Record
+```typescript
+const result = await db.insert({
+  table: "users",
+  data: { name: "John", email: "john@example.com" },
+  returning: ["id", "name", "email"],
+});
+console.log(result);
+```
+
+#### Bulk Insert
+```typescript
+const result = await db.insert({
+  table: "users",
+  data: [
+    { name: "John", email: "john@example.com" },
+    { name: "Jane", email: "jane@example.com" },
+  ],
+});
+console.log(result);
+```
+
+### Update Queries
+
+#### Update One Record
+```typescript
+const result = await db.update({
+  table: "users",
+  data: { name: "Updated Name", email: "updated@example.com" },
+  conditions: { id: 1 },
+  returning: ["id", "name", "email", "updated_at"],
+});
+console.log(result);
+```
+
+#### Update Many Records
+```typescript
+const result = await db.update({
+  table: "users",
+  data: { active: false },
+  conditions: { role: "guest" },
+  returning: ["id", "name"],
+});
+console.log(result);
+```
 ---
 
-## API Reference
+## API Reference 📚
 
 ### `select(params: SelectParams): PaginatedQueryResult`
 
@@ -100,37 +148,50 @@ Constructs a `SELECT` query with optional search, sort, and pagination features.
   - `queries` (string[]): The constructed SQL query strings.
   - `values` (any[]): The parameterized values for the query.
 
+### `insert(params: QueryParams): Promise<any>`
+
+Executes an `INSERT` query for adding records to a database table. Supports single or bulk insert operations.
+
+#### Parameters
+
+- `table` (string, required): The table name to insert into.
+- `data` (object | object[], required): Single record or array of records to insert.
+- `returning` (string[], optional): Columns to return after insertion. Defaults to `['*']`.
+- `debug` (boolean, optional): Logs the constructed query for debugging purposes. Defaults to `false`.
+
+#### Returns
+
+- `Promise<any>`: The result of the insert operation, including the specified returning fields.
+
+### `update(params: QueryParams): Promise<any>`
+
+Executes an `UPDATE` query to modify records in a database table. Supports filtering conditions and returning fields.
+
+#### Parameters
+
+- `table` (string, required): The table name to update.
+- `data` (object, required): Column-value pairs to update.
+- `conditions` (object, required): Filtering conditions to identify records for update.
+- `returning` (string[], optional): Columns to return after the update. Defaults to `['*']`.
+- `debug` (boolean, optional): Logs the constructed query for debugging purposes. Defaults to `false`.
+
+#### Returns
+
+- `Promise<any>`: The result of the update operation, including the specified returning fields.
+
 ---
 
-## Roadmap
+## Coming Soon™️ 🔮
 
-- [ ] Insert, update, upsert, and delete functionality
-- [ ] Improved TypeScript support
-- [ ] Advanced Filter support for select
-- [x] Pagination support for select
-- [x] Sorting and search support
+- Improved Typesafety
+- Advanced Filter support for select
+- Upsert, and delete functionality
 
 ---
 
-## Example Projects
+## License 📜
 
-### Basic Setup
-```typescript
-import postgres from "postgres";
-import { PGBuddy } from "pgbuddy";
-
-const sql = postgres();
-const db = new PGBuddy(sql);
-
-const users = db.select({
-  table: "users",
-  columns: ["id", "name"],
-});
-
-console.log(users);
-```
-
----
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
 ## Contributing
 
@@ -156,12 +217,12 @@ We welcome contributions! Feel free to open an issue or submit a pull request.
 
 ---
 
-## License
+## License 📜
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
 ---
 
-## Acknowledgments
+## Shoutouts 🙌
 
-Built on top of [Postgres.js](https://github.com/porsager/postgres).
+Built on top of [Postgres.js](https://github.com/porsager/postgres) - because great things are built on great foundations!

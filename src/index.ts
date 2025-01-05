@@ -69,13 +69,13 @@ export class PgBuddy {
    *
    * @example
    * // Insert a single record
-   * await pgBuddy.input({
+   * await pgBuddy.insert({
    *   table: 'users',
    *   data: { name: 'John', email: 'john@example.com' }
    * });
    *
    * // Bulk insert multiple records
-   * await pgBuddy.input({
+   * await pgBuddy.insert({
    *   table: 'users',
    *   data: [
    *     { name: 'John', email: 'john@example.com' },
@@ -83,7 +83,7 @@ export class PgBuddy {
    *   ]
    * });
    */
-  async input(params: QueryParams) {
+  async insert(params: QueryParams) {
     const { table, data, returning = ["*"], debug = false } = params;
 
     // Input validation
