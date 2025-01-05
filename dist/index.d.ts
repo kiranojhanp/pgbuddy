@@ -119,6 +119,35 @@ declare class PgBuddy {
      */
     update(params: QueryParams): Promise<postgres.RowList<postgres.Row[]>>;
     /**
+     * Deletes records in a specified table that match given conditions.
+     * @async
+     * @param {Omit<QueryParams, "data">} params - Parameters for the DELETE operation
+     * @returns {Promise<any>} Result of the DELETE operation
+     * @throws {Error} If table name is invalid or conditions are missing
+     *
+     * @example
+     * // Delete a single record by ID
+     * async function deleteUser() {
+     *   const result = await db.delete({
+     *     table: "user",
+     *     conditions: { id: 1 },
+     *     returning: ["id", "name"],
+     *   });
+     *   console.log("Deleted User:", result);
+     * }
+     *
+     * // Delete multiple records based on conditions
+     * async function deleteMultipleUsers() {
+     *   const result = await db.delete({
+     *     table: "user",
+     *     conditions: { status: "inactive" },
+     *     returning: ["id", "name"],
+     *   });
+     *   console.log("Deleted Users:", result);
+     * }
+     */
+    delete(params: Omit<QueryParams, "data">): Promise<postgres.RowList<postgres.Row[]>>;
+    /**
      * Performs a SELECT query with optional pagination, searching, and ordering
      * @async
      * @param {SelectParams} params - Parameters for the SELECT operation

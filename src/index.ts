@@ -210,6 +210,69 @@ export class PgBuddy {
   }
 
   /**
+   * Deletes records in a specified table that match given conditions.
+   * @async
+   * @param {Omit<QueryParams, "data">} params - Parameters for the DELETE operation
+   * @returns {Promise<any>} Result of the DELETE operation
+   * @throws {Error} If table name is invalid or conditions are missing
+   *
+   * @example
+   * // Delete a single record by ID
+   * async function deleteUser() {
+   *   const result = await db.delete({
+   *     table: "user",
+   *     conditions: { id: 1 },
+   *     returning: ["id", "name"],
+   *   });
+   *   console.log("Deleted User:", result);
+   * }
+   *
+   * // Delete multiple records based on conditions
+   * async function deleteMultipleUsers() {
+   *   const result = await db.delete({
+   *     table: "user",
+   *     conditions: { status: "inactive" },
+   *     returning: ["id", "name"],
+   *   });
+   *   console.log("Deleted Users:", result);
+   * }
+   */
+  async delete(params: Omit<QueryParams, "data">) {
+    const { table, conditions, returning = ["*"], debug = false } = params;
+
+    if (!table || typeof table !== "string" || !table.trim()) {
+      throw new Error("Invalid table name.");
+    }
+
+    if (
+      !conditions ||
+      typeof conditions !== "object" ||
+      Object.keys(conditions).length === 0
+    ) {
+      throw new Error("No conditions provided for the DELETE operation.");
+    }
+
+    const query = this.sql`
+      DELETE FROM ${this.sql(table)}
+      WHERE ${Object.entries(conditions).reduce(
+        (acc, [key, value], index) =>
+          index === 0
+            ? this.sql`${this.sql(key)} = ${value}`
+            : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
+        this.sql``
+      )}
+      RETURNING ${
+        returning.length === 0 || returning.includes("*")
+          ? this.sql`*`
+          : this.sql(returning)
+      }
+    `;
+
+    if (debug) await query.describe();
+    return await query;
+  }
+
+  /**
    * Performs a SELECT query with optional pagination, searching, and ordering
    * @async
    * @param {SelectParams} params - Parameters for the SELECT operation
