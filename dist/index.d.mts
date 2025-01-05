@@ -64,13 +64,13 @@ declare class PgBuddy {
      *
      * @example
      * // Insert a single record
-     * await pgBuddy.input({
+     * await pgBuddy.insert({
      *   table: 'users',
      *   data: { name: 'John', email: 'john@example.com' }
      * });
      *
      * // Bulk insert multiple records
-     * await pgBuddy.input({
+     * await pgBuddy.insert({
      *   table: 'users',
      *   data: [
      *     { name: 'John', email: 'john@example.com' },
@@ -78,7 +78,7 @@ declare class PgBuddy {
      *   ]
      * });
      */
-    input(params: QueryParams): Promise<postgres.RowList<postgres.Row[]>>;
+    insert(params: QueryParams): Promise<postgres.RowList<postgres.Row[]>>;
     /**
      * Updates records in a specified table that match given conditions
      * @async
