@@ -12,14 +12,14 @@ type KeysMatching<T, V> = {
  */
 interface BaseParams<T extends Row> {
   debug?: boolean;
-  returning?: (keyof T)[];
+  select?: (keyof T)[];
 }
 
 /**
  * Parameters for SELECT query operations
  */
 interface SelectParams<T extends Row> extends BaseParams<T> {
-  columns?: (keyof T)[];
+  select?: (keyof T)[];
   page?: number;
   pageSize?: number;
   search?: {
@@ -41,7 +41,7 @@ interface InsertParams<T extends Row> extends BaseParams<T> {
  */
 interface ModifyParams<T extends Row> extends BaseParams<T> {
   data?: Partial<T>;
-  conditions: Partial<T>;
+  where: Partial<T>;
 }
 
 /**
@@ -69,7 +69,7 @@ interface ModifyParams<T extends Row> extends BaseParams<T> {
  * // Perform operations with type safety
  * // Select with pagination and search
  * const users = await userTable.select({
- *   columns: ["id", "name", "email"],
+ *   select: ["id", "name", "email"],
  *   page: 1,
  *   pageSize: 10,
  *   search: {
@@ -82,20 +82,20 @@ interface ModifyParams<T extends Row> extends BaseParams<T> {
  * // Insert with returning specific columns
  * const newUser = await userTable.insert({
  *   data: { name: "John", email: "john@example.com" },
- *   returning: ["id", "name"]
+ *   select: ["id", "name"]
  * });
  *
  * // Update with conditions
  * const updated = await userTable.update({
  *   data: { role: "admin" },
- *   conditions: { id: 1 },
- *   returning: ["id", "name", "role"]
+ *   where: { id: 1 },
+ *   select: ["id", "name", "role"]
  * });
  *
  * // Delete with conditions
  * const deleted = await userTable.delete({
- *   conditions: { role: "guest" },
- *   returning: ["id", "name"]
+ *   where: { role: "guest" },
+ *   select: ["id", "name"]
  * });
  */
 export class PgBuddy {
@@ -133,22 +133,22 @@ export class PgBuddy {
   private async insert<T extends Row>(
     params: InsertParams<T> & { table: string }
   ): Promise<Partial<T>> {
-    const { table, data, returning = ["*"] as (keyof T)[] } = params;
+    const { table, data, select = ["*"] as (keyof T)[] } = params;
 
     if (!data || (Array.isArray(data) && data.length === 0)) {
       throw new Error("Invalid data to insert");
     }
 
-    const dataToInsert = (Array.isArray(data) ? data : [data]) as Record<string, any>[];
+    const dataToInsert = (Array.isArray(data) ? data : [data]) as Row[];
     const columnKeys = Object.keys(Array.isArray(data) ? data[0] : data);
 
     const [result] = await this.sql<[T]>`
       INSERT INTO ${this.sql(table)}
       ${this.sql(dataToInsert, columnKeys)}
       RETURNING ${
-        returning.length === 1 && returning[0] === "*"
+        select.length === 1 && select[0] === "*"
           ? this.sql`*`
-          : this.sql(returning as string[])
+          : this.sql(select as string[])
       }
     `;
 
@@ -158,21 +158,16 @@ export class PgBuddy {
   private async update<T extends Row>(
     params: ModifyParams<T> & { table: string }
   ): Promise<Partial<T>> {
-    const {
-      table,
-      data,
-      conditions,
-      returning = ["*"] as (keyof T)[],
-    } = params;
+    const { table, data, where, select = ["*"] as (keyof T)[] } = params;
 
     if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
       throw new Error("Invalid or empty data to update");
     }
 
     if (
-      !conditions ||
-      typeof conditions !== "object" ||
-      Object.keys(conditions).length === 0
+      !where ||
+      typeof where !== "object" ||
+      Object.keys(where).length === 0
     ) {
       throw new Error(
         "Conditions are required for updates to prevent accidental table-wide updates"
@@ -182,7 +177,7 @@ export class PgBuddy {
     const [result] = await this.sql<[T]>`
           UPDATE ${this.sql(table)}
           SET ${this.sql(data as Record<string, any>, Object.keys(data))}
-          WHERE ${Object.entries(conditions).reduce(
+          WHERE ${Object.entries(where).reduce(
             (acc, [key, value], index) =>
               index === 0
                 ? this.sql`${this.sql(key)} = ${value}`
@@ -190,9 +185,9 @@ export class PgBuddy {
             this.sql``
           )}
           RETURNING ${
-            returning.length === 1 && returning[0] === "*"
+            select.length === 1 && select[0] === "*"
               ? this.sql`*`
-              : this.sql(returning as string[])
+              : this.sql(select as string[])
           }
       `;
 
@@ -202,15 +197,15 @@ export class PgBuddy {
   private async delete<T extends Row>(
     params: ModifyParams<T> & { table: string }
   ): Promise<Partial<T>> {
-    const { table, conditions, returning = ["*"] as (keyof T)[] } = params;
+    const { table, where, select = ["*"] as (keyof T)[] } = params;
 
-    if (!conditions || Object.keys(conditions).length === 0) {
+    if (!where || Object.keys(where).length === 0) {
       throw new Error("No conditions provided for the DELETE operation.");
     }
 
     const [result] = await this.sql<[T]>`
       DELETE FROM ${this.sql(table)}
-      WHERE ${Object.entries(conditions).reduce(
+      WHERE ${Object.entries(where).reduce(
         (acc, [key, value], index) =>
           index === 0
             ? this.sql`${this.sql(key)} = ${value}`
@@ -218,9 +213,9 @@ export class PgBuddy {
         this.sql``
       )}
       RETURNING ${
-        returning.length === 0 || returning.includes("*")
+        select.length === 0 || select.includes("*")
           ? this.sql`*`
-          : this.sql(returning as string[])
+          : this.sql(select as string[])
       }
     `;
 
@@ -232,7 +227,7 @@ export class PgBuddy {
   ): Promise<Partial<T>[]> {
     const {
       table,
-      columns = ["*"] as (keyof T)[],
+      select = ["*"] as (keyof T)[],
       orderBy,
       page = 1,
       pageSize = 10,
@@ -240,8 +235,8 @@ export class PgBuddy {
     } = params;
 
     if (
-      !Array.isArray(columns) ||
-      columns.some((col) => !col || typeof col !== "string" || !col.trim())
+      !Array.isArray(select) ||
+      select.some((col) => !col || typeof col !== "string" || !col.trim())
     ) {
       throw new Error("Invalid or empty column names");
     }
@@ -260,9 +255,9 @@ export class PgBuddy {
     const offset = (page - 1) * pageSize;
     const [result] = await this.sql<[T[]]>`
               SELECT ${
-                columns.length === 1 && columns[0] === "*"
+                select.length === 1 && select[0] === "*"
                   ? this.sql`*`
-                  : this.sql(columns as string[])
+                  : this.sql(select as string[])
               }
               FROM ${this.sql(table)}
               ${
