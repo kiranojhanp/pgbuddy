@@ -26,7 +26,10 @@ interface SelectParams<T extends Row> extends BaseParams<T> {
     columns: KeysMatching<T, string>[];
     query: string;
   };
-  orderBy?: `${keyof T & string} ${"ASC" | "DESC"}`;
+  orderBy?: {
+    column: keyof T & string;
+    direction: "ASC" | "DESC";
+  }[];
 }
 
 /**
@@ -70,13 +73,16 @@ interface ModifyParams<T extends Row> extends BaseParams<T> {
  * // Select with pagination and search
  * const users = await userTable.select({
  *   select: ["id", "name", "email"],
- *   page: 1,
- *   pageSize: 10,
+ *   skip: 0,
+ *   take: 10,
  *   search: {
  *     columns: ["name", "email"],
  *     query: "john"
  *   },
- *   orderBy: "created_at DESC"
+ *   orderBy: [
+ *     { column: "id", direction: "ASC" },
+ *     { column: "name", direction: "DESC" }
+ *   ]
  * });
  *
  * // Insert with returning specific columns
@@ -252,7 +258,7 @@ export class PgBuddy {
       throw new Error("Invalid search parameters");
     }
 
-    const [result] = await this.sql<[T[]]>`
+    const result: Partial<T>[] = await this.sql`
               SELECT ${
                 select.length === 1 && select[0] === "*"
                   ? this.sql`*`
@@ -278,11 +284,16 @@ export class PgBuddy {
                   `
                   : this.sql``
               }
-              ${
-                orderBy
-                  ? this.sql`ORDER BY ${this.sql`${orderBy}`}`
-                  : this.sql``
-              }
+               ${
+                 orderBy && orderBy.length > 0
+                   ? this.sql`ORDER BY ${orderBy
+                       .map(
+                         ({ column, direction }) =>
+                           `${this.sql(column as string)} ${direction}`
+                       )
+                       .join(", ")}`
+                   : this.sql``
+               }
               LIMIT ${take} OFFSET ${skip}
     `;
 
