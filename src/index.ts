@@ -20,8 +20,8 @@ interface BaseParams<T extends Row> {
  */
 interface SelectParams<T extends Row> extends BaseParams<T> {
   select?: (keyof T)[];
-  page?: number;
-  pageSize?: number;
+  skip?: number;
+  take?: number;
   search?: {
     columns: KeysMatching<T, string>[];
     query: string;
@@ -229,8 +229,8 @@ export class PgBuddy {
       table,
       select = ["*"] as (keyof T)[],
       orderBy,
-      page = 1,
-      pageSize = 10,
+      skip = 0,
+      take = 10,
       search,
     } = params;
 
@@ -252,7 +252,6 @@ export class PgBuddy {
       throw new Error("Invalid search parameters");
     }
 
-    const offset = (page - 1) * pageSize;
     const [result] = await this.sql<[T[]]>`
               SELECT ${
                 select.length === 1 && select[0] === "*"
@@ -284,7 +283,7 @@ export class PgBuddy {
                   ? this.sql`ORDER BY ${this.sql`${orderBy}`}`
                   : this.sql``
               }
-              LIMIT ${pageSize} OFFSET ${offset}
+              LIMIT ${take} OFFSET ${skip}
     `;
 
     return result;
