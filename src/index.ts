@@ -1,181 +1,174 @@
-import type { Sql } from "postgres";
+import type { Row, Sql } from "postgres";
+
+/**
+ * Utility type to extract keys that match a specific value type
+ */
+type KeysMatching<T, V> = {
+  [K in keyof T]: T[K] extends V ? K : never;
+}[keyof T];
+
+/**
+ * Common parameters shared across all database operations
+ */
+interface BaseParams<T extends Row> {
+  debug?: boolean;
+  returning?: (keyof T)[];
+}
 
 /**
  * Parameters for SELECT query operations
- * @interface SelectParams
- * @property {string} table - The name of the database table to query
- * @property {boolean} [debug] - Enable debug mode to log query details
- * @property {string[]} [columns] - Specific columns to select (defaults to ["*"])
- * @property {number} [page] - Page number for pagination (1-based indexing)
- * @property {number} [pageSize] - Number of records per page
- * @property {Object} [search] - Search configuration for filtering results
- * @property {string[]} search.columns - Columns to search within
- * @property {string} search.query - Search term to match against columns
- * @property {string} [orderBy] - Column name and direction for sorting results
  */
-interface SelectParams {
-  table: string;
-  debug?: boolean;
-  columns?: string[];
+interface SelectParams<T extends Row> extends BaseParams<T> {
+  columns?: (keyof T)[];
   page?: number;
   pageSize?: number;
   search?: {
-    columns: string[];
+    columns: KeysMatching<T, string>[];
     query: string;
   };
-  orderBy?: string;
+  orderBy?: `${keyof T & string} ${"ASC" | "DESC"}`;
 }
 
 /**
  * Parameters for INSERT query operations
- * @interface QueryParams
- * @property {string} table - The name of the database table
- * @property {Object|Object[]} data - Single record or array of records to insert
- * @property {string[]} [returning] - Columns to return after insert (defaults to ["*"])
- * @property {Object} [conditions] - WHERE conditions for the query
- * @property {boolean} [debug] - Enable debug mode to log query details
  */
-interface QueryParams {
-  table: string;
-  data: Record<string, any> | Record<string, any>[];
-  returning?: string[];
-  conditions?: Record<string, any>;
-  debug?: boolean;
+interface InsertParams<T extends Row> extends BaseParams<T> {
+  data: Partial<T> | Partial<T>[];
 }
 
 /**
- * PostgreSQL helper class for building and executing common database operations
- * with built-in protection against SQL injection
- * @class PgBuddy
+ * Parameters for UPDATE/DELETE query operations
+ */
+interface ModifyParams<T extends Row> extends BaseParams<T> {
+  data?: Partial<T>;
+  conditions: Partial<T>;
+}
+
+/**
+ * PgBuddy provides a type-safe, SQL-injection-protected interface for common PostgreSQL operations.
+ * It enforces best practices by requiring table operations to be performed through a table-specific
+ * context, which provides proper type checking and validation.
+ *
+ * @example
+ * import postgres from "postgres";
+ * import { PgBuddy } from "pgbuddy";
+ *
+ * // Initialize with postgres connection
+ * const sql = postgres({ options })
+ * const db = new PgBuddy(sql);
+ *
+ * // Create a type-safe table context
+ * interface User {
+ *   id: number;
+ *   name: string;
+ *   email: string;
+ *   role: string;
+ * }
+ * const userTable = db.table<User>("users");
+ *
+ * // Perform operations with type safety
+ * // Select with pagination and search
+ * const users = await userTable.select({
+ *   columns: ["id", "name", "email"],
+ *   page: 1,
+ *   pageSize: 10,
+ *   search: {
+ *     columns: ["name", "email"],
+ *     query: "john"
+ *   },
+ *   orderBy: "created_at DESC"
+ * });
+ *
+ * // Insert with returning specific columns
+ * const newUser = await userTable.insert({
+ *   data: { name: "John", email: "john@example.com" },
+ *   returning: ["id", "name"]
+ * });
+ *
+ * // Update with conditions
+ * const updated = await userTable.update({
+ *   data: { role: "admin" },
+ *   conditions: { id: 1 },
+ *   returning: ["id", "name", "role"]
+ * });
+ *
+ * // Delete with conditions
+ * const deleted = await userTable.delete({
+ *   conditions: { role: "guest" },
+ *   returning: ["id", "name"]
+ * });
  */
 export class PgBuddy {
   private sql: Sql<{}>;
 
-  /**
-   * Creates an instance of PgBuddy
-   * @param {Sql<{}>} sql - The `postgres.js` instance
-   */
   constructor(sql: Sql<{}>) {
     this.sql = sql;
   }
 
   /**
-   * Executes an INSERT query.
-   * Supports single or bulk inserts and dynamically determines columns from the provided data.
-   * @async
-   * @param {QueryParams} params - Parameters for the INSERT operation
-   * @returns {Promise<any>} Result of the INSERT operation
-   * @throws {Error} If table name is invalid or data is empty
-   *
-   * @example
-   * // Insert a single record
-   * await pgBuddy.insert({
-   *   table: 'users',
-   *   data: { name: 'John', email: 'john@example.com' }
-   * });
-   *
-   * // Bulk insert multiple records
-   * await pgBuddy.insert({
-   *   table: 'users',
-   *   data: [
-   *     { name: 'John', email: 'john@example.com' },
-   *     { name: 'Jane', email: 'jane@example.com' }
-   *   ]
-   * });
+   * Returns a type-safe table-specific API for performing database operations
+   * @param tableName The name of the database table
+   * @throws {Error} If table name is invalid
    */
-  async insert(params: QueryParams) {
-    const { table, data, returning = ["*"], debug = false } = params;
-
-    // Input validation
-    if (!table || typeof table !== "string" || !table.trim()) {
-      throw new Error("Invalid or empty table name");
+  table<T extends Row>(tableName: string) {
+    if (!tableName || typeof tableName !== "string" || !tableName.trim()) {
+      throw new Error("Invalid or empty table name.");
     }
+
+    return {
+      insert: (params: InsertParams<T>) =>
+        this.insert<T>({ ...params, table: tableName }),
+
+      update: (params: ModifyParams<T>) =>
+        this.update<T>({ ...params, table: tableName }),
+
+      delete: (params: ModifyParams<T>) =>
+        this.delete<T>({ ...params, table: tableName }),
+
+      select: (params: SelectParams<T>) =>
+        this.select<T>({ ...params, table: tableName }),
+    };
+  }
+
+  private async insert<T extends Row>(
+    params: InsertParams<T> & { table: string }
+  ): Promise<Partial<T>> {
+    const { table, data, returning = ["*"] as (keyof T)[] } = params;
+
     if (!data || (Array.isArray(data) && data.length === 0)) {
       throw new Error("Invalid data to insert");
     }
 
-    // Determine if this is a bulk insert or single record insert
-    // For bulk insert, we use the keys of the first object as our column template
-    const columnKeys = Array.isArray(data)
-      ? Object.keys(data[0])
-      : Object.keys(data);
+    const dataToInsert = (Array.isArray(data) ? data : [data]) as Record<string, any>[];
+    const columnKeys = Object.keys(Array.isArray(data) ? data[0] : data);
 
-    // Build and execute the INSERT query
-    // The sql template tag automatically handles SQL injection protection
-    const query = this.sql`
-      INSERT INTO ${this.sql(table)} 
-      ${this.sql(data, columnKeys)}
+    const [result] = await this.sql<[T]>`
+      INSERT INTO ${this.sql(table)}
+      ${this.sql(dataToInsert, columnKeys)}
       RETURNING ${
         returning.length === 1 && returning[0] === "*"
           ? this.sql`*`
-          : this.sql(returning)
+          : this.sql(returning as string[])
       }
     `;
 
-    // Log query details in debug mode
-    if (debug) await query.describe();
-    return await query;
+    return result;
   }
 
-  /**
-   * Updates records in a specified table that match given conditions
-   * @async
-   * @param {QueryParams} params - The parameters for the UPDATE operation
-   * @param {string} params.table - The name of the database table to update
-   * @param {Record<string, any>} params.data - Object containing column-value pairs to update
-   * @param {Record<string, any>} params.conditions - WHERE conditions for filtering records to update
-   * @param {string[]} [params.returning=["*"]] - Columns to return after update
-   * @param {boolean} [params.debug=false] - Enable debug mode to log query details
-   * @returns {Promise<any>} The result of the UPDATE operation
-   * @throws {Error} If table name is invalid, data is empty, or conditions are missing
-   *
-   * @example
-   * // Update a single record by ID
-   * async function updateUser() {
-   *   const result = await db.update({
-   *     table: "user",
-   *     data: {
-   *       name: "Updated Name",
-   *       email: "updated@example.com"
-   *     },
-   *     conditions: { id: 1 },
-   *     returning: ["id", "name", "email", "updated_at"],
-   *   });
-   *   console.log("Updated User:", result);
-   * }
-   *
-   * // Update multiple records matching a condition
-   * async function deactivateGuests() {
-   *   const result = await db.update({
-   *     table: "user",
-   *     data: { active: false },
-   *     conditions: { role: "guest" },
-   *     returning: ["id", "name"],
-   *   });
-   *   console.log("Deactivated Guests:", result);
-   * }
-   */
-
-  async update(params: QueryParams) {
+  private async update<T extends Row>(
+    params: ModifyParams<T> & { table: string }
+  ): Promise<Partial<T>> {
     const {
       table,
       data,
       conditions,
-      returning = ["*"],
-      debug = false,
+      returning = ["*"] as (keyof T)[],
     } = params;
 
-    // Validate the table name
-    if (!table || typeof table !== "string" || !table.trim()) {
-      throw new Error("Invalid or empty table name");
-    }
-
-    // Validate data object
     if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
-      throw new Error("Invalid or empty data to insert");
+      throw new Error("Invalid or empty data to update");
     }
 
-    // Validate conditions to prevent accidental table-wide updates
     if (
       !conditions ||
       typeof conditions !== "object" ||
@@ -186,73 +179,36 @@ export class PgBuddy {
       );
     }
 
-    // Construct and execute the UPDATE query
-    const query = this.sql`
-        UPDATE ${this.sql(table)}
-        SET ${this.sql(data, Object.keys(data))}
-        WHERE ${Object.entries(conditions).reduce(
-          (acc, [key, value], index) =>
-            index === 0
-              ? this.sql`${this.sql(key)} = ${value}`
-              : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
-          this.sql``
-        )}
-        RETURNING ${
-          returning.length === 1 && returning[0] === "*"
-            ? this.sql`*`
-            : this.sql(returning)
-        }
-    `;
+    const [result] = await this.sql<[T]>`
+          UPDATE ${this.sql(table)}
+          SET ${this.sql(data as Record<string, any>, Object.keys(data))}
+          WHERE ${Object.entries(conditions).reduce(
+            (acc, [key, value], index) =>
+              index === 0
+                ? this.sql`${this.sql(key)} = ${value}`
+                : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
+            this.sql``
+          )}
+          RETURNING ${
+            returning.length === 1 && returning[0] === "*"
+              ? this.sql`*`
+              : this.sql(returning as string[])
+          }
+      `;
 
-    // Log query details if debug mode is enabled
-    if (debug) await query.describe();
-    return await query;
+    return result;
   }
 
-  /**
-   * Deletes records in a specified table that match given conditions.
-   * @async
-   * @param {Omit<QueryParams, "data">} params - Parameters for the DELETE operation
-   * @returns {Promise<any>} Result of the DELETE operation
-   * @throws {Error} If table name is invalid or conditions are missing
-   *
-   * @example
-   * // Delete a single record by ID
-   * async function deleteUser() {
-   *   const result = await db.delete({
-   *     table: "user",
-   *     conditions: { id: 1 },
-   *     returning: ["id", "name"],
-   *   });
-   *   console.log("Deleted User:", result);
-   * }
-   *
-   * // Delete multiple records based on conditions
-   * async function deleteMultipleUsers() {
-   *   const result = await db.delete({
-   *     table: "user",
-   *     conditions: { status: "inactive" },
-   *     returning: ["id", "name"],
-   *   });
-   *   console.log("Deleted Users:", result);
-   * }
-   */
-  async delete(params: Omit<QueryParams, "data">) {
-    const { table, conditions, returning = ["*"], debug = false } = params;
+  private async delete<T extends Row>(
+    params: ModifyParams<T> & { table: string }
+  ): Promise<Partial<T>> {
+    const { table, conditions, returning = ["*"] as (keyof T)[] } = params;
 
-    if (!table || typeof table !== "string" || !table.trim()) {
-      throw new Error("Invalid table name.");
-    }
-
-    if (
-      !conditions ||
-      typeof conditions !== "object" ||
-      Object.keys(conditions).length === 0
-    ) {
+    if (!conditions || Object.keys(conditions).length === 0) {
       throw new Error("No conditions provided for the DELETE operation.");
     }
 
-    const query = this.sql`
+    const [result] = await this.sql<[T]>`
       DELETE FROM ${this.sql(table)}
       WHERE ${Object.entries(conditions).reduce(
         (acc, [key, value], index) =>
@@ -264,60 +220,32 @@ export class PgBuddy {
       RETURNING ${
         returning.length === 0 || returning.includes("*")
           ? this.sql`*`
-          : this.sql(returning)
+          : this.sql(returning as string[])
       }
     `;
 
-    if (debug) await query.describe();
-    return await query;
+    return result;
   }
 
-  /**
-   * Performs a SELECT query with optional pagination, searching, and ordering
-   * @async
-   * @param {SelectParams} params - Parameters for the SELECT operation
-   * @returns {Promise<any>} Query results
-   * @throws {Error} If table name is invalid or column names are invalid
-   *
-   * @example
-   * // Basic select with pagination
-   * await pgBuddy.select({
-   *   table: 'users',
-   *   page: 1,
-   *   pageSize: 10
-   * });
-   *
-   * // Select with search and ordering
-   * await pgBuddy.select({
-   *   table: 'users',
-   *   search: {
-   *     columns: ['name', 'email'],
-   *     query: 'john'
-   *   },
-   *   orderBy: 'created_at DESC'
-   * });
-   */
-  async select(params: SelectParams) {
+  private async select<T extends Row>(
+    params: SelectParams<T> & { table: string }
+  ): Promise<Partial<T>[]> {
     const {
-      debug = false,
       table,
-      columns = ["*"],
+      columns = ["*"] as (keyof T)[],
       orderBy,
       page = 1,
       pageSize = 10,
       search,
     } = params;
 
-    // Input validation
-    if (!table || typeof table !== "string" || !table.trim()) {
-      throw new Error("Invalid or empty table name");
-    }
     if (
       !Array.isArray(columns) ||
       columns.some((col) => !col || typeof col !== "string" || !col.trim())
     ) {
       throw new Error("Invalid or empty column names");
     }
+
     if (
       search &&
       (!Array.isArray(search.columns) ||
@@ -329,44 +257,41 @@ export class PgBuddy {
       throw new Error("Invalid search parameters");
     }
 
-    // Calculate pagination offset (0-based)
     const offset = (page - 1) * pageSize;
+    const [result] = await this.sql<[T[]]>`
+              SELECT ${
+                columns.length === 1 && columns[0] === "*"
+                  ? this.sql`*`
+                  : this.sql(columns as string[])
+              }
+              FROM ${this.sql(table)}
+              ${
+                search &&
+                search.query &&
+                search.columns &&
+                Array.isArray(search.columns)
+                  ? this.sql`
+                    WHERE ${search.columns
+                      .map(
+                        (col) =>
+                          this.sql`${this.sql(col as string)} ILIKE ${
+                            "%" + search.query + "%"
+                          }`
+                      )
+                      .reduce((acc, condition, idx) =>
+                        idx === 0 ? condition : this.sql`${acc} OR ${condition}`
+                      )}
+                  `
+                  : this.sql``
+              }
+              ${
+                orderBy
+                  ? this.sql`ORDER BY ${this.sql`${orderBy}`}`
+                  : this.sql``
+              }
+              LIMIT ${pageSize} OFFSET ${offset}
+    `;
 
-    // Build the SELECT query with dynamic components
-    const query = this.sql`
-    SELECT ${
-      columns.length === 1 && columns[0] === "*"
-        ? this.sql`*`
-        : this.sql(columns)
-    }
-    FROM ${this.sql(table)}
-    ${
-      // Add WHERE clause for search functionality if search parameters are provided
-      search && search.query && search.columns && Array.isArray(search.columns)
-        ? this.sql`
-            WHERE ${search.columns
-              .map(
-                (col) =>
-                  // Create ILIKE condition for case-insensitive partial matching
-                  this.sql`${this.sql(col)} ILIKE ${"%" + search.query + "%"}`
-              )
-              // Combine multiple column conditions with OR
-              .reduce((acc, condition, idx) =>
-                idx === 0 ? condition : this.sql`${acc} OR ${condition}`
-              )}
-          `
-        : this.sql``
-    }
-    ${
-      // Add ORDER BY clause if specified
-      orderBy ? this.sql`ORDER BY ${this.sql`${orderBy}`}` : this.sql``
-    }
-    LIMIT ${pageSize} OFFSET ${offset}
-  `;
-
-    // Log query details in debug mode
-    if (debug) await query.describe();
-    const result = await query;
     return result;
   }
 }
