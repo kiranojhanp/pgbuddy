@@ -42,15 +42,15 @@ npm install pgbuddy
 import postgres from "postgres";
 import { PgBuddy } from "pgbuddy";
 
-// Define your table types
+// Define table type
 interface User {
   id: number;
   name: string;
   email: string;
   role: string;
-  created_at: Date;
 }
 
+// Initialize
 const sql = postgres({
   host: env.DB_HOST,
   port: env.DB_PORT,
@@ -60,9 +60,41 @@ const sql = postgres({
 });
 
 const db = new PgBuddy(sql);
-
-// Create a type-safe table context
 const userTable = db.table<User>("users");
+
+// Example operations
+async function examples() {
+  // Select with search and pagination
+  const users = await userTable.select({
+    select: ["id", "name", "email"],
+    search: { columns: ["name", "email"], query: "john" },
+    take: 10,
+    skip: 0,
+    orderBy: [
+      { column: "name", direction: "ASC" },
+      { column: "email", direction: "DESC" }
+    ]
+  });
+
+  // Insert with returning values
+  const newUser = await userTable.insert({
+    data: { name: "John", email: "john@example.com" },
+    select: ["id", "name"]
+  });
+
+  // Update with conditions
+  const updated = await userTable.update({
+    data: { role: "admin" },
+    where: { id: 1 },
+    select: ["id", "name", "role"]
+  });
+
+  // Delete with conditions
+  const deleted = await userTable.delete({
+    where: { role: "guest" },
+    select: ["id", "name"]
+  });
+}
 ```
 
 ### Select Queries
@@ -71,7 +103,7 @@ const userTable = db.table<User>("users");
 
 ```typescript
 const users = await userTable.select({
-  columns: ["id", "name", "email"],  // TypeScript will ensure these columns exist
+  select: ["id", "name", "email"],  // TypeScript will ensure these columns exist
 });
 ```
 
@@ -79,10 +111,10 @@ const users = await userTable.select({
 
 ```typescript
 const users = await userTable.select({
-  columns: ["id", "name", "email"],
+  select: ["id", "name", "email"],
   search: { columns: ["name", "email"], query: "john" },
-  page: 2,
-  pageSize: 5,
+  skip: 0,
+  take: 10,
 });
 ```
 
@@ -90,8 +122,11 @@ const users = await userTable.select({
 
 ```typescript
 const users = await userTable.select({
-  columns: ["id", "name"],
-  orderBy: "name ASC",  // Type-safe column names
+  select: ["id", "name"],
+  orderBy: [
+    { column: "id", direction: "ASC" },
+    { column: "name", direction: "DESC" }
+  ]
 });
 ```
 
@@ -102,7 +137,7 @@ const users = await userTable.select({
 ```typescript
 const user = await userTable.insert({
   data: { name: "John", email: "john@example.com" },  // TypeScript validates the shape
-  returning: ["id", "name", "email"],
+  select: ["id", "name", "email"],
 });
 ```
 
@@ -124,8 +159,8 @@ const users = await userTable.insert({
 ```typescript
 const updated = await userTable.update({
   data: { name: "Updated Name" },
-  conditions: { id: 1 },  // Type-safe conditions
-  returning: ["id", "name", "email"],
+  where: { id: 1 },  // Type-safe conditions
+  select: ["id", "name", "email"],
 });
 ```
 
@@ -134,8 +169,8 @@ const updated = await userTable.update({
 ```typescript
 const deactivated = await userTable.update({
   data: { active: false },
-  conditions: { role: "guest" },
-  returning: ["id", "name"],
+  where: { role: "guest" },
+  select: ["id", "name"],
 });
 ```
 
@@ -145,8 +180,8 @@ const deactivated = await userTable.update({
 
 ```typescript
 const deleted = await userTable.delete({
-  conditions: { id: 1 },
-  returning: ["id", "name"],
+  where: { id: 1 },
+  select: ["id", "name"],
 });
 ```
 
@@ -154,8 +189,8 @@ const deleted = await userTable.delete({
 
 ```typescript
 const deleted = await userTable.delete({
-  conditions: { status: "inactive" },
-  returning: ["id", "name"],
+  where: { status: "inactive" },
+  select: ["id", "name"],
 });
 ```
 
