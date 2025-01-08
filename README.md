@@ -329,69 +329,93 @@ Creates a type-safe table context for performing operations on a specific table.
 - `T` (generic type): The TypeScript interface representing your table structure
 
 #### Returns
-Object with the following methods:
-- `select`
-- `insert`
-- `update`
-- `delete`
+Object with CRUD methods: `select`, `insert`, `update`, `delete`
 
 ### `select(params: SelectParams<T>)`
 
-Constructs a `SELECT` query with optional search, sort, and pagination features.
+Performs a SELECT query with support for filtering, sorting, and pagination.
 
 #### Parameters
 
-- `columns` (Array<keyof T>, optional): List of type-safe column names. Defaults to `['*']`
-- `search` (object, optional):
-  - `columns` (Array<KeysMatching<T, string>>): Array of string column names to search
-  - `query` (string): The search pattern
-- `orderBy` (string, optional): SQL `ORDER BY` clause (e.g., `"name ASC"`)
-- `page` (number, optional): The page number for pagination. Defaults to `1`
-- `pageSize` (number, optional): Number of results per page. Defaults to `10`
-
-#### Returns
-
-- `Promise<Partial<T>[]>`: Array of typed results
+```typescript
+interface SelectParams<T> {
+  select?: (keyof T)[];              // Columns to return
+  where?: WhereCondition<T>[] | Partial<T>;  // Filter conditions
+  orderBy?: Array<{                  // Sorting options
+    column: keyof T;
+    direction: "ASC" | "DESC";
+  }>;
+  skip?: number;                     // Offset for pagination
+  take?: number;                     // Limit for pagination
+}
+```
 
 ### `insert(params: InsertParams<T>)`
 
-Executes an `INSERT` query with proper typing for the data structure.
+Performs an INSERT operation with type-safe data.
 
 #### Parameters
 
-- `data` (Partial<T> | Partial<T>[], required): Single record or array of records to insert
-- `returning` (Array<keyof T>, optional): Columns to return after insertion. Defaults to `['*']`
-
-#### Returns
-
-- `Promise<Partial<T>>`: The inserted record with specified returning fields
+```typescript
+interface InsertParams<T> {
+  data: Partial<T> | Partial<T>[];   // Single record or array
+  select?: (keyof T)[];              // Columns to return
+}
+```
 
 ### `update(params: ModifyParams<T>)`
 
-Executes a type-safe `UPDATE` query.
+Performs an UPDATE operation with type-safe data and conditions.
 
 #### Parameters
 
-- `data` (Partial<T>, required): Column-value pairs to update
-- `conditions` (Partial<T>, required): Type-safe filtering conditions
-- `returning` (Array<keyof T>, optional): Columns to return after update. Defaults to `['*']`
-
-#### Returns
-
-- `Promise<Partial<T>>`: The updated record with specified returning fields
+```typescript
+interface ModifyParams<T> {
+  data: Partial<T>;                  // Update data
+  where: WhereCondition<T>[] | Partial<T>;  // Filter conditions
+  select?: (keyof T)[];              // Columns to return
+}
+```
 
 ### `delete(params: ModifyParams<T>)`
 
-Executes a type-safe `DELETE` query.
+Performs a DELETE operation with type-safe conditions.
 
 #### Parameters
 
-- `conditions` (Partial<T>, required): Type-safe filtering conditions
-- `returning` (Array<keyof T>, optional): Columns to return after deletion. Defaults to `['*']`
+```typescript
+interface ModifyParams<T> {
+  where: WhereCondition<T>[] | Partial<T>;  // Filter conditions
+  select?: (keyof T)[];              // Columns to return
+}
+```
 
-#### Returns
+### Where Conditions
 
-- `Promise<Partial<T>>`: The deleted record with specified returning fields
+PGBuddy supports both simple and advanced where conditions:
+
+#### Simple Conditions
+Use object notation for simple equality checks:
+```typescript
+{ role: "admin", status: "active" }
+```
+
+#### Advanced Conditions
+Use array notation for complex conditions:
+```typescript
+[
+  { field: "role", operator: "IN", value: ["admin", "mod"] },
+  { field: "name", operator: "LIKE", value: "john", pattern: "startsWith" },
+  { field: "age", operator: ">=", value: 18 },
+  { field: "deletedAt", operator: "IS NULL" }
+]
+```
+
+Supported operators:
+- Comparison: `=`, `!=`, `>`, `<`, `>=`, `<=`
+- Null checks: `IS NULL`, `IS NOT NULL`
+- Lists: `IN`
+- Pattern matching: `LIKE`, `ILIKE` (with patterns: `startsWith`, `endsWith`, `contains`, `exact`)
 
 
 ## TypeScript Best Practices with PGBuddy 🏆
