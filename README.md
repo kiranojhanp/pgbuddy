@@ -2,7 +2,7 @@
 
 ![PGBuddy banner](assets/pg-buddy-banner.png)
 
-**PGBuddy** is your no-nonsense, tiny sidekick for `postgres.js`. At under 30KB, it's like that friend who shows up with exactly what you need, no extra baggage. Perfect for those "I just want a simple CRUD query" moments.
+**PGBuddy** is your no-nonsense, tiny sidekick for `postgres.js`. At under 30KB, it's like that friend who shows up with exactly what you need, no extra baggage.
 
 ## Features 🌟
 
