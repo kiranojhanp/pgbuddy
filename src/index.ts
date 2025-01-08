@@ -1,109 +1,17 @@
+/** @fileoverview Type-safe PostgreSQL query builder with support for CRUD operations */
+
+import { Errors, QueryError, TableError } from "./errors";
+
 import type { Row, Sql } from "postgres";
+import type {
+  InsertParams,
+  ModifyParams,
+  SelectParams,
+  SqlOperator,
+  WhereCondition,
+} from "./types";
 
-/**
- * Utility type to extract keys that match a specific value type
- */
-type KeysMatching<T, V> = {
-  [K in keyof T]: T[K] extends V ? K : never;
-}[keyof T];
-
-/**
- * Common parameters shared across all database operations
- */
-interface BaseParams<T extends Row> {
-  debug?: boolean;
-  select?: (keyof T)[];
-}
-
-/**
- * Parameters for SELECT query operations
- */
-interface SelectParams<T extends Row> extends BaseParams<T> {
-  select?: (keyof T)[];
-  skip?: number;
-  take?: number;
-  search?: {
-    columns: KeysMatching<T, string>[];
-    query: string;
-  };
-  orderBy?: {
-    column: keyof T & string;
-    direction: "ASC" | "DESC";
-  }[];
-}
-
-/**
- * Parameters for INSERT query operations
- */
-interface InsertParams<T extends Row> extends BaseParams<T> {
-  data: Partial<T> | Partial<T>[];
-}
-
-/**
- * Parameters for UPDATE/DELETE query operations
- */
-interface ModifyParams<T extends Row> extends BaseParams<T> {
-  data?: Partial<T>;
-  where: Partial<T>;
-}
-
-/**
- * PgBuddy provides a type-safe, SQL-injection-protected interface for common PostgreSQL operations.
- * It enforces best practices by requiring table operations to be performed through a table-specific
- * context, which provides proper type checking and validation.
- *
- * @example
- * import postgres from "postgres";
- * import { PgBuddy } from "pgbuddy";
- *
- * // Initialize with postgres connection
- * const sql = postgres({ options })
- * const db = new PgBuddy(sql);
- *
- * // Create a type-safe table context
- * interface User {
- *   id: number;
- *   name: string;
- *   email: string;
- *   role: string;
- * }
- * const userTable = db.table<User>("users");
- *
- * // Perform operations with type safety
- * // Select with pagination and search
- * const users = await userTable.select({
- *   select: ["id", "name", "email"],
- *   skip: 0,
- *   take: 10,
- *   search: {
- *     columns: ["name", "email"],
- *     query: "john"
- *   },
- *   orderBy: [
- *     { column: "id", direction: "ASC" },
- *     { column: "name", direction: "DESC" }
- *   ]
- * });
- *
- * // Insert with returning specific columns
- * const newUser = await userTable.insert({
- *   data: { name: "John", email: "john@example.com" },
- *   select: ["id", "name"]
- * });
- *
- * // Update with conditions
- * const updated = await userTable.update({
- *   data: { role: "admin" },
- *   where: { id: 1 },
- *   select: ["id", "name", "role"]
- * });
- *
- * // Delete with conditions
- * const deleted = await userTable.delete({
- *   where: { role: "guest" },
- *   select: ["id", "name"]
- * });
- */
+/** PostgreSQL query builder with type safety */
 export class PgBuddy {
   private sql: Sql<{}>;
 
@@ -112,191 +20,406 @@ export class PgBuddy {
   }
 
   /**
-   * Returns a type-safe table-specific API for performing database operations
-   * @param tableName The name of the database table
-   * @throws {Error} If table name is invalid
+   * Creates table-specific CRUD operations interface
+   * @param tableName Target table name
+   * @returns Object with type-safe table operations
+   * @throws {TableError} If table name is invalid
    */
   table<T extends Row>(tableName: string) {
-    if (!tableName || typeof tableName !== "string" || !tableName.trim()) {
-      throw new Error("Invalid or empty table name.");
+    if (!this.isValidTableName(tableName)) {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
     }
+
+    const table = tableName.trim();
 
     return {
       insert: (params: InsertParams<T>) =>
-        this.insert<T>({ ...params, table: tableName }),
+        this.insert<T>({ ...params, table: table }),
 
       update: (params: ModifyParams<T>) =>
-        this.update<T>({ ...params, table: tableName }),
+        this.update<T>({ ...params, table: table }),
 
       delete: (params: ModifyParams<T>) =>
-        this.delete<T>({ ...params, table: tableName }),
+        this.delete<T>({ ...params, table: table }),
 
       select: (params: SelectParams<T>) =>
-        this.select<T>({ ...params, table: tableName }),
+        this.select<T>({ ...params, table: table }),
     };
   }
 
-  private async insert<T extends Row>(
-    params: InsertParams<T> & { table: string }
-  ): Promise<Partial<T>> {
-    const { table, data, select = ["*"] as (keyof T)[] } = params;
-
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-      throw new Error("Invalid data to insert");
-    }
-
-    const dataToInsert = (Array.isArray(data) ? data : [data]) as Row[];
-    const columnKeys = Object.keys(Array.isArray(data) ? data[0] : data);
-
-    const [result] = await this.sql<[T]>`
-      INSERT INTO ${this.sql(table)}
-      ${this.sql(dataToInsert, columnKeys)}
-      RETURNING ${
-        select.length === 1 && select[0] === "*"
-          ? this.sql`*`
-          : this.sql(select as string[])
-      }
-    `;
-
-    return result;
+  /**
+   * Validates the provided table name.
+   * @param name The name of the table to validate.
+   * @returns True if the table name is valid; otherwise, false.
+   */
+  private isValidTableName(name: string): boolean {
+    return Boolean(!name || typeof name !== "string" || !name.trim());
   }
 
-  private async update<T extends Row>(
-    params: ModifyParams<T> & { table: string }
-  ): Promise<Partial<T>> {
-    const { table, data, where, select = ["*"] as (keyof T)[] } = params;
+  /**
+   * Inserts one or more rows into a table
+   * @param params Insert parameters including data and table
+   * @returns Inserted rows
+   * @throws {QueryError} If data is invalid or empty
+   */
+  private async insert<T extends Row>({
+    table,
+    data,
+    select = ["*"] as (keyof T)[],
+  }: InsertParams<T> & { table: string }): Promise<Partial<T[]>> {
+    const rows = (Array.isArray(data) ? data : [data]) as Row[];
 
-    if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
-      throw new Error("Invalid or empty data to update");
+    if (!rows.length) {
+      throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
 
-    if (
-      !where ||
-      typeof where !== "object" ||
-      Object.keys(where).length === 0
-    ) {
-      throw new Error(
-        "Conditions are required for updates to prevent accidental table-wide updates"
+    const columns = Object.keys(rows[0]);
+    if (!columns.length) {
+      throw new QueryError(Errors.INSERT.NO_COLUMNS);
+    }
+
+    return this.sql<T[]>`
+      INSERT INTO ${this.sql(table)}
+      ${this.sql(rows, columns)}
+      RETURNING ${this.buildSelect(select)}
+    `;
+  }
+
+  /**
+   * Updates rows matching WHERE conditions
+   * @param params Update parameters including data and conditions
+   * @returns Updated rows
+   * @throws {QueryError} If data or conditions are invalid
+   */
+  private async update<T extends Row>({
+    table,
+    select = ["*"] as (keyof T)[],
+    where,
+    data,
+  }: ModifyParams<T> & { table: string }): Promise<Partial<T>[]> {
+    if (!data || !this.isValidUpdateData(data)) {
+      throw new QueryError(Errors.UPDATE.INVALID_DATA);
+    }
+
+    if (!this.isValidWhereCondition(where)) {
+      throw new QueryError(Errors.UPDATE.NO_CONDITIONS);
+    }
+
+    return this.sql<T[]>`
+          UPDATE ${this.sql(table)}
+          SET ${this.sql(data as Record<string, any>, Object.keys(data))}
+          WHERE ${this.buildWhereConditions(where)}
+          RETURNING ${this.buildSelect(select)}
+      `;
+  }
+
+  /**
+   * Validates the provided update data.
+   * @param data The data to validate, which should be an object with at least one key.
+   * @returns True if the data is valid; otherwise, false.
+   */
+  private isValidUpdateData<T>(data: Partial<T>): boolean {
+    return data && typeof data === "object" && Object.keys(data).length > 0;
+  }
+
+  /**
+   * Validates the provided WHERE condition.
+   * @param where The condition to validate, which should be an object with at least one key.
+   * @returns True if the WHERE condition is valid; otherwise, false.
+   */
+  private isValidWhereCondition(where: any): boolean {
+    return where && typeof where === "object" && Object.keys(where).length > 0;
+  }
+
+  /**
+   * Deletes rows matching WHERE conditions
+   * @param params Delete parameters including conditions
+   * @returns Deleted rows
+   * @throws {Error} If conditions are missing
+   */
+  private async delete<T extends Row>({
+    table,
+    select = ["*"] as (keyof T)[],
+    where,
+  }: ModifyParams<T> & { table: string }): Promise<Partial<T>[]> {
+    if (!this.isValidWhereCondition(where)) {
+      throw new QueryError(Errors.DELETE.NO_CONDITIONS);
+    }
+
+    return await this.sql<T[]>`
+      DELETE FROM ${this.sql(table)}
+      WHERE ${this.buildWhereConditions(where)}
+      RETURNING ${this.buildSelect(select)}
+    `;
+  }
+
+  /**
+   * Selects rows with filtering, sorting, and pagination
+   * @param params Select parameters including conditions and options
+   * @returns Matching rows
+   * @throws {Error} If pagination parameters are invalid
+   */
+  private async select<T extends Row>({
+    table,
+    select = ["*"] as (keyof T)[],
+    where,
+    orderBy,
+    skip,
+    take,
+  }: SelectParams<T> & { table: string }): Promise<Partial<T>[]> {
+    this.validatePagination(skip, take);
+
+    return this.sql<Partial<T>[]>`
+              SELECT ${this.buildSelect(select)}
+              FROM ${this.sql(table)}
+              ${this.buildWhereConditions(where)}
+              ${this.createSortFragment(orderBy)}
+              ${this.createLimitFragment(take, skip)}`;
+  }
+
+  /**
+   * Validates pagination parameters for skip and take.
+   * @param skip The number of rows to skip (offset). Must be a non-negative integer.
+   * @param take The number of rows to take (limit). Must be a positive integer.
+   * @throws {QueryError} If take is not a positive integer or if skip is a negative integer.
+   */
+  private validatePagination(skip?: number, take?: number) {
+    if (take !== undefined && (!Number.isInteger(take) || take <= 0)) {
+      throw new QueryError(Errors.SELECT.INVALID_TAKE);
+    }
+
+    if (skip !== undefined && (!Number.isInteger(skip) || skip < 0)) {
+      throw new QueryError(Errors.SELECT.INVALID_SKIP);
+    }
+  }
+
+  /**
+   * Builds SELECT column list with validation
+   * @param select Columns to select
+   * @returns SQL fragment for SELECT clause
+   * @throws {Error} If column names are invalid
+   */
+  private buildSelect<T>(select: (keyof T)[]) {
+    if (!Array.isArray(select) || !select.length || select[0] === "*") {
+      return this.sql`*`;
+    }
+
+    const invalidColumns = select.filter((col) => !this.isValidColumnName(col));
+    if (!!invalidColumns.length) {
+      throw new QueryError(
+        Errors.SELECT.INVALID_COLUMNS(invalidColumns.join(", "))
       );
     }
 
-    const [result] = await this.sql<[T]>`
-          UPDATE ${this.sql(table)}
-          SET ${this.sql(data as Record<string, any>, Object.keys(data))}
-          WHERE ${Object.entries(where).reduce(
-            (acc, [key, value], index) =>
-              index === 0
-                ? this.sql`${this.sql(key)} = ${value}`
-                : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
-            this.sql``
-          )}
-          RETURNING ${
-            select.length === 1 && select[0] === "*"
-              ? this.sql`*`
-              : this.sql(select as string[])
-          }
-      `;
-
-    return result;
+    return this.sql(select as string[]);
   }
 
-  private async delete<T extends Row>(
-    params: ModifyParams<T> & { table: string }
-  ): Promise<Partial<T>> {
-    const { table, where, select = ["*"] as (keyof T)[] } = params;
+  /**
+   * Checks if the given value is a valid column name.
+   * A valid column name is a non-empty string after trimming whitespace.
+   * @param {any} col - The value to check.
+   * @returns {boolean} - True if the value is a valid column name, false otherwise.
+   */
+  private isValidColumnName(col: any): boolean {
+    return col && typeof col === "string" && Boolean(col.trim());
+  }
 
-    if (!where || Object.keys(where).length === 0) {
-      throw new Error("No conditions provided for the DELETE operation.");
+  /**
+   * Builds WHERE conditions supporting both simple and advanced formats
+   * @param where WHERE conditions
+   * @returns SQL fragment for WHERE clause
+   */
+  private buildWhereConditions<T extends Row>(
+    where?: WhereCondition<T>[] | Partial<T>
+  ) {
+    if (!where) return this.sql``;
+    return Array.isArray(where)
+      ? this.createAdvancedWhereFragment(where)
+      : this.createSimpleWhereFragment(where);
+  }
+
+  /**
+   * Creates WHERE clause for simple equality conditions
+   * @param where Simple WHERE conditions
+   * @returns SQL fragment
+   */
+  private createSimpleWhereFragment<T extends Row>(
+    conditions: SelectParams<T>["where"]
+  ) {
+    if (!conditions) return this.sql``;
+
+    const entries = Object.entries(conditions);
+    if (!entries.length) return this.sql``;
+
+    return this.sql`WHERE ${entries.reduce((acc, [key, value], index) => {
+      const condition =
+        value === null
+          ? this.sql`${this.sql(key)} IS NULL`
+          : this.sql`${this.sql(key)} = ${value}`;
+
+      return index === 0 ? condition : this.sql`${acc} AND ${condition}`;
+    }, this.sql``)}`;
+  }
+
+  /**
+   * Creates WHERE clause for advanced conditions with operators
+   * @param where Advanced WHERE conditions
+   * @returns SQL fragment
+   */
+  private createAdvancedWhereFragment<T extends Row>(
+    conditions: WhereCondition<T>[]
+  ) {
+    if (!conditions.length) return this.sql``;
+
+    const whereClause = conditions.reduce((acc, condition, index) => {
+      const fragment = this.createConditionFragment(
+        condition.field as string,
+        condition.operator,
+        condition.value,
+        "pattern" in condition ? condition.pattern : undefined
+      );
+
+      return index === 0 ? fragment : this.sql`${acc} AND ${fragment}`;
+    }, this.sql``);
+
+    return this.sql`WHERE ${whereClause}`;
+  }
+
+  /**
+   * Creates SQL condition based on operator type
+   * @param field Column name
+   * @param operator SQL operator
+   * @param value Comparison value
+   * @param pattern Optional pattern for LIKE operators
+   * @returns SQL fragment for condition
+   * @throws {QueryError} If operator or value is invalid
+   */
+  private createConditionFragment(
+    field: string,
+    operator: SqlOperator,
+    value: any,
+    pattern?: "startsWith" | "endsWith" | "contains" | "exact"
+  ) {
+    if (operator === "IS NULL") {
+      return this.sql`${this.sql(field)} IS NULL`;
     }
 
-    const [result] = await this.sql<[T]>`
-      DELETE FROM ${this.sql(table)}
-      WHERE ${Object.entries(where).reduce(
-        (acc, [key, value], index) =>
-          index === 0
-            ? this.sql`${this.sql(key)} = ${value}`
-            : this.sql`${acc} AND ${this.sql(key)} = ${value}`,
-        this.sql``
-      )}
-      RETURNING ${
-        select.length === 0 || select.includes("*")
-          ? this.sql`*`
-          : this.sql(select as string[])
+    if (operator === "IS NOT NULL") {
+      return this.sql`${this.sql(field)} IS NOT NULL`;
+    }
+
+    if (operator === "IN") {
+      if (!Array.isArray(value) || !value.length) {
+        throw new QueryError(Errors.WHERE.INVALID_IN(value));
       }
-    `;
+      return this.sql`${this.sql(field)} IN ${value}`;
+    }
 
-    return result;
+    // LIKE operators
+    if (operator === "LIKE" || operator === "ILIKE") {
+      return this.createLikeCondition(field, operator, value, pattern);
+    }
+
+    // Comparison operators
+    if (["=", "!=", ">", "<", ">=", "<="].includes(operator)) {
+      if (value == null) {
+        throw new QueryError(Errors.WHERE.INVALID_COMPARISON(field, operator));
+      }
+      return this.sql`${this.sql(field)} ${this.sql.unsafe(operator)} ${value}`;
+    }
+
+    throw new QueryError(Errors.WHERE.UNSUPPORTED_OPERATOR(field, operator));
   }
 
-  private async select<T extends Row>(
-    params: SelectParams<T> & { table: string }
-  ): Promise<Partial<T>[]> {
-    const {
-      table,
-      select = ["*"] as (keyof T)[],
-      orderBy,
-      skip = 0,
-      take = 10,
-      search,
-    } = params;
-
-    if (
-      !Array.isArray(select) ||
-      select.some((col) => !col || typeof col !== "string" || !col.trim())
-    ) {
-      throw new Error("Invalid or empty column names");
+  /**
+   * Creates SQL LIKE condition based on operator type
+   * @param field Column name
+   * @param operator SQL operator
+   * @param value Comparison value
+   * @param pattern Optional pattern for LIKE operators
+   * @returns SQL fragment for the LIKE operation
+   * @throws {QueryError} If operator or value is invalid
+   */
+  private createLikeCondition(
+    field: string,
+    operator: SqlOperator,
+    value: any,
+    pattern?: "startsWith" | "endsWith" | "contains" | "exact"
+  ) {
+    if (typeof value !== "string") {
+      throw new QueryError(Errors.WHERE.INVALID_LIKE(value));
     }
 
-    if (
-      search &&
-      (!Array.isArray(search.columns) ||
-        search.columns.some(
-          (col) => !col || typeof col !== "string" || !col.trim()
-        ) ||
-        !search.query)
-    ) {
-      throw new Error("Invalid search parameters");
+    if (value.includes("%") || value.includes("_")) {
+      return this.sql`${this.sql(field)} ${this.sql.unsafe(operator)} ${value}`;
     }
 
-    const result: Partial<T>[] = await this.sql`
-              SELECT ${
-                select.length === 1 && select[0] === "*"
-                  ? this.sql`*`
-                  : this.sql(select as string[])
-              }
-              FROM ${this.sql(table)}
-              ${
-                search &&
-                search.query &&
-                search.columns &&
-                Array.isArray(search.columns)
-                  ? this.sql`
-                    WHERE ${search.columns
-                      .map(
-                        (col) =>
-                          this.sql`${this.sql(col as string)} ILIKE ${
-                            "%" + search.query + "%"
-                          }`
-                      )
-                      .reduce((acc, condition, idx) =>
-                        idx === 0 ? condition : this.sql`${acc} OR ${condition}`
-                      )}
-                  `
-                  : this.sql``
-              }
-               ${
-                 orderBy && orderBy.length > 0
-                   ? this.sql`ORDER BY ${orderBy
-                       .map(
-                         ({ column, direction }) =>
-                           `${this.sql(column as string)} ${direction}`
-                       )
-                       .join(", ")}`
-                   : this.sql``
-               }
-              LIMIT ${take} OFFSET ${skip}
-    `;
+    const escapedValue = value.replace(/[%_\\]/g, (char) => `\\${char}`);
+    const likePattern = this.getLikePattern(escapedValue, pattern);
 
-    return result;
+    return this.sql`${this.sql(field)} ${this.sql.unsafe(
+      operator
+    )} ${likePattern}`;
+  }
+
+  /**
+   * Generates LIKE pattern based on pattern type
+   * @param value Escaped value
+   * @param pattern Pattern type
+   * @returns Formatted LIKE pattern
+   */
+  private getLikePattern(
+    value: string,
+    pattern?: "startsWith" | "endsWith" | "contains" | "exact"
+  ): string {
+    const patterns = {
+      startsWith: () => value + "%",
+      endsWith: () => "%" + value,
+      contains: () => "%" + value + "%",
+      exact: () => value,
+      default: () => value,
+    };
+
+    return (pattern ? patterns[pattern] : patterns.default)();
+  }
+
+  /**
+   * Creates ORDER BY clause
+   * @param orderBy Sort specifications
+   * @returns SQL fragment for ORDER BY
+   * @throws {QueryError} If direction is invalid
+   */
+  private createSortFragment<T extends Row>(
+    orderBy: SelectParams<T>["orderBy"]
+  ) {
+    if (!orderBy?.length) return this.sql``;
+
+    const sortClause = orderBy.reduce((acc, { column, direction }, index) => {
+      if (!["ASC", "DESC"].includes(direction)) {
+        throw new QueryError(Errors.WHERE.INVALID_SORT);
+      }
+
+      const sortFragment = this.sql`${this.sql(
+        column as string
+      )} ${this.sql.unsafe(direction)}`;
+
+      return index === 0 ? sortFragment : this.sql`${acc}, ${sortFragment}`;
+    }, this.sql``);
+
+    return this.sql`ORDER BY ${sortClause}`;
+  }
+
+  /**
+   * Creates LIMIT/OFFSET clause for pagination
+   * @param take Number of rows to take
+   * @param skip Number of rows to skip
+   * @returns SQL fragment for LIMIT/OFFSET
+   */
+  private createLimitFragment(take?: number, skip?: number) {
+    if (!take && !skip) return this.sql``;
+    if (take && skip) return this.sql`LIMIT ${take} OFFSET ${skip}`;
+    if (take) return this.sql`LIMIT ${take}`;
+    if (skip) return this.sql`OFFSET ${skip}`;
+    return this.sql``;
   }
 }
