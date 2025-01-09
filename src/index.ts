@@ -53,7 +53,7 @@ export class PgBuddy {
    * @returns True if the table name is valid; otherwise, false.
    */
   private isValidTableName(name: string): boolean {
-    return Boolean(!name || typeof name !== "string" || !name.trim());
+    return Boolean(name && typeof name === "string" && name.trim());
   }
 
   /**
