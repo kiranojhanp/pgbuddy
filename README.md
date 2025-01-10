@@ -502,7 +502,6 @@ console.log(user?.[0]?.name);
 
 - Transaction support with type-safe rollbacks
 - Batch operations with optimized performance
-- **TBD:** Migration assistance utilities (pgroll-to-types)
 
 ## Contributing
 
