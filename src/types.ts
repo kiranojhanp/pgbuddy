@@ -55,11 +55,11 @@ export interface SortSpec<T extends Row> {
 }
 
 /** Parameters for SELECT queries */
-export interface SelectParams<T extends Row> extends BaseParams<T> {
+export interface SelectParams<T extends Row, K extends (keyof T)[] = (keyof T)[]> extends BaseParams<T> {
   /** Advanced or simple WHERE conditions */
   where?: WhereCondition<T>[] | Partial<T>;
   /** Columns to return */
-  select?: (keyof T)[];
+  select?: K;
   /** Number of rows to skip */
   skip?: number;
   /** Number of rows to take */
@@ -68,16 +68,52 @@ export interface SelectParams<T extends Row> extends BaseParams<T> {
   orderBy?: SortSpec<T>[];
 }
 
+/**
+ * Utility type to pick specific fields from a given type.
+ *
+ * @template T - The source type from which fields will be picked.
+ * @template K - An array of keys (field names) to pick from the source type.
+ *
+ * @example
+ * type User = { id: number; name: string; age: number };
+ * type UserPick = PickFields<User, ['id', 'name']>; // { id: number; name: string; }
+ */
+export type PickFields<T, K extends readonly (keyof T)[]> = {
+  [P in K[number]]: T[P];
+};
+
+/**
+ * Selects fields from type `T` based on keys in `K`. If `K` includes `"*"`, selects all fields.
+ *
+ * @template T - The type to select fields from (must extend `Row`).
+ * @template K - Keys to select (or `"*"` for all fields).
+ * @returns {T[] | PickFields<T, K>[]} - Array of `T` or objects with selected fields.
+ *
+ * @example
+ * type User = { id: number; name: string; age: number };
+ * type FullUsers = SelectFields<User, ["*"]>; // User[]
+ * type PartialUsers = SelectFields<User, ["id", "name"]>; // { id: number; name: string }[]
+ */
+export type SelectFields<T, K extends readonly (keyof T)[]> = K extends ["*"]
+  ? T[]
+  : PickFields<T, K>[];
+
 /** Parameters for INSERT queries */
-export interface InsertParams<T extends Row> extends BaseParams<T> {
+export interface InsertParams<T extends Row, K extends (keyof T)[] = ["*"]>
+  extends BaseParams<T> {
   /** Single record or array of records to insert */
   data: Partial<T> | Partial<T>[];
+  /** Columns to return */
+  select?: K;
 }
 
 /** Parameters for UPDATE and DELETE queries */
-export interface ModifyParams<T extends Row> extends BaseParams<T> {
+export interface ModifyParams<T extends Row, K extends (keyof T)[] = ["*"]>
+  extends BaseParams<T> {
   /** WHERE conditions for targeting specific rows */
-  where: Partial<T>;
+  where: WhereCondition<T>[] | Partial<T>;
   /** Data to update (for UPDATE queries) */
   data?: Partial<T>;
+  /** Columns to return */
+  select?: K;
 }
