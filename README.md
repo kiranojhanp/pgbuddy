@@ -501,12 +501,8 @@ console.log(user?.[0]?.name);
 ## Coming Soon™️ 🔮
 
 - Transaction support with type-safe rollbacks
-- Relationship handling with type inference
 - Batch operations with optimized performance
-- Migration assistance utilities
-- Query performance analytics
-- Custom operator support
-- Dynamic query building helpers
+- **TBD:** Migration assistance utilities (pgroll-to-types)
 
 ## Contributing
 
