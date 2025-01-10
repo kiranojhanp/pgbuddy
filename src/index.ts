@@ -6,6 +6,7 @@ import type { Row, Sql } from "postgres";
 import type {
   InsertParams,
   ModifyParams,
+  SelectFields,
   SelectParams,
   SqlOperator,
   WhereCondition,
@@ -33,17 +34,17 @@ export class PgBuddy {
     const table = tableName.trim();
 
     return {
-      insert: (params: InsertParams<T>) =>
-        this.insert<T>({ ...params, table: table }),
+      insert: <K extends (keyof T)[] = ["*"]>(params: InsertParams<T, K>) =>
+        this.insert<T, K>({ ...params, table: table }),
 
-      update: (params: ModifyParams<T>) =>
-        this.update<T>({ ...params, table: table }),
+      update: <K extends (keyof T)[] = ["*"]>(params: ModifyParams<T, K>) =>
+        this.update<T, K>({ ...params, table: table }),
 
-      delete: (params: ModifyParams<T>) =>
-        this.delete<T>({ ...params, table: table }),
+      delete: <K extends (keyof T)[] = ["*"]>(params: ModifyParams<T, K>) =>
+        this.delete<T, K>({ ...params, table: table }),
 
-      select: (params: SelectParams<T>) =>
-        this.select<T>({ ...params, table: table }),
+      select: <K extends (keyof T)[] = ["*"]>(params: SelectParams<T, K>) =>
+        this.select<T, K>({ ...params, table: table }),
     };
   }
 
@@ -62,11 +63,11 @@ export class PgBuddy {
    * @returns Inserted rows
    * @throws {QueryError} If data is invalid or empty
    */
-  private async insert<T extends Row>({
+  private async insert<T extends Row, K extends (keyof T)[] = ["*"]>({
     table,
     data,
-    select = ["*"] as (keyof T)[],
-  }: InsertParams<T> & { table: string }): Promise<Partial<T[]>> {
+    select = ["*" as keyof T] as K,
+  }: InsertParams<T, K> & { table: string }): Promise<SelectFields<T, K>> {
     const rows = (Array.isArray(data) ? data : [data]) as Row[];
 
     if (!rows.length) {
@@ -78,7 +79,7 @@ export class PgBuddy {
       throw new QueryError(Errors.INSERT.NO_COLUMNS);
     }
 
-    return this.sql<T[]>`
+    return this.sql<SelectFields<T, K>>`
       INSERT INTO ${this.sql(table)}
       ${this.sql(rows, columns)}
       RETURNING ${this.buildSelect(select)}
@@ -91,12 +92,12 @@ export class PgBuddy {
    * @returns Updated rows
    * @throws {QueryError} If data or conditions are invalid
    */
-  private async update<T extends Row>({
+  private async update<T extends Row, K extends (keyof T)[] = ["*"]>({
     table,
-    select = ["*"] as (keyof T)[],
+    select = ["*" as keyof T] as K,
     where,
     data,
-  }: ModifyParams<T> & { table: string }): Promise<Partial<T>[]> {
+  }: ModifyParams<T, K> & { table: string }): Promise<SelectFields<T, K>> {
     if (!data || !this.isValidUpdateData(data)) {
       throw new QueryError(Errors.UPDATE.INVALID_DATA);
     }
@@ -105,7 +106,7 @@ export class PgBuddy {
       throw new QueryError(Errors.UPDATE.NO_CONDITIONS);
     }
 
-    return this.sql<T[]>`
+    return this.sql<SelectFields<T, K>>`
           UPDATE ${this.sql(table)}
           SET ${this.sql(data as Record<string, any>, Object.keys(data))}
           WHERE ${this.buildWhereConditions(where)}
@@ -137,16 +138,16 @@ export class PgBuddy {
    * @returns Deleted rows
    * @throws {Error} If conditions are missing
    */
-  private async delete<T extends Row>({
+  private async delete<T extends Row, K extends (keyof T)[] = ["*"]>({
     table,
-    select = ["*"] as (keyof T)[],
+    select = ["*" as keyof T] as K,
     where,
-  }: ModifyParams<T> & { table: string }): Promise<Partial<T>[]> {
+  }: ModifyParams<T, K> & { table: string }): Promise<SelectFields<T, K>> {
     if (!this.isValidWhereCondition(where)) {
       throw new QueryError(Errors.DELETE.NO_CONDITIONS);
     }
 
-    return await this.sql<T[]>`
+    return this.sql<SelectFields<T, K>>`
       DELETE FROM ${this.sql(table)}
       WHERE ${this.buildWhereConditions(where)}
       RETURNING ${this.buildSelect(select)}
@@ -159,22 +160,24 @@ export class PgBuddy {
    * @returns Matching rows
    * @throws {Error} If pagination parameters are invalid
    */
-  private async select<T extends Row>({
+  private async select<T extends Row, K extends (keyof T)[] = ["*"]>({
     table,
-    select = ["*"] as (keyof T)[],
+    select = ["*" as keyof T] as K,
     where,
     orderBy,
     skip,
     take,
-  }: SelectParams<T> & { table: string }): Promise<Partial<T>[]> {
+  }: SelectParams<T> & { table: string }): Promise<SelectFields<T, K>> {
     this.validatePagination(skip, take);
 
-    return this.sql<Partial<T>[]>`
-              SELECT ${this.buildSelect(select)}
-              FROM ${this.sql(table)}
-              ${this.buildWhereConditions(where)}
-              ${this.createSortFragment(orderBy)}
-              ${this.createLimitFragment(take, skip)}`;
+    const result = this.sql<SelectFields<T, K>>`
+      SELECT ${this.buildSelect(select)}
+      FROM ${this.sql(table)}
+      ${this.buildWhereConditions(where)}
+      ${this.createSortFragment(orderBy)}
+      ${this.createLimitFragment(take, skip)}`;
+
+    return result;
   }
 
   /**
