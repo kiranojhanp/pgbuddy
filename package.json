@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
+    "release": "npx bumpp --commit --push --tag && npm publish",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
