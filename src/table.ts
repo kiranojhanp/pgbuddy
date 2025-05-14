@@ -142,11 +142,37 @@ export class Table<T extends Row> {
 
         const result = await this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
-            ${this.sql(data as Record<string, any>)}
+            ${this.sql(data as Row)}
             RETURNING ${buildSelect(this.sql, this.selectedFields)}
         `;
 
         return result[0];
+    }
+
+    /**
+     * Create multiple records
+     * @param records Array of record data to insert
+     * @returns Array of created records
+     */
+    async createMany<K extends (keyof T)[] = typeof this.selectedFields>(records: Partial<T>[]): Promise<SelectFields<T, K>> {
+        if (!Array.isArray(records) || records.length === 0) {
+            throw new QueryError(Errors.INSERT.INVALID_DATA);
+        }
+
+        for (const record of records) {
+            if (!isValidData(record)) {
+                throw new QueryError(Errors.INSERT.INVALID_DATA);
+            }
+        }
+
+        // Get columns from first record
+        const columns = Object.keys(records[0]);
+
+        return this.sql<SelectFields<T, K>>`
+            INSERT INTO ${this.sql(this.tableName)}
+            ${this.sql(records as Row[], columns)}
+            RETURNING ${buildSelect(this.sql, this.selectedFields)}
+        `;
     }
 
     /**
@@ -166,7 +192,7 @@ export class Table<T extends Row> {
 
         return this.sql<SelectFields<T, K>>`
             UPDATE ${this.sql(this.tableName)}
-            SET ${this.sql(data as Record<string, any>, Object.keys(data))}
+            SET ${this.sql(data as Row, Object.keys(data))}
             WHERE ${buildWhereConditions(this.sql, this.whereConditions)}
             RETURNING ${buildSelect(this.sql, this.selectedFields)}
         `;

@@ -54,6 +54,12 @@ const newUser = await users.create({
   active: true,
 });
 
+// Create multiple users
+const newUsers = await users.createMany([
+  { email: "user1@example.com", name: "User 1", active: true },
+  { email: "user2@example.com", name: "User 2", active: true },
+]);
+
 // Update a user
 const updatedUser = await users.where({ id: 1 }).update({ active: false });
 

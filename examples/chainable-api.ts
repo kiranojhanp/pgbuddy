@@ -55,6 +55,23 @@ async function examples() {
         });
         console.log("New user:", newUser);
 
+        // Create multiple users
+        const newUsers = await users.createMany([
+            {
+                name: "Jane Smith",
+                email: "jane@example.com",
+                status: "active",
+                created_at: new Date(),
+            },
+            {
+                name: "Bob Johnson",
+                email: "bob@example.com",
+                status: "inactive",
+                created_at: new Date(),
+            }
+        ]);
+        console.log("New users:", newUsers);
+
         // Update a user
         const updatedUser = await users
             .where({ id: 1 })

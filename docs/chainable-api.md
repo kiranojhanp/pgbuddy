@@ -81,13 +81,29 @@ const uniqueUser = await users.where({ id: 1 }).findUnique();
 ### Create
 
 ```typescript
-// Create a new record
+// Create a single record
 const newUser = await users.create({
   name: "John Doe",
   email: "john@example.com",
   status: "active",
   created_at: new Date(),
 });
+
+// Create multiple records
+const newUsers = await users.createMany([
+  {
+    name: "John Doe",
+    email: "john@example.com",
+    status: "active",
+    created_at: new Date(),
+  },
+  {
+    name: "Jane Smith",
+    email: "jane@example.com",
+    status: "active",
+    created_at: new Date(),
+  },
+]);
 ```
 
 ### Update
