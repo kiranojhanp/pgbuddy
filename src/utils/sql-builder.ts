@@ -44,9 +44,12 @@ export function buildWhereConditions<T extends Row>(
     where?: WhereCondition<T>[] | Partial<T>
 ): any {
     if (!where) return sql``;
-    return Array.isArray(where)
-        ? createAdvancedWhereFragment(sql, where)
-        : createSimpleWhereFragment(sql, where);
+
+    if (Array.isArray(where)) {
+        return createAdvancedWhereFragment(sql, where);
+    } else {
+        return createSimpleWhereFragment(sql, where as Partial<T>);
+    }
 }
 
 /**
@@ -64,14 +67,16 @@ export function createSimpleWhereFragment<T extends Row>(
     const entries = Object.entries(conditions);
     if (!entries.length) return sql``;
 
-    return sql`WHERE ${entries.reduce((acc, [key, value], index) => {
+    const whereClause = entries.reduce((acc, [key, value], index) => {
         const condition =
             value === null
                 ? sql`${sql(key)} IS NULL`
                 : sql`${sql(key)} = ${value}`;
 
         return index === 0 ? condition : sql`${acc} AND ${condition}`;
-    }, sql``)}`;
+    }, sql``);
+
+    return sql`WHERE ${whereClause}`;
 }
 
 /**
