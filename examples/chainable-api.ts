@@ -1,11 +1,11 @@
 import postgres from "postgres";
-import { PgClient } from "../src";
+import { PgBuddyClient } from "../src";
 
 // PostgreSQL connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
 
-// Create PgClient instance
-const db = new PgClient(sql);
+// Create PgBuddyClient instance
+const db = new PgBuddyClient(sql);
 
 // Define your table type
 interface User {

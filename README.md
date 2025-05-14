@@ -24,11 +24,11 @@ npm install pgbuddy postgres
 
 ```typescript
 import postgres from "postgres";
-import { PgClient } from "pgbuddy";
+import { PgBuddyClient } from "pgbuddy";
 
 // Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
-const db = new PgClient(sql);
+const db = new PgBuddyClient(sql);
 
 interface User {
   id: number;

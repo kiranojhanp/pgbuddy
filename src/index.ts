@@ -1,7 +1,7 @@
 /** @fileoverview Type-safe PostgreSQL query builder with support for CRUD operations */
 
 // Export the new client
-import { PgClient } from "./client";
+import { PgBuddyClient } from "./client";
 import { Table } from "./table";
 import { Errors, QueryError, TableError } from "./errors";
 
@@ -21,7 +21,7 @@ import type {
 } from "./types";
 
 // Export the new client and related classes/types
-export { PgClient, Table, Errors, QueryError, TableError, PgBuddy };
+export { PgBuddyClient, Table, Errors, QueryError, TableError, PgBuddy };
 export type {
   InsertParams,
   ModifyParams,

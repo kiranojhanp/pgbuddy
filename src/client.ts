@@ -6,11 +6,11 @@ import { isValidName } from "./utils";
 /**
  * Main client for PostgreSQL database operations with a chainable interface
  */
-export class PgClient {
+export class PgBuddyClient {
     private sql: Sql<{}>;
 
     /**
-     * Creates a new PgClient instance
+     * Creates a new PgBuddyClient instance
      * @param sql postgres.js SQL instance
      */
     constructor(sql: Sql<{}>) {

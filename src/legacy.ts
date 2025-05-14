@@ -11,7 +11,7 @@ import type {
     LikePattern,
 } from "./types";
 
-/** PostgreSQL query builder with type safety (Legacy API, use PgClient for new code) */
+/** PostgreSQL query builder with type safety (Legacy API, use PgBuddyClient for new code) */
 export class PgBuddy {
     private sql: Sql<{}>;
 

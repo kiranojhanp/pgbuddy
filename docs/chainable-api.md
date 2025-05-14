@@ -1,4 +1,13 @@
-# PgBuddy - Chainable API
+# PgBuddy - ```typescript
+
+import postgres from "postgres";
+import { PgBuddyClient } from "pgbuddy";
+
+// PostgreSQL connection
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
+
+// Create PgBuddyClient instance
+const db = new PgBuddyClient(sql); API
 
 This document explains the new chainable API in PgBuddy.
 
@@ -170,7 +179,7 @@ try {
 
 ## Migration from Legacy API
 
-The legacy `PgBuddy` class is still available but marked as deprecated. For new code, use the `PgClient` class which provides the chainable interface.
+The legacy `PgBuddy` class is still available but marked as deprecated. For new code, use the `PgBuddyClient` class which provides the chainable interface.
 
 Legacy:
 
@@ -185,7 +194,7 @@ const result = await pgBuddy.table("users").select({
 New:
 
 ```typescript
-const db = new PgClient(sql);
+const db = new PgBuddyClient(sql);
 const result = await db
   .table("users")
   .where({ status: "active" })
