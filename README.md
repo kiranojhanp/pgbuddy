@@ -9,6 +9,7 @@ A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) qu
 - 🛡️ Type-safe queries with TypeScript
 - 🔒 SQL injection prevention
 - 🎯 Simple CRUD operation builders
+- 🚀 **NEW**: Chainable query API
 - 📦 Thin wrapper over postgres.js
 
 ## Installation
@@ -19,11 +20,60 @@ npm install pgbuddy postgres
 
 ## Quick Start
 
-```typescript
-import postgres from 'postgres';
-import { PgBuddy } from 'pgbuddy';
+### New Chainable API
 
-const sql = postgres('postgres://username:password@localhost:5432/dbname');
+```typescript
+import postgres from "postgres";
+import { PgBuddyClient } from "pgbuddy";
+
+// Create postgres.js connection
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
+const db = new PgBuddyClient(sql);
+
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
+}
+
+// Define table
+const users = db.table<User>("users");
+
+// Find users with chainable methods
+const activeUsers = await users
+  .where({ active: true })
+  .orderBy([{ column: "id", direction: "DESC" }])
+  .take(10)
+  .findMany();
+
+// Create a user
+const newUser = await users.create({
+  email: "user@example.com",
+  name: "User",
+  active: true,
+});
+
+// Create multiple users
+const newUsers = await users.createMany([
+  { email: "user1@example.com", name: "User 1", active: true },
+  { email: "user2@example.com", name: "User 2", active: true },
+]);
+
+// Update a user
+const updatedUser = await users.where({ id: 1 }).update({ active: false });
+
+// Delete a user
+const deletedUser = await users.where({ id: 1 }).delete();
+```
+
+### Legacy API
+
+```typescript
+import postgres from "postgres";
+import { PgBuddy } from "pgbuddy";
+
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
 const pgBuddy = new PgBuddy(sql);
 
 interface User {
@@ -31,18 +81,33 @@ interface User {
   email: string;
 }
 
+const userTable = pgBuddy.table<User>("users");
+
+// Simple type-safe queries
+await userTable.select({
+  where: { email: "user@example.com" },
+});
+```
+
+}
+
 const userTable = pgBuddy.table<User>('users');
 
 // Simple type-safe queries
 await userTable.select({
-  where: { email: 'user@example.com' }
+where: { email: 'user@example.com' }
 });
+
 ```
 
 ## Documentation
 
-PgBuddy provides type-safe wrappers for common database operations. For complete documentation, visit:
+PgBuddy provides two APIs for database operations:
 
+### Chainable API (New)
+- [Chainable API](./docs/chainable-api.md) - Documentation for the new chainable API
+
+### Legacy API
 - [Introduction](./docs/introduction.md)
 - [CRUD Operations](./docs/crud-operations.md)
 - [Select Operations](./docs/select-operations.md)
@@ -68,3 +133,4 @@ MIT
 ## Contributing
 
 Contributions welcome! Please read our [contributing guidelines](CONTRIBUTING.md) first.
+```
