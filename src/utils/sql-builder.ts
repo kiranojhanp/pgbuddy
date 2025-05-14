@@ -9,11 +9,28 @@ import type {
 import { isValidName } from "./validators";
 
 /**
- * Builds SELECT columns list
- * @param sql SQL tag template
- * @param select Columns to select
- * @returns SQL fragment for SELECT clause
- * @throws {QueryError} If column names are invalid
+ * Builds a SQL-safe column list for SELECT statements.
+ *
+ * This function handles both "*" (all columns) and specific column selections.
+ * It validates column names and returns a properly formatted SQL fragment.
+ *
+ * @param sql - The postgres.js SQL tag template instance
+ * @param select - Array of column names to select
+ * @returns SQL fragment for the SELECT clause
+ * @throws {QueryError} If any column name is invalid
+ *
+ * @example
+ * ```typescript
+ * // Select all columns
+ * buildSelect(sql, ["*"]);       // Returns: *
+ *
+ * // Select specific columns
+ * buildSelect(sql, ["id", "name", "email"]);
+ * // Returns: "id", "name", "email"
+ *
+ * // Invalid column names will throw
+ * buildSelect(sql, ["id", ""]);  // Throws: Invalid columns: ""
+ * ```
  */
 export function buildSelect<T extends Row>(
   sql: Sql<{}>,
@@ -37,10 +54,29 @@ export function buildSelect<T extends Row>(
 }
 
 /**
- * Builds WHERE conditions supporting both simple and advanced formats
- * @param sql SQL tag template
- * @param where WHERE conditions
- * @returns SQL fragment for WHERE clause
+ * Builds WHERE conditions supporting both simple and advanced formats.
+ *
+ * This function handles two types of WHERE conditions:
+ * 1. Simple equality conditions (object with field-value pairs)
+ * 2. Advanced conditions with operators (array of WhereCondition objects)
+ *
+ * @param sql - The postgres.js SQL tag template instance
+ * @param where - The WHERE conditions to build
+ * @returns SQL fragment for the WHERE clause
+ *
+ * @example
+ * ```typescript
+ * // Simple equality conditions
+ * buildWhereConditions(sql, { status: "active", type: "user" });
+ * // Produces: WHERE "status" = 'active' AND "type" = 'user'
+ *
+ * // Advanced conditions with operators
+ * buildWhereConditions(sql, [
+ *   { field: "status", operator: "=", value: "active" },
+ *   { field: "created_at", operator: ">", value: new Date("2023-01-01") }
+ * ]);
+ * // Produces: WHERE "status" = 'active' AND "created_at" > '2023-01-01T00:00:00.000Z'
+ * ```
  */
 export function buildWhereConditions<T extends Row>(
   sql: Sql<{}>,
@@ -56,10 +92,26 @@ export function buildWhereConditions<T extends Row>(
 }
 
 /**
- * Creates WHERE clause for simple equality conditions
- * @param sql SQL tag template
- * @param conditions Simple WHERE conditions
- * @returns SQL fragment
+ * Creates WHERE clause for simple equality conditions.
+ *
+ * This function generates SQL for simple field = value conditions,
+ * joined with AND operators. It also handles NULL values correctly
+ * by using IS NULL instead of = NULL.
+ *
+ * @param sql - The postgres.js SQL tag template instance
+ * @param conditions - Object with field-value pairs for equality checks
+ * @returns SQL fragment for the WHERE clause
+ *
+ * @example
+ * ```typescript
+ * // Simple conditions
+ * createSimpleWhereFragment(sql, { id: 123, status: "active" });
+ * // Produces: WHERE "id" = 123 AND "status" = 'active'
+ *
+ * // With NULL value
+ * createSimpleWhereFragment(sql, { id: 123, deleted_at: null });
+ * // Produces: WHERE "id" = 123 AND "deleted_at" IS NULL
+ * ```
  */
 export function createSimpleWhereFragment<T extends Row>(
   sql: Sql<{}>,
@@ -81,10 +133,27 @@ export function createSimpleWhereFragment<T extends Row>(
 }
 
 /**
- * Creates WHERE clause for advanced conditions with operators
- * @param sql SQL tag template
- * @param conditions Advanced WHERE conditions
- * @returns SQL fragment
+ * Creates WHERE clause for advanced conditions with operators.
+ *
+ * This function generates SQL for complex conditions with various operators
+ * like =, >, <, LIKE, IN, IS NULL, etc. Conditions are joined with AND.
+ *
+ * @param sql - The postgres.js SQL tag template instance
+ * @param conditions - Array of WhereCondition objects with operators
+ * @returns SQL fragment for the WHERE clause
+ *
+ * @example
+ * ```typescript
+ * // Advanced conditions with different operators
+ * createAdvancedWhereFragment(sql, [
+ *   { field: "status", operator: "=", value: "active" },
+ *   { field: "age", operator: ">", value: 18 },
+ *   { field: "name", operator: "LIKE", value: "John", pattern: "startsWith" },
+ *   { field: "role", operator: "IN", value: ["admin", "editor"] },
+ *   { field: "deleted_at", operator: "IS NULL" }
+ * ]);
+ * // Produces complex WHERE clause with AND between conditions
+ * ```
  */
 export function createAdvancedWhereFragment<T extends Row>(
   sql: Sql<{}>,
