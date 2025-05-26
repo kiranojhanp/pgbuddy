@@ -2,7 +2,7 @@
 
 A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) query builder wrapping `postgres.js`.
 
-![PGBuddy banner](assets/pg-buddy-banner.png)
+![PGBuddy banner](assets/banner.png)
 
 ## Features
 
