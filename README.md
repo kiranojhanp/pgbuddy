@@ -18,6 +18,12 @@ A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) qu
 npm install pgbuddy postgres
 ```
 
+If you want schema-first typing and validation with Zod:
+
+```bash
+npm install zod
+```
+
 ## Quick Start
 
 ### New Chainable API
@@ -71,6 +77,42 @@ const updatedUser = await users.where({ id: 1 }).update({ active: false });
 
 // Delete a user
 const deletedUser = await users.where({ id: 1 }).delete();
+```
+
+### Zod-First (Schema as Source of Truth)
+
+```typescript
+import postgres from "postgres";
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
+
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
+const db = new PgBuddyClient(sql);
+
+const UserSchema = z.object({
+  id: z.number().int(),
+  email: z.string().email(),
+  name: z.string(),
+  active: z.boolean(),
+  last_login: z.date().nullable(),
+});
+
+const users = db.table("users", UserSchema);
+
+// All ops validate against the schema
+await users.create({
+  id: 1,
+  email: "user@example.com",
+  name: "User",
+  active: true,
+  last_login: null,
+});
+
+// Updates validate against schema.partial()
+await users.where({ id: 1 }).update({ active: false });
+
+// Where keys and values are validated
+await users.where({ email: "user@example.com" }).findFirst();
 ```
 
 ## Documentation

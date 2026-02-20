@@ -25,6 +25,7 @@ export const Errors = {
     INVALID_COLUMNS: (cols: string) => `Invalid columns: ${cols}`,
   },
   WHERE: {
+    INVALID_FIELD: (field: string) => `Invalid field: ${field}`,
     INVALID_IN: (field: string) => `Invalid IN values: ${field}`,
     INVALID_LIKE: (field: string) => `LIKE/ILIKE requires string: ${field}`,
     INVALID_COMPARISON: (field: string, op: string) =>

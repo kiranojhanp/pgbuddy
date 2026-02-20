@@ -125,7 +125,24 @@ export function isValidData(data: any): boolean {
  */
 export function isValidWhereConditions(where: any): boolean {
   if (Array.isArray(where)) {
-    return where.length > 0 && where.every((entry) => isPlainObject(entry));
+    return (
+      where.length > 0 &&
+      where.every((entry) => {
+        if (!isPlainObject(entry)) return false;
+        const field = (entry as Record<string, unknown>).field;
+        const operator = (entry as Record<string, unknown>).operator;
+        const value = (entry as Record<string, unknown>).value;
+
+        if (!isValidName(field)) return false;
+        if (typeof operator !== "string" || !operator.trim()) return false;
+
+        if (operator === "IS NULL" || operator === "IS NOT NULL") {
+          return value === undefined;
+        }
+
+        return value !== undefined;
+      })
+    );
   }
 
   return isPlainObject(where) && Object.keys(where).length > 0;

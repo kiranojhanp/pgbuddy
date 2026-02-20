@@ -61,6 +61,7 @@
 import { PgBuddyClient } from "./client";
 import { Table } from "./table";
 import { Errors, QueryError, TableError } from "./errors";
+import { ZodTable } from "./zod-table";
 
 
 // Re-export types for external use
@@ -77,7 +78,7 @@ import type {
 } from "./types";
 
 // Export the new client and related classes/types
-export { PgBuddyClient, Table, Errors, QueryError, TableError };
+export { PgBuddyClient, Table, ZodTable, Errors, QueryError, TableError };
 export type {
   SelectFields,
   SqlOperator,

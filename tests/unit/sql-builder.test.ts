@@ -82,6 +82,14 @@ describe("sql-builder utilities", () => {
     );
   });
 
+  test("buildSelect rejects invalid identifiers in strict mode", () => {
+    expect(() =>
+      buildSelect<Item>(sql, ["bad-name"] as Array<keyof Item>, {
+        strictNames: true,
+      })
+    ).toThrow(Errors.SELECT.INVALID_COLUMNS("bad-name"));
+  });
+
   test("createSimpleWhereFragment handles null comparisons", async () => {
     const whereNull = createSimpleWhereFragment<Item>(sql, { deleted_at: null });
     const rows = await sql`SELECT * FROM items ${whereNull} ORDER BY id`;
@@ -112,6 +120,14 @@ describe("sql-builder utilities", () => {
 
     expect(simpleRows).toHaveLength(1);
     expect(advancedRows).toHaveLength(2);
+  });
+
+  test("buildWhereConditions rejects invalid fields in strict mode", () => {
+    expect(() =>
+      buildWhereConditions<Item>(sql, { "bad-name": "alpha" } as Partial<Item>, {
+        strictNames: true,
+      })
+    ).toThrow(Errors.WHERE.INVALID_FIELD("bad-name"));
   });
 
   test("createAdvancedWhereFragment returns no clause for empty input", async () => {

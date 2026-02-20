@@ -7,9 +7,40 @@ import type {
   SqlOperator,
   SelectKeys,
 } from "../types";
-import { isValidName } from "./validators";
+import { isValidIdentifier, isValidName } from "./validators";
 
 type SqlFragment = ReturnType<Sql<{}>["unsafe"]>;
+type NameOptions = { strictNames?: boolean; allowSchema?: boolean };
+type IdentifierKind = "select" | "where";
+
+function normalizeIdentifier(
+  value: unknown,
+  options?: NameOptions,
+  kind: IdentifierKind = "select"
+): string {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    const msg =
+      kind === "where"
+        ? Errors.WHERE.INVALID_FIELD(String(value))
+        : Errors.SELECT.INVALID_COLUMNS(String(value));
+    throw new QueryError(msg);
+  }
+
+  const isValid = options?.strictNames
+    ? isValidIdentifier(trimmed, { allowSchema: options?.allowSchema })
+    : isValidName(trimmed);
+
+  if (!isValid) {
+    const msg =
+      kind === "where"
+        ? Errors.WHERE.INVALID_FIELD(trimmed)
+        : Errors.SELECT.INVALID_COLUMNS(trimmed);
+    throw new QueryError(msg);
+  }
+
+  return trimmed;
+}
 
 /**
  * Builds a SQL-safe column list for SELECT statements.
@@ -37,23 +68,20 @@ type SqlFragment = ReturnType<Sql<{}>["unsafe"]>;
  */
 export function buildSelect<T extends Row>(
   sql: Sql<{}>,
-  select: SelectKeys<T>
+  select: SelectKeys<T>,
+  options?: NameOptions
 ): SqlFragment {
   // Handle asterisk (*) or empty selection
   if (!Array.isArray(select) || !select.length || select[0] === "*") {
     return sql`*`;
   }
 
-  // Validate column names
-  const invalidColumns = select.filter((col) => !isValidName(col));
-  if (invalidColumns.length) {
-    throw new QueryError(
-      Errors.SELECT.INVALID_COLUMNS(invalidColumns.join(", "))
-    );
-  }
+  const columns = (select as string[]).map((col) =>
+    normalizeIdentifier(col, options, "select")
+  );
 
   // Return safe column selection
-  return sql(select as string[]) as unknown as SqlFragment;
+  return sql(columns) as unknown as SqlFragment;
 }
 
 /**
@@ -83,14 +111,15 @@ export function buildSelect<T extends Row>(
  */
 export function buildWhereConditions<T extends Row>(
   sql: Sql<{}>,
-  where?: WhereCondition<T>[] | Partial<T>
+  where?: WhereCondition<T>[] | Partial<T>,
+  options?: NameOptions
 ): SqlFragment {
   if (!where) return sql``;
 
   if (Array.isArray(where)) {
-    return createAdvancedWhereFragment(sql, where);
+    return createAdvancedWhereFragment(sql, where, options);
   } else {
-    return createSimpleWhereFragment(sql, where as Partial<T>);
+    return createSimpleWhereFragment(sql, where as Partial<T>, options);
   }
 }
 
@@ -118,14 +147,18 @@ export function buildWhereConditions<T extends Row>(
  */
 export function createSimpleWhereFragment<T extends Row>(
   sql: Sql<{}>,
-  conditions?: Partial<T>
+  conditions?: Partial<T>,
+  options?: NameOptions
 ): SqlFragment {
   const entries = Object.entries(conditions ?? {});
   if (!entries.length) return sql``;
 
   const whereClause = entries.reduce((acc, [key, value], index) => {
+    const normalizedKey = normalizeIdentifier(key, options, "where");
     const condition =
-      value === null ? sql`${sql(key)} IS NULL` : sql`${sql(key)} = ${value}`;
+      value === null
+        ? sql`${sql(normalizedKey)} IS NULL`
+        : sql`${sql(normalizedKey)} = ${value}`;
 
     return index === 0 ? condition : sql`${acc} AND ${condition}`;
   }, sql``);
@@ -158,14 +191,16 @@ export function createSimpleWhereFragment<T extends Row>(
  */
 export function createAdvancedWhereFragment<T extends Row>(
   sql: Sql<{}>,
-  conditions: WhereCondition<T>[]
+  conditions: WhereCondition<T>[],
+  options?: NameOptions
 ): SqlFragment {
   if (!conditions?.length) return sql``;
 
   const whereClause = conditions.reduce((acc, condition, index) => {
+    const normalizedField = normalizeIdentifier(condition.field, options, "where");
     const fragment = createConditionFragment(
       sql,
-      condition.field as string,
+      normalizedField,
       condition.operator,
       condition.value,
       "pattern" in condition ? condition.pattern : undefined
@@ -292,7 +327,8 @@ export function getLikePattern(value: string, pattern?: LikePattern): string {
  */
 export function createSortFragment<T extends Row>(
   sql: Sql<{}>,
-  orderBy?: SortSpec<T>[]
+  orderBy?: SortSpec<T>[],
+  options?: NameOptions
 ): SqlFragment {
   if (!orderBy?.length) return sql``;
 
@@ -303,11 +339,8 @@ export function createSortFragment<T extends Row>(
     }
 
     // Validate column name
-    if (!column || typeof column !== "string" || !column.trim()) {
-      throw new QueryError(Errors.SELECT.INVALID_COLUMNS(String(column)));
-    }
-
-    const sortFragment = sql`${sql(column as string)} ${sql.unsafe(direction)}`;
+    const normalizedColumn = normalizeIdentifier(column, options, "select");
+    const sortFragment = sql`${sql(normalizedColumn)} ${sql.unsafe(direction)}`;
 
     return index === 0 ? sortFragment : sql`${acc}, ${sortFragment}`;
   }, sql``);

@@ -22,6 +22,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
+    "test:coverage:check": "scripts/check-coverage.sh",
     "test:types": "tsc -p tsconfig.types.json --noEmit"
   },
   "repository": {
@@ -52,6 +53,7 @@
     "typescript": "^5.7.2"
   },
   "peerDependencies": {
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1"
   }
 }

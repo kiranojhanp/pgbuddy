@@ -1,8 +1,10 @@
 import type { Row, Sql } from "postgres";
+import { ZodObject } from "zod";
 import { Errors, TableError } from "./errors";
 import { Table } from "./table";
 import { isValidIdentifier, isValidName } from "./utils";
 import type { Insertable } from "./types";
+import { ZodTable } from "./zod-table";
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -95,11 +97,26 @@ export class PgBuddyClient {
   table<T extends Row, I extends Row = T>(
     tableName: string,
     options?: { strictNames?: boolean; allowSchema?: boolean }
-  ): Table<T, ["*"], I> {
+  ): Table<T, ["*"], I>;
+  table<S extends ZodObject<any>>(
+    tableName: string,
+    schema: S,
+    options?: { strictNames?: boolean; allowSchema?: boolean }
+  ): ZodTable<S>;
+  table<T extends Row, I extends Row = T, S extends ZodObject<any> = ZodObject<any>>(
+    tableName: string,
+    schemaOrOptions?: S | { strictNames?: boolean; allowSchema?: boolean },
+    options?: { strictNames?: boolean; allowSchema?: boolean }
+  ): Table<T, ["*"], I> | ZodTable<S> {
+    const schema =
+      schemaOrOptions instanceof ZodObject ? schemaOrOptions : undefined;
+    const resolvedOptions =
+      schemaOrOptions instanceof ZodObject ? options : schemaOrOptions;
+
     const strictNames =
-      options?.strictNames ?? this.strictNames ?? false;
+      resolvedOptions?.strictNames ?? this.strictNames ?? false;
     const allowSchema =
-      options?.allowSchema ?? this.allowSchema ?? false;
+      resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
 
     const trimmedName = String(tableName ?? "").trim();
     const isValid = strictNames
@@ -110,7 +127,16 @@ export class PgBuddyClient {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
 
-    return new Table<T, ["*"], I>(this.sql, trimmedName);
+    const table = new Table<any, ["*"], any>(this.sql, trimmedName, {
+      strictNames,
+      allowSchema,
+    });
+
+    if (schema) {
+      return new ZodTable(table, schema) as ZodTable<S>;
+    }
+
+    return table as Table<T, ["*"], I>;
   }
 
   tableWithInsert<T extends Row, AutoKeys extends keyof T>(

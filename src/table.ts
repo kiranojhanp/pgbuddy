@@ -44,10 +44,12 @@ import {
  */
 type TableState<T extends Row> = {
   whereConditions?: WhereCondition<T>[] | Partial<T>;
-  selectedFields: SelectKeys<T>;
+  selectedFields?: SelectKeys<T>;
   skipValue?: number;
   takeValue?: number;
   orderByValue?: SortSpec<T>[];
+  strictNames?: boolean;
+  allowSchema?: boolean;
 };
 
 export class Table<
@@ -62,6 +64,8 @@ export class Table<
   private skipValue?: number;
   private takeValue?: number;
   private orderByValue?: SortSpec<T>[];
+  private strictNames: boolean;
+  private allowSchema: boolean;
 
   constructor(sql: Sql<{}>, tableName: string, state?: TableState<T>) {
     this.sql = sql;
@@ -71,6 +75,8 @@ export class Table<
     this.skipValue = state?.skipValue;
     this.takeValue = state?.takeValue;
     this.orderByValue = state?.orderByValue;
+    this.strictNames = Boolean(state?.strictNames);
+    this.allowSchema = Boolean(state?.allowSchema);
   }
 
   private clone(next: Partial<TableState<T>>): Table<T, K, I> {
@@ -80,6 +86,8 @@ export class Table<
       skipValue: this.skipValue,
       takeValue: this.takeValue,
       orderByValue: this.orderByValue,
+      strictNames: this.strictNames,
+      allowSchema: this.allowSchema,
       ...next,
     });
   }
@@ -107,6 +115,8 @@ export class Table<
       skipValue: this.skipValue,
       takeValue: this.takeValue,
       orderByValue: this.orderByValue,
+      strictNames: this.strictNames,
+      allowSchema: this.allowSchema,
     });
   }
 
@@ -293,7 +303,7 @@ export class Table<
    * ```
    */
   async findUnique(): Promise<SelectFields<T, K>[0] | null> {
-    const results = (await this.executeSelect()) as SelectFields<T, K>;
+    const results = (await this.take(2).executeSelect()) as SelectFields<T, K>;
 
     if (results.length > 1) {
       throw new QueryError("Expected at most one record but found multiple");
@@ -328,7 +338,10 @@ export class Table<
     const result = await this.sql<[{ count: string }]>`
             SELECT COUNT(*) as count
             FROM ${this.sql(this.tableName)}
-            ${buildWhereConditions(this.sql, this.whereConditions)}
+            ${buildWhereConditions(this.sql, this.whereConditions, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
         `;
 
     return parseInt(result[0].count, 10);
@@ -378,7 +391,10 @@ export class Table<
     const result = await this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
             ${this.sql(data as Row)}
-            RETURNING ${buildSelect(this.sql, this.selectedFields)}
+            RETURNING ${buildSelect(this.sql, this.selectedFields, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
         `;
 
     return result[0];
@@ -454,7 +470,10 @@ export class Table<
     return this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
             ${this.sql(records as Row[], columns)}
-            RETURNING ${buildSelect(this.sql, this.selectedFields)}
+            RETURNING ${buildSelect(this.sql, this.selectedFields, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
         `;
   }
 
@@ -501,8 +520,14 @@ export class Table<
     return this.sql<SelectFields<T, K>>`
                 UPDATE ${this.sql(this.tableName)}
                 SET ${this.sql(data as Row)}
-                ${buildWhereConditions(this.sql, this.whereConditions)}
-                RETURNING ${buildSelect(this.sql, this.selectedFields)}
+                ${buildWhereConditions(this.sql, this.whereConditions, {
+                  strictNames: this.strictNames,
+                  allowSchema: this.allowSchema,
+                })}
+                RETURNING ${buildSelect(this.sql, this.selectedFields, {
+                  strictNames: this.strictNames,
+                  allowSchema: this.allowSchema,
+                })}
             `;
   }
 
@@ -540,8 +565,14 @@ export class Table<
 
     return this.sql<SelectFields<T, K>>`
                 DELETE FROM ${this.sql(this.tableName)}
-                ${buildWhereConditions(this.sql, this.whereConditions)}
-                RETURNING ${buildSelect(this.sql, this.selectedFields)}
+                ${buildWhereConditions(this.sql, this.whereConditions, {
+                  strictNames: this.strictNames,
+                  allowSchema: this.allowSchema,
+                })}
+                RETURNING ${buildSelect(this.sql, this.selectedFields, {
+                  strictNames: this.strictNames,
+                  allowSchema: this.allowSchema,
+                })}
             `;
   }
 
@@ -553,10 +584,19 @@ export class Table<
    */
   private async executeSelect(): Promise<SelectFields<T, K>> {
     return this.sql<SelectFields<T, K>>`
-            SELECT ${buildSelect(this.sql, this.selectedFields)}
+            SELECT ${buildSelect(this.sql, this.selectedFields, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
             FROM ${this.sql(this.tableName)}
-            ${buildWhereConditions(this.sql, this.whereConditions)}
-            ${createSortFragment(this.sql, this.orderByValue)}
+            ${buildWhereConditions(this.sql, this.whereConditions, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
+            ${createSortFragment(this.sql, this.orderByValue, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            })}
             ${createLimitFragment(this.sql, this.takeValue, this.skipValue)}
         `;
   }
