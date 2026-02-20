@@ -2,6 +2,16 @@
 
 ## Insert Operations
 
+Assumes your table is defined with an insertable type, for example:
+
+```typescript
+import { type Insertable } from "pgbuddy";
+type UserInsert = Insertable<User, "id">;
+const userTable = db.table<User, UserInsert>("users");
+```
+
+Migration note: if you previously passed partial objects to `create`/`createMany`, define and use an insert type as shown above.
+
 ### Basic Insert
 
 ```typescript

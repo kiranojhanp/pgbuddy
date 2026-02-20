@@ -202,3 +202,30 @@ export type PickFields<T, K extends readonly (keyof T & string)[]> = {
 export type SelectFields<T extends Row, K extends SelectKeys<T>> = K extends ["*"]
   ? T[]
   : PickFields<T, Extract<K, readonly (keyof T & string)[]>>[];
+
+/**
+ * Helper type for insertable rows.
+ *
+ * Marks auto-generated keys as optional.
+ */
+export type Insertable<T extends Row, TAuto extends keyof T = never> = Omit<T, TAuto> &
+  Partial<Pick<T, TAuto>>;
+
+/**
+ * Helper type for update payloads.
+ */
+export type Updatable<T extends Row> = Partial<T>;
+
+/**
+ * Helper type for select payloads.
+ */
+export type Selectable<T extends Row> = T;
+
+/**
+ * Prisma-like model helper to group derived types.
+ */
+export type Model<T extends Row, AutoKeys extends keyof T = never> = {
+  Insert: Insertable<T, AutoKeys>;
+  Update: Updatable<T>;
+  Select: Selectable<T>;
+};

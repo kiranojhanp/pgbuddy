@@ -53,7 +53,7 @@ export function buildSelect<T extends Row>(
   }
 
   // Return safe column selection
-  return sql(select as string[]);
+  return sql(select as string[]) as unknown as SqlFragment;
 }
 
 /**
@@ -328,13 +328,15 @@ export function createLimitFragment(
   skip?: number
 ): SqlFragment {
   // No pagination parameters provided
-  if (!take && !skip) return sql``;
+  if (take === undefined && skip === undefined) return sql``;
 
   // Both limit and offset provided
-  if (take && skip) return sql`LIMIT ${take} OFFSET ${skip}`;
+  if (take !== undefined && skip !== undefined) {
+    return sql`LIMIT ${take} OFFSET ${skip}`;
+  }
 
   // Only limit (take) provided
-  if (take) return sql`LIMIT ${take}`;
+  if (take !== undefined) return sql`LIMIT ${take}`;
 
   // Only offset (skip) provided
   if (skip === undefined) return sql``;

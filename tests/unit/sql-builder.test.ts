@@ -217,15 +217,18 @@ describe("sql-builder utilities", () => {
     const skipOnly = createLimitFragment(sql, undefined, 1);
     const takeSkip = createLimitFragment(sql, 1, 1);
     const none = createLimitFragment(sql, undefined, undefined);
+    const skipZero = createLimitFragment(sql, undefined, 0);
 
     const takeRows = await sql`SELECT * FROM items ORDER BY id ${takeOnly}`;
     const skipRows = await sql`SELECT * FROM items ORDER BY id ${skipOnly}`;
     const takeSkipRows = await sql`SELECT * FROM items ORDER BY id ${takeSkip}`;
     const allRows = await sql`SELECT * FROM items ORDER BY id ${none}`;
+    const skipZeroRows = await sql`SELECT * FROM items ORDER BY id ${skipZero}`;
 
     expect(takeRows).toHaveLength(1);
     expect(skipRows).toHaveLength(2);
     expect(takeSkipRows).toHaveLength(1);
     expect(allRows).toHaveLength(3);
+    expect(skipZeroRows).toHaveLength(3);
   });
 });

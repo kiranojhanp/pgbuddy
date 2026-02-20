@@ -1,7 +1,8 @@
 import type { Row, Sql } from "postgres";
 import { Errors, TableError } from "./errors";
 import { Table } from "./table";
-import { isValidName } from "./utils";
+import { isValidIdentifier, isValidName } from "./utils";
+import type { Insertable } from "./types";
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -35,6 +36,9 @@ import { isValidName } from "./utils";
 export class PgBuddyClient {
   private sql: Sql<{}>;
 
+  private strictNames: boolean;
+  private allowSchema: boolean;
+
   /**
    * Creates a new PgBuddyClient instance.
    *
@@ -50,8 +54,13 @@ export class PgBuddyClient {
    * const db = new PgBuddyClient(sql);
    * ```
    */
-  constructor(sql: Sql<{}>) {
+  constructor(
+    sql: Sql<{}>,
+    options?: { strictNames?: boolean; allowSchema?: boolean }
+  ) {
     this.sql = sql;
+    this.strictNames = Boolean(options?.strictNames);
+    this.allowSchema = Boolean(options?.allowSchema);
   }
 
   /**
@@ -83,11 +92,31 @@ export class PgBuddyClient {
    *   .findMany();
    * ```
    */
-  table<T extends Row>(tableName: string): Table<T> {
-    if (!isValidName(tableName)) {
+  table<T extends Row, I extends Row = T>(
+    tableName: string,
+    options?: { strictNames?: boolean; allowSchema?: boolean }
+  ): Table<T, ["*"], I> {
+    const strictNames =
+      options?.strictNames ?? this.strictNames ?? false;
+    const allowSchema =
+      options?.allowSchema ?? this.allowSchema ?? false;
+
+    const trimmedName = String(tableName ?? "").trim();
+    const isValid = strictNames
+      ? isValidIdentifier(trimmedName, { allowSchema })
+      : isValidName(trimmedName);
+
+    if (!isValid) {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
 
-    return new Table<T>(this.sql, tableName.trim());
+    return new Table<T, ["*"], I>(this.sql, trimmedName);
+  }
+
+  tableWithInsert<T extends Row, AutoKeys extends keyof T>(
+    tableName: string,
+    options?: { strictNames?: boolean; allowSchema?: boolean }
+  ): Table<T, ["*"], Insertable<T, AutoKeys>> {
+    return this.table<T, Insertable<T, AutoKeys>>(tableName, options);
   }
 }

@@ -15,7 +15,7 @@
  * @example
  * ```typescript
  * import postgres from "postgres";
- * import { PgBuddyClient } from "pgbuddy";
+ * import { PgBuddyClient, type Insertable } from "pgbuddy";
  *
  * // Create postgres.js connection
  * const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -33,7 +33,8 @@
  * }
  *
  * // Define table
- * const users = db.table<User>("users");
+ * type UserInsert = Insertable<User, "id">;
+ * const users = db.table<User, UserInsert>("users");
  *
  * // Use the chainable API
  * async function example() {
@@ -69,6 +70,10 @@ import type {
   WhereCondition,
   SortSpec,
   LikePattern,
+  Insertable,
+  Updatable,
+  Selectable,
+  Model,
 } from "./types";
 
 // Export the new client and related classes/types
@@ -79,4 +84,8 @@ export type {
   WhereCondition,
   SortSpec,
   LikePattern,
+  Insertable,
+  Updatable,
+  Selectable,
+  Model,
 };

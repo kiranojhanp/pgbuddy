@@ -4,7 +4,7 @@
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddyClient } from 'pgbuddy';
+import { PgBuddyClient, type Insertable, type Model } from 'pgbuddy';
 
 // Database connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
@@ -20,8 +20,15 @@ interface User {
   updated_at: Date;
 }
 
-const userTable = db.table<User>('users');
+type UserInsert = Insertable<User, 'id' | 'created_at' | 'updated_at'>;
+const userTable = db.table<User, UserInsert>('users');
+
+// Or Prisma-like grouped types
+type UserModel = Model<User, 'id' | 'created_at' | 'updated_at'>;
+const userTable2 = db.table<User, UserModel['Insert']>('users');
 ```
+
+Migration note: if you previously used `db.table<T>(...)` with partial insert objects, define `Insertable<T, AutoKeys>` or `Model<T, AutoKeys>` and pass the insert type as the second generic.
 
 ## Common Use Cases
 
@@ -72,7 +79,8 @@ interface Post {
   created_at: Date;
 }
 
-const postTable = db.table<Post>('posts');
+type PostInsert = Insertable<Post, 'id' | 'created_at'>;
+const postTable = db.table<Post, PostInsert>('posts');
 
 // Create draft post
 async function createDraft(authorId: number, title: string, content: string) {
@@ -120,7 +128,8 @@ interface Order {
   tracking_number: string | null;
 }
 
-const orderTable = db.table<Order>('orders');
+type OrderInsert = Insertable<Order, 'id' | 'created_at' | 'updated_at'>;
+const orderTable = db.table<Order, OrderInsert>('orders');
 
 // Create new order
 async function createOrder(customerId: number, amount: number, shippingAddress: string) {
@@ -183,7 +192,8 @@ interface Product {
   last_restock_date: Date;
 }
 
-const productTable = db.table<Product>('products');
+type ProductModel = Model<Product, 'id'>;
+const productTable = db.table<Product, ProductModel['Insert']>('products');
 
 // Update stock levels
 async function updateStock(productId: number, quantity: number) {
@@ -237,7 +247,8 @@ interface EventLog {
   timestamp: Date;
 }
 
-const eventLogTable = db.table<EventLog>('event_logs');
+type EventLogInsert = Insertable<EventLog, 'id'>;
+const eventLogTable = db.table<EventLog, EventLogInsert>('event_logs');
 
 // Log new event
 async function logEvent(
@@ -309,7 +320,7 @@ async function handleDatabaseOperation<T>(
 }
 
 // Usage with error handling
-async function safeCreateUser(userData: Partial<User>) {
+async function safeCreateUser(userData: UserInsert) {
   return handleDatabaseOperation(async () => {
     const user = await userTable.select(['id', 'email']).create(userData);
     return user;

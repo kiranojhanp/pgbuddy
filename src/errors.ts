@@ -9,6 +9,7 @@ export const Errors = {
   INSERT: {
     INVALID_DATA: "Invalid data to insert",
     NO_COLUMNS: "No columns specified",
+    INCONSISTENT_COLUMNS: "Inconsistent columns in batch insert",
   },
   UPDATE: {
     INVALID_DATA: "Invalid data to update",

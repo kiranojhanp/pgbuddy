@@ -29,6 +29,19 @@ export function isValidName(name: any): boolean {
   return Boolean(name && typeof name === "string" && name.trim());
 }
 
+export function isValidIdentifier(
+  name: any,
+  options?: { allowSchema?: boolean }
+): boolean {
+  if (!isValidName(name)) return false;
+  const trimmed = String(name).trim();
+  const parts = options?.allowSchema ? trimmed.split(".") : [trimmed];
+  if (parts.some((part) => !part.length)) return false;
+
+  const identifierRegex = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  return parts.every((part) => identifierRegex.test(part));
+}
+
 /**
  * Validates pagination parameters for SQL LIMIT and OFFSET clauses.
  *

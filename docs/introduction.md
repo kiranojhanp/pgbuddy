@@ -25,7 +25,7 @@ yarn add pgbuddy postgres
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddyClient } from 'pgbuddy';
+import { PgBuddyClient, type Insertable, type Model } from 'pgbuddy';
 
 // Initialize postgres connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
@@ -42,7 +42,21 @@ interface User {
 }
 
 // Create table interface
-const userTable = db.table<User>('users');
+type UserInsert = Insertable<User, 'id'>;
+const userTable = db.table<User, UserInsert>('users');
+
+// Or Prisma-like grouped types
+type UserModel = Model<User, 'id'>;
+const userTable2 = db.table<User, UserModel['Insert']>('users');
+```
+
+### Migration Note
+
+If you previously called `db.table<User>("users")` and passed partial objects to `create`/`createMany`, update to an explicit insert type:
+
+```typescript
+type UserInsert = Insertable<User, 'id'>;
+const userTable = db.table<User, UserInsert>('users');
 ```
 
 ### Advanced Features

@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { PgBuddyClient } from "../src";
+import { PgBuddyClient, type Insertable, type Model } from "../src";
 
 // PostgreSQL connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -17,7 +17,12 @@ interface User {
 }
 
 // Define table
-const users = db.table<User>("users");
+type UserInsert = Insertable<User, "id">;
+const users = db.table<User, UserInsert>("users");
+
+// Or Prisma-like grouped types
+type UserModel = Model<User, "id">;
+const users2 = db.table<User, UserModel["Insert"]>("users");
 
 // Usage examples
 async function examples() {

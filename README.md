@@ -24,7 +24,7 @@ npm install pgbuddy postgres
 
 ```typescript
 import postgres from "postgres";
-import { PgBuddyClient } from "pgbuddy";
+import { PgBuddyClient, type Insertable, type Model } from "pgbuddy";
 
 // Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -38,7 +38,13 @@ interface User {
 }
 
 // Define table
-const users = db.table<User>("users");
+// Option A: simple insert type
+type UserInsert = Insertable<User, "id">;
+const users = db.table<User, UserInsert>("users");
+
+// Option B: grouped model types
+type UserModel = Model<User, "id">;
+const users2 = db.table<User, UserModel["Insert"]>("users");
 
 // Find users with chainable methods
 const activeUsers = await users

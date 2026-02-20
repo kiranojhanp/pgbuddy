@@ -44,6 +44,19 @@ describe("Table - validation", () => {
     expect(() => db.table<User>(" ")).toThrow(TableError);
   });
 
+  test("strict table name validation rejects invalid identifiers", () => {
+    expect(() => db.table<User>("users", { strictNames: true })).not.toThrow();
+    expect(() => db.table<User>("user-profiles", { strictNames: true })).toThrow(
+      TableError
+    );
+    expect(() => db.table<User>("public.users", { strictNames: true })).toThrow(
+      TableError
+    );
+    expect(() =>
+      db.table<User>("public.users", { strictNames: true, allowSchema: true })
+    ).not.toThrow();
+  });
+
   test("skip rejects negative values", () => {
     expect(() => db.table<User>("users").skip(-1)).toThrow(QueryError);
   });
@@ -55,33 +68,33 @@ describe("Table - validation", () => {
 
   test("create rejects empty data object", async () => {
     await expect(
-      db.table<User>("users").create({} as Partial<User>)
+      db.table<User>("users").create({} as unknown as User)
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
   });
 
   test("create rejects non-plain objects", async () => {
     await expect(
-      db.table<User>("users").create([] as unknown as Partial<User>)
+      db.table<User>("users").create([] as unknown as User)
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
 
     await expect(
-      db.table<User>("users").create(new Date() as unknown as Partial<User>)
+      db.table<User>("users").create(new Date() as unknown as User)
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
   });
 
   test("createMany rejects empty array", async () => {
     await expect(
-      db.table<User>("users").createMany([])
+      db.table<User>("users").createMany([] as User[])
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
   });
 
   test("createMany rejects inconsistent columns", async () => {
     await expect(
       db.table<User>("users").createMany([
-        { email: "ada@example.com", status: "active", last_login: null },
-        { email: "grace@example.com", last_login: null } as Partial<User>,
+        { id: 1001, email: "ada@example.com", status: "active", last_login: null },
+        { id: 1002, email: "grace@example.com", last_login: null } as unknown as User,
       ])
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    ).rejects.toThrow(Errors.INSERT.INCONSISTENT_COLUMNS);
   });
 
   test("update rejects missing where clause", async () => {

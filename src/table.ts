@@ -50,7 +50,11 @@ type TableState<T extends Row> = {
   orderByValue?: SortSpec<T>[];
 };
 
-export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
+export class Table<
+  T extends Row,
+  K extends SelectKeys<T> = ["*"],
+  I extends Row = T
+> {
   private sql: Sql<{}>;
   private tableName: string;
   private whereConditions?: WhereCondition<T>[] | Partial<T>;
@@ -69,8 +73,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
     this.orderByValue = state?.orderByValue;
   }
 
-  private clone(next: Partial<TableState<T>>): Table<T, K> {
-    return new Table<T, K>(this.sql, this.tableName, {
+  private clone(next: Partial<TableState<T>>): Table<T, K, I> {
+    return new Table<T, K, I>(this.sql, this.tableName, {
       whereConditions: this.whereConditions,
       selectedFields: this.selectedFields,
       skipValue: this.skipValue,
@@ -96,8 +100,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    * // Result type will be { id: number; email: string }[]
    * ```
    */
-  select<K2 extends SelectKeys<T>>(fields: K2): Table<T, K2> {
-    return new Table<T, K2>(this.sql, this.tableName, {
+  select<K2 extends SelectKeys<T>>(fields: K2): Table<T, K2, I> {
+    return new Table<T, K2, I>(this.sql, this.tableName, {
       whereConditions: this.whereConditions,
       selectedFields: fields,
       skipValue: this.skipValue,
@@ -137,7 +141,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    *   .findMany();
    * ```
    */
-  where(conditions: WhereCondition<T>[] | Partial<T>): Table<T, K> {
+  where(conditions: WhereCondition<T>[] | Partial<T>): Table<T, K, I> {
     return this.clone({ whereConditions: conditions });
   }
 
@@ -157,7 +161,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    *   .findMany();
    * ```
    */
-  skip(count: number): Table<T, K> {
+  skip(count: number): Table<T, K, I> {
     validatePagination(count, undefined);
     return this.clone({ skipValue: count });
   }
@@ -178,7 +182,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    *   .findMany();
    * ```
    */
-  take(count: number): Table<T, K> {
+  take(count: number): Table<T, K, I> {
     validatePagination(undefined, count);
     return this.clone({ takeValue: count });
   }
@@ -205,7 +209,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    *   .findMany();
    * ```
    */
-  orderBy(spec: SortSpec<T>[]): Table<T, K> {
+  orderBy(spec: SortSpec<T>[]): Table<T, K, I> {
     return this.clone({ orderByValue: spec });
   }
 
@@ -340,6 +344,10 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    * @example
    * ```typescript
    * // Create a new user
+   * // If id is auto-generated:
+   * type UserInsert = Insertable<User, "id">;
+   * const users = db.table<User, UserInsert>("users");
+   *
    * const newUser = await users.create({
    *   name: "John Doe",
    *   email: "john@example.com",
@@ -362,7 +370,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    * // createdUser will only have id and email properties
    * ```
    */
-  async create(data: Partial<T>): Promise<SelectFields<T, K>[0]> {
+  async create(data: I): Promise<SelectFields<T, K>[0]> {
     if (!isValidData(data)) {
       throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
@@ -409,7 +417,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
    *   .createMany([...userData]);
    * ```
    */
-  async createMany(records: Partial<T>[]): Promise<SelectFields<T, K>> {
+  async createMany(records: I[]): Promise<SelectFields<T, K>> {
     if (!Array.isArray(records) || records.length === 0) {
       throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
@@ -433,12 +441,12 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
 
       const recordKeys = Object.keys(record);
       if (recordKeys.length !== columns.length) {
-        throw new QueryError(Errors.INSERT.INVALID_DATA);
+        throw new QueryError(Errors.INSERT.INCONSISTENT_COLUMNS);
       }
 
       for (const key of recordKeys) {
         if (!columnSet.has(key)) {
-          throw new QueryError(Errors.INSERT.INVALID_DATA);
+          throw new QueryError(Errors.INSERT.INCONSISTENT_COLUMNS);
         }
       }
     }

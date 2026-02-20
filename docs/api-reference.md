@@ -5,19 +5,34 @@
 ### Constructor
 
 ```typescript
-constructor(sql: Sql<{}>)
+constructor(sql: Sql<{}>, options?: { strictNames?: boolean; allowSchema?: boolean })
 ```
 
 Creates a new PgBuddyClient instance with a postgres.js connection.
 
-### table<T extends Row>(tableName: string)
+### table<T extends Row, I extends Row = T>(tableName: string, options?: { strictNames?: boolean; allowSchema?: boolean })
 
 Creates a chainable table query builder.
 
 - **Parameters:**
   - `tableName`: string - The name of the table
   - `T`: Generic type parameter representing the table structure
-- **Returns:** `Table<T>`
+  - `I`: Insertable row type (defaults to `T`)
+  - `options`: Optional name validation flags
+- **Returns:** `Table<T, ["*"], I>`
+
+### tableWithInsert<T extends Row, AutoKeys extends keyof T>(tableName: string, options?: { strictNames?: boolean; allowSchema?: boolean })
+
+Creates a chainable table query builder with insert type inferred from auto-generated keys.
+
+- **Parameters:**
+  - `tableName`: string - The name of the table
+  - `T`: Generic type parameter representing the table structure
+  - `AutoKeys`: Keys in `T` that are auto-generated (optional on insert)
+  - `options`: Optional name validation flags
+- **Returns:** `Table<T, ["*"], Insertable<T, AutoKeys>>`
+
+Migration note: if you previously called `db.table<T>(...)` and passed partial insert objects, use `tableWithInsert<T, AutoKeys>(...)` or `Insertable<T, AutoKeys>` to encode auto-generated columns.
 - **Throws:** `TableError` if the table name is invalid
 
 ## Table<T>
@@ -66,13 +81,15 @@ Returns the number of matching records.
 
 ### Mutations
 
-#### create(data: Partial<T>)
+#### create(data: I)
 
 Insert a single record and return it (respects `select`).
+`I` is the insertable row type for the table (defaults to `T`).
 
-#### createMany(records: Partial<T>[]) 
+#### createMany(records: I[])
 
 Insert multiple records and return them (respects `select`).
+Use `Insertable<T, AutoKeys>` to mark auto-generated keys as optional.
 
 #### update(data: Partial<T>)
 
@@ -83,6 +100,35 @@ Update records matching `where` and return the updated rows (respects `select`).
 Delete records matching `where` and return the deleted rows (respects `select`). Requires `where`.
 
 ## Types
+
+### Insertable<T, AutoKeys>
+
+```typescript
+type Insertable<T extends Row, AutoKeys extends keyof T = never> =
+  Omit<T, AutoKeys> & Partial<Pick<T, AutoKeys>>;
+```
+
+Helper for marking auto-generated columns as optional when using `create`/`createMany`.
+
+### Updatable<T>
+
+```typescript
+type Updatable<T extends Row> = Partial<T>;
+```
+
+Helper for update payloads.
+
+### Model<T, AutoKeys>
+
+```typescript
+type Model<T extends Row, AutoKeys extends keyof T = never> = {
+  Insert: Insertable<T, AutoKeys>;
+  Update: Updatable<T>;
+  Select: T;
+};
+```
+
+Grouped helper types for Prisma-like ergonomics.
 
 ### WhereCondition<T>
 

@@ -42,6 +42,7 @@ describe("Table - create", () => {
 
   test("creates a single record and returns it", async () => {
     const user = await db.table<User>("users").create({
+      id: 1001,
       email: "ada@example.com",
       status: "active",
       last_login: null,
@@ -56,7 +57,7 @@ describe("Table - create", () => {
     const user = await db
       .table<User>("users")
       .select(["id", "email"])
-      .create({ email: "ada@example.com", status: "active", last_login: null });
+      .create({ id: 1002, email: "ada@example.com", status: "active", last_login: null });
 
     expect(user.email).toBe("ada@example.com");
     expect("status" in user).toBe(false);
@@ -64,8 +65,8 @@ describe("Table - create", () => {
 
   test("createMany inserts multiple records and returns them", async () => {
     const users = await db.table<User>("users").createMany([
-      { email: "ada@example.com", status: "active", last_login: null },
-      { email: "grace@example.com", status: "inactive", last_login: null },
+      { id: 1003, email: "ada@example.com", status: "active", last_login: null },
+      { id: 1004, email: "grace@example.com", status: "inactive", last_login: null },
     ]);
 
     expect(users).toHaveLength(2);
@@ -74,11 +75,11 @@ describe("Table - create", () => {
 
   test("create rejects empty data", async () => {
     await expect(
-      db.table<User>("users").create({} as Partial<User>)
+      db.table<User>("users").create({} as unknown as User)
     ).rejects.toThrow();
   });
 
   test("createMany rejects empty array", async () => {
-    await expect(db.table<User>("users").createMany([])).rejects.toThrow();
+    await expect(db.table<User>("users").createMany([] as User[])).rejects.toThrow();
   });
 });

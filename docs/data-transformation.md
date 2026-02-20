@@ -120,6 +120,7 @@ interface UserProfile {
 
 // queries.ts - Database queries
 import { sql, db } from './db';
+import type { Model } from 'pgbuddy';
 
 // Using raw postgres.js - transformation will be applied
 const rawQuery = async () => {
@@ -128,7 +129,8 @@ const rawQuery = async () => {
 };
 
 // Using PgBuddy - working with the transformed data
-const userProfileTable = db.table<UserProfile>('user_profiles');
+type UserProfileModel = Model<UserProfile, 'id'>;
+const userProfileTable = db.table<UserProfile, UserProfileModel['Insert']>('user_profiles');
 
 const pgBuddyQuery = async () => {
   return userProfileTable
