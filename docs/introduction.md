@@ -25,6 +25,30 @@ yarn add pgbuddy postgres
 
 ```typescript
 import postgres from 'postgres';
+import { z } from 'zod';
+import { PgBuddyClient } from 'pgbuddy';
+
+// Initialize postgres connection
+const sql = postgres('postgres://username:password@localhost:5432/dbname');
+
+// Create PgBuddy client
+const db = new PgBuddyClient(sql);
+
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  created_at: z.date(),
+});
+
+const users = db.table('users', UserSchema);
+```
+
+<details>
+<summary>Chainable API (no Zod)</summary>
+
+```typescript
+import postgres from 'postgres';
 import { PgBuddyClient, type Insertable, type Model } from 'pgbuddy';
 
 // Initialize postgres connection
@@ -49,6 +73,8 @@ const userTable = db.table<User, UserInsert>('users');
 type UserModel = Model<User, 'id'>;
 const userTable2 = db.table<User, UserModel['Insert']>('users');
 ```
+
+</details>
 
 ### Migration Note
 

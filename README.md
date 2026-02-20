@@ -26,61 +26,6 @@ npm install zod
 
 ## Quick Start
 
-### New Chainable API
-
-```typescript
-import postgres from "postgres";
-import { PgBuddyClient, type Insertable, type Model } from "pgbuddy";
-
-// Create postgres.js connection
-const sql = postgres("postgres://username:password@localhost:5432/dbname");
-const db = new PgBuddyClient(sql);
-
-interface User {
-  id: number;
-  email: string;
-  name: string;
-  active: boolean;
-}
-
-// Define table
-// Option A: simple insert type
-type UserInsert = Insertable<User, "id">;
-const users = db.table<User, UserInsert>("users");
-
-// Option B: grouped model types
-type UserModel = Model<User, "id">;
-const users2 = db.table<User, UserModel["Insert"]>("users");
-
-// Find users with chainable methods
-const activeUsers = await users
-  .where({ active: true })
-  .orderBy([{ column: "id", direction: "DESC" }])
-  .take(10)
-  .findMany();
-
-// Create a user
-const newUser = await users.create({
-  email: "user@example.com",
-  name: "User",
-  active: true,
-});
-
-// Create multiple users
-const newUsers = await users.createMany([
-  { email: "user1@example.com", name: "User 1", active: true },
-  { email: "user2@example.com", name: "User 2", active: true },
-]);
-
-// Update a user
-const updatedUser = await users.where({ id: 1 }).update({ active: false });
-
-// Delete a user
-const deletedUser = await users.where({ id: 1 }).delete();
-```
-
-### Zod-First (Schema as Source of Truth)
-
 ```typescript
 import postgres from "postgres";
 import { z } from "zod";
@@ -114,6 +59,81 @@ await users.where({ id: 1 }).update({ active: false });
 // Where keys and values are validated
 await users.where({ email: "user@example.com" }).findFirst();
 ```
+
+<details>
+<summary>Chainable API (no Zod)</summary>
+
+```typescript
+import postgres from "postgres";
+import { PgBuddyClient, type Insertable, type Model } from "pgbuddy";
+
+// Create postgres.js connection
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
+const db = new PgBuddyClient(sql);
+
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
+}
+
+// Define table
+// Option A: simple insert type
+type UserInsert = Insertable<User, "id">;
+const users = db.table<User, UserInsert>("users");
+
+// Option B: grouped model types
+type UserModel = Model<User, "id">;
+const users2 = db.table<User, UserModel["Insert"]>("users");
+
+// Option C: helper for auto-generated keys
+const users3 = db.tableWithInsert<User, "id">("users");
+
+// Find users with chainable methods
+const activeUsers = await users
+  .where({ active: true })
+  .orderBy([{ column: "id", direction: "DESC" }])
+  .take(10)
+  .findMany();
+
+// Find one (nullable)
+const newestUser = await users
+  .where({ active: true })
+  .orderBy([{ column: "id", direction: "DESC" }])
+  .findFirst();
+
+// Find unique (nullable, throws if multiple match)
+const userByEmail = await users
+  .where({ email: "user@example.com" })
+  .findUnique();
+
+// Count matching records
+const activeCount = await users.where({ active: true }).count();
+
+// Create a user
+const newUser = await users.create({
+  email: "user@example.com",
+  name: "User",
+  active: true,
+});
+
+// Create multiple users
+const newUsers = await users.createMany([
+  { email: "user1@example.com", name: "User 1", active: true },
+  { email: "user2@example.com", name: "User 2", active: true },
+]);
+
+// Update users (returns an array)
+const updatedUsers = await users.where({ id: 1 }).update({ active: false });
+const [updatedUser] = updatedUsers;
+
+// Delete users (returns an array)
+const deletedUsers = await users.where({ id: 1 }).delete();
+const [deletedUser] = deletedUsers;
+```
+
+</details>
 
 ## Documentation
 
