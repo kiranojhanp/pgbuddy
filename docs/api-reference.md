@@ -10,9 +10,19 @@ constructor(sql: Sql<{}>, options?: { strictNames?: boolean; allowSchema?: boole
 
 Creates a new PgBuddyClient instance with a postgres.js connection.
 
+### table<S extends ZodObject<any>>(tableName: string, schema: S, options?: { strictNames?: boolean; allowSchema?: boolean })
+
+Creates a chainable table query builder with Zod validation.
+
+- **Parameters:**
+  - `tableName`: string - The name of the table
+  - `schema`: Zod schema used for input/output validation
+  - `options`: Optional name validation flags
+- **Returns:** `ZodTable<S>`
+
 ### table<T extends Row, I extends Row = T>(tableName: string, options?: { strictNames?: boolean; allowSchema?: boolean })
 
-Creates a chainable table query builder.
+Creates a chainable table query builder without Zod validation.
 
 - **Parameters:**
   - `tableName`: string - The name of the table
@@ -32,8 +42,14 @@ Creates a chainable table query builder with insert type inferred from auto-gene
   - `options`: Optional name validation flags
 - **Returns:** `Table<T, ["*"], Insertable<T, AutoKeys>>`
 
-Migration note: if you previously called `db.table<T>(...)` and passed partial insert objects, use `tableWithInsert<T, AutoKeys>(...)` or `Insertable<T, AutoKeys>` to encode auto-generated columns.
 - **Throws:** `TableError` if the table name is invalid
+
+## ZodTable<S>
+
+ZodTable provides the same chainable API as Table, with runtime validation:
+- `where` validates field names and values
+- `create` / `createMany` validate input data
+- `update` validates partial updates
 
 ## Table<T>
 
@@ -108,7 +124,7 @@ type Insertable<T extends Row, AutoKeys extends keyof T = never> =
   Omit<T, AutoKeys> & Partial<Pick<T, AutoKeys>>;
 ```
 
-Helper for marking auto-generated columns as optional when using `create`/`createMany`.
+Helper for marking auto-generated columns as optional when using `create`/`createMany` without Zod.
 
 ### Updatable<T>
 
@@ -128,7 +144,7 @@ type Model<T extends Row, AutoKeys extends keyof T = never> = {
 };
 ```
 
-Grouped helper types for Prisma-like ergonomics.
+Grouped helper types for Prisma-like ergonomics without Zod.
 
 ### WhereCondition<T>
 

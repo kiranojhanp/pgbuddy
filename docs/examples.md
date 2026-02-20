@@ -4,38 +4,37 @@
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddyClient, type Insertable, type Model } from 'pgbuddy';
+import { z } from 'zod';
+import { PgBuddyClient } from 'pgbuddy';
 
 // Database connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
 const db = new PgBuddyClient(sql);
 
-// Define table types
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  status: 'active' | 'inactive';
-  created_at: Date;
-  updated_at: Date;
-}
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(['active', 'inactive']),
+  last_login: z.date().nullable(),
+  created_at: z.date(),
+  updated_at: z.date()
+});
 
-type UserInsert = Insertable<User, 'id' | 'created_at' | 'updated_at'>;
-const userTable = db.table<User, UserInsert>('users');
+type User = z.infer<typeof UserSchema>;
+type UserInput = z.input<typeof UserSchema>;
 
-// Or Prisma-like grouped types
-type UserModel = Model<User, 'id' | 'created_at' | 'updated_at'>;
-const userTable2 = db.table<User, UserModel['Insert']>('users');
+const userTable = db.table('users', UserSchema);
 ```
-
-Migration note: if you previously used `db.table<T>(...)` with partial insert objects, define `Insertable<T, AutoKeys>` or `Model<T, AutoKeys>` and pass the insert type as the second generic.
 
 ## Common Use Cases
 
 ### User Management System
 
 ```typescript
-async function createUser(userData: Omit<User, 'id' | 'created_at' | 'updated_at'>) {
+async function createUser(
+  userData: Omit<UserInput, 'id' | 'created_at' | 'updated_at'>
+) {
   return userTable.select(['id', 'email']).create(userData);
 }
 
@@ -69,18 +68,19 @@ async function searchUsers(query: string) {
 ### Blog Post System
 
 ```typescript
-interface Post {
-  id: number;
-  title: string;
-  content: string;
-  author_id: number;
-  status: 'draft' | 'published' | 'archived';
-  publish_date: Date | null;
-  created_at: Date;
-}
+const PostSchema = z.object({
+  id: z.number().int(),
+  title: z.string(),
+  content: z.string(),
+  author_id: z.number().int(),
+  status: z.enum(['draft', 'published', 'archived']),
+  publish_date: z.date().nullable(),
+  created_at: z.date()
+});
 
-type PostInsert = Insertable<Post, 'id' | 'created_at'>;
-const postTable = db.table<Post, PostInsert>('posts');
+type Post = z.infer<typeof PostSchema>;
+
+const postTable = db.table('posts', PostSchema);
 
 // Create draft post
 async function createDraft(authorId: number, title: string, content: string) {
@@ -117,19 +117,20 @@ async function getPublishedPosts(page: number, pageSize: number) {
 ### Order Processing System
 
 ```typescript
-interface Order {
-  id: number;
-  customer_id: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  total_amount: number;
-  created_at: Date;
-  updated_at: Date;
-  shipping_address: string;
-  tracking_number: string | null;
-}
+const OrderSchema = z.object({
+  id: z.number().int(),
+  customer_id: z.number().int(),
+  status: z.enum(['pending', 'processing', 'shipped', 'delivered', 'cancelled']),
+  total_amount: z.number(),
+  created_at: z.date(),
+  updated_at: z.date(),
+  shipping_address: z.string(),
+  tracking_number: z.string().nullable()
+});
 
-type OrderInsert = Insertable<Order, 'id' | 'created_at' | 'updated_at'>;
-const orderTable = db.table<Order, OrderInsert>('orders');
+type Order = z.infer<typeof OrderSchema>;
+
+const orderTable = db.table('orders', OrderSchema);
 
 // Create new order
 async function createOrder(customerId: number, amount: number, shippingAddress: string) {
@@ -181,19 +182,20 @@ async function getPendingShipments() {
 ### Inventory Management System
 
 ```typescript
-interface Product {
-  id: number;
-  sku: string;
-  name: string;
-  description: string;
-  price: number;
-  stock_quantity: number;
-  low_stock_threshold: number;
-  last_restock_date: Date;
-}
+const ProductSchema = z.object({
+  id: z.number().int(),
+  sku: z.string(),
+  name: z.string(),
+  description: z.string(),
+  price: z.number(),
+  stock_quantity: z.number().int(),
+  low_stock_threshold: z.number().int(),
+  last_restock_date: z.date()
+});
 
-type ProductModel = Model<Product, 'id'>;
-const productTable = db.table<Product, ProductModel['Insert']>('products');
+type Product = z.infer<typeof ProductSchema>;
+
+const productTable = db.table('products', ProductSchema);
 
 // Update stock levels
 async function updateStock(productId: number, quantity: number) {
@@ -238,17 +240,18 @@ async function searchProducts(query: string) {
 ### Event Logging System
 
 ```typescript
-interface EventLog {
-  id: number;
-  event_type: string;
-  severity: 'info' | 'warning' | 'error';
-  message: string;
-  metadata: Record<string, any>;
-  timestamp: Date;
-}
+const EventLogSchema = z.object({
+  id: z.number().int(),
+  event_type: z.string(),
+  severity: z.enum(['info', 'warning', 'error']),
+  message: z.string(),
+  metadata: z.record(z.any()),
+  timestamp: z.date()
+});
 
-type EventLogInsert = Insertable<EventLog, 'id'>;
-const eventLogTable = db.table<EventLog, EventLogInsert>('event_logs');
+type EventLog = z.infer<typeof EventLogSchema>;
+
+const eventLogTable = db.table('event_logs', EventLogSchema);
 
 // Log new event
 async function logEvent(
@@ -320,7 +323,7 @@ async function handleDatabaseOperation<T>(
 }
 
 // Usage with error handling
-async function safeCreateUser(userData: UserInsert) {
+async function safeCreateUser(userData: UserInput) {
   return handleDatabaseOperation(async () => {
     const user = await userTable.select(['id', 'email']).create(userData);
     return user;

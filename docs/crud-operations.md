@@ -2,15 +2,21 @@
 
 ## Insert Operations
 
-Assumes your table is defined with an insertable type, for example:
+Assumes your table is defined with a Zod schema, for example:
 
 ```typescript
-import { type Insertable } from "pgbuddy";
-type UserInsert = Insertable<User, "id">;
-const userTable = db.table<User, UserInsert>("users");
-```
+import { z } from "zod";
 
-Migration note: if you previously passed partial objects to `create`/`createMany`, define and use an insert type as shown above.
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(["active", "inactive"]),
+  created_at: z.date(),
+});
+
+const userTable = db.table("users", UserSchema);
+```
 
 ### Basic Insert
 
@@ -46,6 +52,7 @@ const user = await userTable
 const updated = await userTable
   .where({ id: 1 })
   .update({ status: 'active' });
+const [updatedUser] = updated;
 ```
 
 ### Complex Update Conditions
@@ -76,6 +83,7 @@ const updated = await userTable
 const deleted = await userTable
   .where({ id: 1 })
   .delete();
+const [deletedUser] = deleted;
 ```
 
 ### Complex Delete Conditions

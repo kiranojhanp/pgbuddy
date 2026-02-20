@@ -1,5 +1,24 @@
 # Select Operations
 
+## Setup
+
+```typescript
+import { z } from 'zod';
+
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(['active', 'inactive']),
+  age: z.number().int(),
+  last_login: z.date().nullable(),
+  deleted_at: z.date().nullable(),
+  created_at: z.date()
+});
+
+const userTable = db.table('users', UserSchema);
+```
+
 ## Basic Queries
 
 ### Simple Select

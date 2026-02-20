@@ -61,34 +61,25 @@ await users.where({ email: "user@example.com" }).findFirst();
 ```
 
 <details>
-<summary>Chainable API (no Zod)</summary>
+<summary>Chainable API (with Zod)</summary>
 
 ```typescript
 import postgres from "postgres";
-import { PgBuddyClient, type Insertable, type Model } from "pgbuddy";
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
 
 // Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
 const db = new PgBuddyClient(sql);
 
-interface User {
-  id: number;
-  email: string;
-  name: string;
-  active: boolean;
-}
+const UserSchema = z.object({
+  id: z.number().int(),
+  email: z.string().email(),
+  name: z.string(),
+  active: z.boolean(),
+});
 
-// Define table
-// Option A: simple insert type
-type UserInsert = Insertable<User, "id">;
-const users = db.table<User, UserInsert>("users");
-
-// Option B: grouped model types
-type UserModel = Model<User, "id">;
-const users2 = db.table<User, UserModel["Insert"]>("users");
-
-// Option C: helper for auto-generated keys
-const users3 = db.tableWithInsert<User, "id">("users");
+const users = db.table("users", UserSchema);
 
 // Find users with chainable methods
 const activeUsers = await users

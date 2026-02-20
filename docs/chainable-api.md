@@ -6,7 +6,8 @@ This document explains the chainable API in PgBuddy.
 
 ```typescript
 import postgres from "postgres";
-import { PgBuddyClient, type Insertable, type Model } from "pgbuddy";
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
 
 // PostgreSQL connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -25,7 +26,8 @@ npm install pgbuddy postgres
 
 ```typescript
 import postgres from "postgres";
-import { PgBuddyClient, type Insertable } from "pgbuddy";
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
 
 // Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -37,31 +39,15 @@ const db = new PgBuddyClient(sql);
 ## Defining Tables
 
 ```typescript
-// Define your table type
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  status: "active" | "inactive";
-  created_at: Date;
-}
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(["active", "inactive"]),
+  created_at: z.date(),
+});
 
-// Define table
-type UserInsert = Insertable<User, "id">;
-const users = db.table<User, UserInsert>("users");
-
-// Or Prisma-like grouped types
-type UserModel = Model<User, "id">;
-const users2 = db.table<User, UserModel["Insert"]>("users");
-```
-
-## Migration Note
-
-If you used `db.table<User>("users")` and relied on partial inserts, define an insert type and pass it as the second generic:
-
-```typescript
-type UserInsert = Insertable<User, "id">;
-const users = db.table<User, UserInsert>("users");
+const users = db.table("users", UserSchema);
 ```
 
 ## Find Operations
@@ -136,15 +122,17 @@ const newUsers = await users.createMany([
 ### Update
 
 ```typescript
-// Update records
-const updatedUser = await users.where({ id: 1 }).update({ status: "inactive" });
+// Update records (returns an array)
+const updatedUsers = await users.where({ id: 1 }).update({ status: "inactive" });
+const [updatedUser] = updatedUsers;
 ```
 
 ### Delete
 
 ```typescript
-// Delete records
-const deletedUser = await users.where({ id: 1 }).delete();
+// Delete records (returns an array)
+const deletedUsers = await users.where({ id: 1 }).delete();
+const [deletedUser] = deletedUsers;
 ```
 
 ## Count

@@ -119,8 +119,8 @@ interface UserProfile {
 }
 
 // queries.ts - Database queries
+import { z } from 'zod';
 import { sql, db } from './db';
-import type { Model } from 'pgbuddy';
 
 // Using raw postgres.js - transformation will be applied
 const rawQuery = async () => {
@@ -129,8 +129,13 @@ const rawQuery = async () => {
 };
 
 // Using PgBuddy - working with the transformed data
-type UserProfileModel = Model<UserProfile, 'id'>;
-const userProfileTable = db.table<UserProfile, UserProfileModel['Insert']>('user_profiles');
+const UserProfileSchema = z.object({
+  userId: z.number().int(),
+  firstName: z.string(),
+  lastName: z.string()
+});
+
+const userProfileTable = db.table('user_profiles', UserProfileSchema);
 
 const pgBuddyQuery = async () => {
   return userProfileTable

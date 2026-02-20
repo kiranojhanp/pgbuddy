@@ -45,11 +45,12 @@ const users = db.table('users', UserSchema);
 ```
 
 <details>
-<summary>Chainable API (no Zod)</summary>
+<summary>Chainable API (with Zod)</summary>
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddyClient, type Insertable, type Model } from 'pgbuddy';
+import { z } from 'zod';
+import { PgBuddyClient } from 'pgbuddy';
 
 // Initialize postgres connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
@@ -57,33 +58,24 @@ const sql = postgres('postgres://username:password@localhost:5432/dbname');
 // Create PgBuddy client
 const db = new PgBuddyClient(sql);
 
-// Define your table type
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  created_at: Date;
-}
+const UserSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(['active', 'inactive']),
+  created_at: z.date()
+});
 
-// Create table interface
-type UserInsert = Insertable<User, 'id'>;
-const userTable = db.table<User, UserInsert>('users');
+const users = db.table('users', UserSchema);
 
-// Or Prisma-like grouped types
-type UserModel = Model<User, 'id'>;
-const userTable2 = db.table<User, UserModel['Insert']>('users');
+// Chain methods as needed
+const activeUsers = await users
+  .where({ status: 'active' })
+  .orderBy([{ column: 'created_at', direction: 'DESC' }])
+  .findMany();
 ```
 
 </details>
-
-### Migration Note
-
-If you previously called `db.table<User>("users")` and passed partial objects to `create`/`createMany`, update to an explicit insert type:
-
-```typescript
-type UserInsert = Insertable<User, 'id'>;
-const userTable = db.table<User, UserInsert>('users');
-```
 
 ### Advanced Features
 
