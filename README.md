@@ -6,11 +6,11 @@ A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) qu
 
 ## Features
 
-- 🛡️ Type-safe queries with TypeScript
-- 🔒 SQL injection prevention
-- 🎯 Simple CRUD operation builders
-- 🚀 **NEW**: Chainable query API
-- 📦 Thin wrapper over postgres.js
+- Type-safe queries with TypeScript
+- SQL injection prevention
+- Simple CRUD operation builders
+- Chainable query API
+- Just a thin wrapper over postgres.js
 
 ## Installation
 
@@ -82,6 +82,7 @@ PgBuddy documentation:
 ## Advanced Features
 
 PgBuddy is a wrapper around postgres.js. For advanced PostgreSQL features like:
+
 - Transactions
 - Prepared Statements
 - Listen/Notify
@@ -97,5 +98,4 @@ MIT
 
 ## Contributing
 
-Contributions welcome! Please read our [contributing guidelines](CONTRIBUTING.md) first.
-```
+Contributions welcome!

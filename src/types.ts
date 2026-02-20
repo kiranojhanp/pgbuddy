@@ -164,6 +164,16 @@ export interface SortSpec<T extends Row> {
 }
 
 /**
+ * Valid select keys for queries.
+ *
+ * - ["*"] selects all columns
+ * - Otherwise an array of column names
+ */
+export type SelectKeys<T extends Row> =
+  | ["*"]
+  | readonly (keyof T & string)[];
+
+/**
  * Utility type to pick specific fields from a given type.
  *
  * @template T - The source type from which fields will be picked.
@@ -173,7 +183,7 @@ export interface SortSpec<T extends Row> {
  * type User = { id: number; name: string; age: number };
  * type UserPick = PickFields<User, ['id', 'name']>; // { id: number; name: string; }
  */
-export type PickFields<T, K extends readonly (keyof T)[]> = {
+export type PickFields<T, K extends readonly (keyof T & string)[]> = {
   [P in K[number]]: T[P];
 };
 
@@ -189,6 +199,6 @@ export type PickFields<T, K extends readonly (keyof T)[]> = {
  * type FullUsers = SelectFields<User, ["*"]>; // User[]
  * type PartialUsers = SelectFields<User, ["id", "name"]>; // { id: number; name: string }[]
  */
-export type SelectFields<T, K extends readonly (keyof T)[]> = K extends ["*"]
+export type SelectFields<T extends Row, K extends SelectKeys<T>> = K extends ["*"]
   ? T[]
-  : PickFields<T, K>[];
+  : PickFields<T, Extract<K, readonly (keyof T & string)[]>>[];

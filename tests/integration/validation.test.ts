@@ -59,9 +59,28 @@ describe("Table - validation", () => {
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
   });
 
+  test("create rejects non-plain objects", async () => {
+    await expect(
+      db.table<User>("users").create([] as unknown as Partial<User>)
+    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+
+    await expect(
+      db.table<User>("users").create(new Date() as unknown as Partial<User>)
+    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+  });
+
   test("createMany rejects empty array", async () => {
     await expect(
       db.table<User>("users").createMany([])
+    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+  });
+
+  test("createMany rejects inconsistent columns", async () => {
+    await expect(
+      db.table<User>("users").createMany([
+        { email: "ada@example.com", status: "active", last_login: null },
+        { email: "grace@example.com", last_login: null } as Partial<User>,
+      ])
     ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
   });
 
@@ -77,9 +96,21 @@ describe("Table - validation", () => {
     ).rejects.toThrow(Errors.UPDATE.INVALID_DATA);
   });
 
+  test("update rejects invalid where clause", async () => {
+    await expect(
+      db.table<User>("users").where([] as unknown as any).update({ status: "active" })
+    ).rejects.toThrow(Errors.UPDATE.NO_CONDITIONS);
+  });
+
   test("delete rejects missing where clause", async () => {
     await expect(
       db.table<User>("users").delete()
+    ).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
+  });
+
+  test("delete rejects invalid where clause", async () => {
+    await expect(
+      db.table<User>("users").where([] as unknown as any).delete()
     ).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
   });
 

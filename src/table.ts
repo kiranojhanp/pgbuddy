@@ -1,6 +1,6 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "./errors";
-import type { SelectFields, WhereCondition, SortSpec } from "./types";
+import type { SelectFields, WhereCondition, SortSpec, SelectKeys } from "./types";
 import {
   buildSelect,
   buildWhereConditions,
@@ -42,18 +42,42 @@ import {
  *
  * @template T The table row type that extends Postgres.js Row
  */
-export class Table<T extends Row> {
+type TableState<T extends Row> = {
+  whereConditions?: WhereCondition<T>[] | Partial<T>;
+  selectedFields: SelectKeys<T>;
+  skipValue?: number;
+  takeValue?: number;
+  orderByValue?: SortSpec<T>[];
+};
+
+export class Table<T extends Row, K extends SelectKeys<T> = ["*"]> {
   private sql: Sql<{}>;
   private tableName: string;
   private whereConditions?: WhereCondition<T>[] | Partial<T>;
-  private selectedFields: (keyof T)[] = ["*" as keyof T];
+  private selectedFields: K;
   private skipValue?: number;
   private takeValue?: number;
   private orderByValue?: SortSpec<T>[];
 
-  constructor(sql: Sql<{}>, tableName: string) {
+  constructor(sql: Sql<{}>, tableName: string, state?: TableState<T>) {
     this.sql = sql;
     this.tableName = tableName;
+    this.whereConditions = state?.whereConditions;
+    this.selectedFields = (state?.selectedFields ?? ["*"]) as K;
+    this.skipValue = state?.skipValue;
+    this.takeValue = state?.takeValue;
+    this.orderByValue = state?.orderByValue;
+  }
+
+  private clone(next: Partial<TableState<T>>): Table<T, K> {
+    return new Table<T, K>(this.sql, this.tableName, {
+      whereConditions: this.whereConditions,
+      selectedFields: this.selectedFields,
+      skipValue: this.skipValue,
+      takeValue: this.takeValue,
+      orderByValue: this.orderByValue,
+      ...next,
+    });
   }
 
   /**
@@ -72,9 +96,14 @@ export class Table<T extends Row> {
    * // Result type will be { id: number; email: string }[]
    * ```
    */
-  select<K extends (keyof T)[]>(fields: K): Table<T> {
-    this.selectedFields = fields;
-    return this;
+  select<K2 extends SelectKeys<T>>(fields: K2): Table<T, K2> {
+    return new Table<T, K2>(this.sql, this.tableName, {
+      whereConditions: this.whereConditions,
+      selectedFields: fields,
+      skipValue: this.skipValue,
+      takeValue: this.takeValue,
+      orderByValue: this.orderByValue,
+    });
   }
 
   /**
@@ -108,9 +137,8 @@ export class Table<T extends Row> {
    *   .findMany();
    * ```
    */
-  where(conditions: WhereCondition<T>[] | Partial<T>): Table<T> {
-    this.whereConditions = conditions;
-    return this;
+  where(conditions: WhereCondition<T>[] | Partial<T>): Table<T, K> {
+    return this.clone({ whereConditions: conditions });
   }
 
   /**
@@ -129,10 +157,9 @@ export class Table<T extends Row> {
    *   .findMany();
    * ```
    */
-  skip(count: number): Table<T> {
+  skip(count: number): Table<T, K> {
     validatePagination(count, undefined);
-    this.skipValue = count;
-    return this;
+    return this.clone({ skipValue: count });
   }
 
   /**
@@ -151,10 +178,9 @@ export class Table<T extends Row> {
    *   .findMany();
    * ```
    */
-  take(count: number): Table<T> {
+  take(count: number): Table<T, K> {
     validatePagination(undefined, count);
-    this.takeValue = count;
-    return this;
+    return this.clone({ takeValue: count });
   }
 
   /**
@@ -179,9 +205,8 @@ export class Table<T extends Row> {
    *   .findMany();
    * ```
    */
-  orderBy(spec: SortSpec<T>[]): Table<T> {
-    this.orderByValue = spec;
-    return this;
+  orderBy(spec: SortSpec<T>[]): Table<T, K> {
+    return this.clone({ orderByValue: spec });
   }
 
   /**
@@ -205,9 +230,7 @@ export class Table<T extends Row> {
    *   .findMany();
    * ```
    */
-  async findMany<K extends (keyof T)[] = typeof this.selectedFields>(): Promise<
-    SelectFields<T, K>
-  > {
+  async findMany(): Promise<SelectFields<T, K>> {
     return this.executeSelect() as Promise<SelectFields<T, K>>;
   }
 
@@ -231,9 +254,7 @@ export class Table<T extends Row> {
    * }
    * ```
    */
-  async findFirst<
-    K extends (keyof T)[] = typeof this.selectedFields
-  >(): Promise<SelectFields<T, K>[0] | null> {
+  async findFirst(): Promise<SelectFields<T, K>[0] | null> {
     const results = (await this.take(1).executeSelect()) as SelectFields<T, K>;
     return results.length > 0 ? results[0] : null;
   }
@@ -267,9 +288,7 @@ export class Table<T extends Row> {
    * }
    * ```
    */
-  async findUnique<
-    K extends (keyof T)[] = typeof this.selectedFields
-  >(): Promise<SelectFields<T, K>[0] | null> {
+  async findUnique(): Promise<SelectFields<T, K>[0] | null> {
     const results = (await this.executeSelect()) as SelectFields<T, K>;
 
     if (results.length > 1) {
@@ -343,9 +362,7 @@ export class Table<T extends Row> {
    * // createdUser will only have id and email properties
    * ```
    */
-  async create<K extends (keyof T)[] = typeof this.selectedFields>(
-    data: Partial<T>
-  ): Promise<SelectFields<T, K>[0]> {
+  async create(data: Partial<T>): Promise<SelectFields<T, K>[0]> {
     if (!isValidData(data)) {
       throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
@@ -392,21 +409,39 @@ export class Table<T extends Row> {
    *   .createMany([...userData]);
    * ```
    */
-  async createMany<K extends (keyof T)[] = typeof this.selectedFields>(
-    records: Partial<T>[]
-  ): Promise<SelectFields<T, K>> {
+  async createMany(records: Partial<T>[]): Promise<SelectFields<T, K>> {
     if (!Array.isArray(records) || records.length === 0) {
       throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
+
+    // Validate and normalize columns from the first record
+    if (!isValidData(records[0])) {
+      throw new QueryError(Errors.INSERT.INVALID_DATA);
+    }
+
+    const columns = Object.keys(records[0]);
+    if (columns.length === 0) {
+      throw new QueryError(Errors.INSERT.NO_COLUMNS);
+    }
+
+    const columnSet = new Set(columns);
 
     for (const record of records) {
       if (!isValidData(record)) {
         throw new QueryError(Errors.INSERT.INVALID_DATA);
       }
-    }
 
-    // Get columns from first record
-    const columns = Object.keys(records[0]);
+      const recordKeys = Object.keys(record);
+      if (recordKeys.length !== columns.length) {
+        throw new QueryError(Errors.INSERT.INVALID_DATA);
+      }
+
+      for (const key of recordKeys) {
+        if (!columnSet.has(key)) {
+          throw new QueryError(Errors.INSERT.INVALID_DATA);
+        }
+      }
+    }
 
     return this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
@@ -446,9 +481,7 @@ export class Table<T extends Row> {
    *   .update({ status: "inactive" });
    * ```
    */
-  async update<K extends (keyof T)[] = typeof this.selectedFields>(
-    data: Partial<T>
-  ): Promise<SelectFields<T, K>> {
+  async update(data: Partial<T>): Promise<SelectFields<T, K>> {
     if (!isValidWhereConditions(this.whereConditions)) {
       throw new QueryError(Errors.UPDATE.NO_CONDITIONS);
     }
@@ -492,9 +525,7 @@ export class Table<T extends Row> {
    *   .delete();
    * ```
    */
-  async delete<K extends (keyof T)[] = typeof this.selectedFields>(): Promise<
-    SelectFields<T, K>
-  > {
+  async delete(): Promise<SelectFields<T, K>> {
     if (!isValidWhereConditions(this.whereConditions)) {
       throw new QueryError(Errors.DELETE.NO_CONDITIONS);
     }
@@ -512,9 +543,7 @@ export class Table<T extends Row> {
    * @returns Promise resolving to the query results
    * @private
    */
-  private async executeSelect<
-    K extends (keyof T)[] = typeof this.selectedFields
-  >(): Promise<SelectFields<T, K>> {
+  private async executeSelect(): Promise<SelectFields<T, K>> {
     return this.sql<SelectFields<T, K>>`
             SELECT ${buildSelect(this.sql, this.selectedFields)}
             FROM ${this.sql(this.tableName)}

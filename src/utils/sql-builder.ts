@@ -5,8 +5,11 @@ import type {
   SortSpec,
   LikePattern,
   SqlOperator,
+  SelectKeys,
 } from "../types";
 import { isValidName } from "./validators";
+
+type SqlFragment = ReturnType<Sql<{}>["unsafe"]>;
 
 /**
  * Builds a SQL-safe column list for SELECT statements.
@@ -34,8 +37,8 @@ import { isValidName } from "./validators";
  */
 export function buildSelect<T extends Row>(
   sql: Sql<{}>,
-  select: (keyof T)[]
-): any {
+  select: SelectKeys<T>
+): SqlFragment {
   // Handle asterisk (*) or empty selection
   if (!Array.isArray(select) || !select.length || select[0] === "*") {
     return sql`*`;
@@ -81,7 +84,7 @@ export function buildSelect<T extends Row>(
 export function buildWhereConditions<T extends Row>(
   sql: Sql<{}>,
   where?: WhereCondition<T>[] | Partial<T>
-): any {
+): SqlFragment {
   if (!where) return sql``;
 
   if (Array.isArray(where)) {
@@ -116,7 +119,7 @@ export function buildWhereConditions<T extends Row>(
 export function createSimpleWhereFragment<T extends Row>(
   sql: Sql<{}>,
   conditions?: Partial<T>
-): any {
+): SqlFragment {
   const entries = Object.entries(conditions ?? {});
   if (!entries.length) return sql``;
 
@@ -156,7 +159,7 @@ export function createSimpleWhereFragment<T extends Row>(
 export function createAdvancedWhereFragment<T extends Row>(
   sql: Sql<{}>,
   conditions: WhereCondition<T>[]
-): any {
+): SqlFragment {
   if (!conditions?.length) return sql``;
 
   const whereClause = conditions.reduce((acc, condition, index) => {
@@ -190,7 +193,7 @@ export function createConditionFragment(
   operator: SqlOperator,
   value: any,
   pattern?: LikePattern
-): any {
+): SqlFragment {
   if (operator === "IS NULL") {
     return sql`${sql(field)} IS NULL`;
   }
@@ -238,7 +241,7 @@ export function createLikeCondition(
   operator: SqlOperator,
   value: any,
   pattern?: LikePattern
-): any {
+): SqlFragment {
   if (typeof value !== "string") {
     throw new QueryError(Errors.WHERE.INVALID_LIKE(field));
   }
@@ -290,7 +293,7 @@ export function getLikePattern(value: string, pattern?: LikePattern): string {
 export function createSortFragment<T extends Row>(
   sql: Sql<{}>,
   orderBy?: SortSpec<T>[]
-): any {
+): SqlFragment {
   if (!orderBy?.length) return sql``;
 
   const sortClause = orderBy.reduce((acc, { column, direction }, index) => {
@@ -323,7 +326,7 @@ export function createLimitFragment(
   sql: Sql<{}>,
   take?: number,
   skip?: number
-): any {
+): SqlFragment {
   // No pagination parameters provided
   if (!take && !skip) return sql``;
 
@@ -334,5 +337,6 @@ export function createLimitFragment(
   if (take) return sql`LIMIT ${take}`;
 
   // Only offset (skip) provided
+  if (skip === undefined) return sql``;
   return sql`OFFSET ${skip}`;
 }

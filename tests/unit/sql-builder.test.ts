@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import {
   buildSelect,
+  buildWhereConditions,
   createAdvancedWhereFragment,
   createConditionFragment,
   createLikeCondition,
@@ -98,6 +99,19 @@ describe("sql-builder utilities", () => {
 
     expect(noneRows).toHaveLength(3);
     expect(emptyRows).toHaveLength(3);
+  });
+
+  test("buildWhereConditions handles object and array inputs", async () => {
+    const simple = buildWhereConditions<Item>(sql, { name: "alpha" });
+    const simpleRows = await sql`SELECT * FROM items ${simple}`;
+
+    const advanced = buildWhereConditions<Item>(sql, [
+      { field: "score", operator: ">", value: 15 },
+    ]);
+    const advancedRows = await sql`SELECT * FROM items ${advanced}`;
+
+    expect(simpleRows).toHaveLength(1);
+    expect(advancedRows).toHaveLength(2);
   });
 
   test("createAdvancedWhereFragment returns no clause for empty input", async () => {

@@ -112,4 +112,24 @@ describe("Table - find", () => {
     expect(total).toBe(3);
     expect(active).toBe(2);
   });
+
+  test("builder does not carry state across chains", async () => {
+    const table = db.table<User>("users");
+
+    const activeUsers = await table.where({ status: "active" }).findMany();
+    const allUsers = await table.findMany();
+
+    expect(activeUsers).toHaveLength(2);
+    expect(allUsers).toHaveLength(3);
+  });
+
+  test("select projection does not leak to subsequent queries", async () => {
+    const table = db.table<User>("users");
+
+    const projected = await table.select(["email"]).findMany();
+    const full = await table.findMany();
+
+    expect("status" in projected[0]).toBe(false);
+    expect("status" in full[0]).toBe(true);
+  });
 });

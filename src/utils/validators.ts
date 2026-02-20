@@ -1,5 +1,13 @@
 import { Errors, QueryError } from "../errors";
 
+function isPlainObject(value: any): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Date) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 /**
  * Validates if a value is a valid table or column name.
  *
@@ -73,7 +81,7 @@ export function validatePagination(skip?: number, take?: number): void {
  * ```
  */
 export function isValidData(data: any): boolean {
-  return data && typeof data === "object" && Object.keys(data).length > 0;
+  return isPlainObject(data) && Object.keys(data).length > 0;
 }
 
 /**
@@ -103,5 +111,9 @@ export function isValidData(data: any): boolean {
  * ```
  */
 export function isValidWhereConditions(where: any): boolean {
-  return where && typeof where === "object" && Object.keys(where).length > 0;
+  if (Array.isArray(where)) {
+    return where.length > 0 && where.every((entry) => isPlainObject(entry));
+  }
+
+  return isPlainObject(where) && Object.keys(where).length > 0;
 }
