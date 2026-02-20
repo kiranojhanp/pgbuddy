@@ -30,7 +30,7 @@ jobs:
       - name: Check if version exists
         id: version-check
         run: |
-          if npm view ${{ github.event.repository.name }}@${{ steps.package-version.outputs.current-version }} version; then
+          if curl -sf "https://registry.npmjs.org/${{ github.event.repository.name }}/${{ steps.package-version.outputs.current-version }}" > /dev/null; then
             echo "Version already exists"
             exit 1
           fi
@@ -53,11 +53,9 @@ jobs:
         run: bun run build
 
       - name: Publish to NPM
-        run: |
-          npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}"
-          npm publish --access public
+        run: bun publish --access public
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
