@@ -27,9 +27,12 @@ let brh = 0;
 let currentFile: string | null = null;
 let includeCurrent = false;
 
+const normalizePath = (filePath: string) => filePath.replace(/\\/g, "/");
+
 const shouldInclude = (filePath: string) => {
-  if (filePath.includes("/node_modules/")) return false;
-  return filePath.includes("/src/");
+  const normalized = normalizePath(filePath);
+  if (normalized.includes("/node_modules/")) return false;
+  return normalized.includes("/src/") || normalized.startsWith("src/");
 };
 
 const addTotals = (key: string, value: number) => {
