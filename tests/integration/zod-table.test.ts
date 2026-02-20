@@ -10,7 +10,7 @@ describe("ZodTable", () => {
 
   const UserSchema = z.object({
     id: z.number().int(),
-    email: z.string().email(),
+    email: z.email(),
     status: z.enum(["active", "inactive"]),
     last_login: z.date().nullable(),
   });
