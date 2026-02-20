@@ -1,10 +1,8 @@
 name: Publish to NPM
-
 on:
   push:
     branches:
-      -
-
+      - main
   workflow_dispatch:
 
 jobs:
@@ -15,13 +13,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: "lts/*"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: bun install
+        run: npm install --no-package-lock
 
       - name: Get version from package.json
         id: package-version
@@ -50,20 +49,18 @@ jobs:
           skip-commit: true
 
       - name: Build
-        run: bun run build
+        run: npm run build
 
       - name: Publish to NPM
-        run: bun publish --access public
+        run: npm publish --access public
         env:
-          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        uses: actions/create-release@v1
+        uses: elgohr/Github-Release-Action@v5
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.package-version.outputs.current-version }}
-          release_name: Release v${{ steps.package-version.outputs.current-version }}
-          body: ${{ steps.changelog.outputs.clean_changelog }}
-          draft: false
+          title: Release v${{ steps.package-version.outputs.current-version }}
+          tag: v${{ steps.package-version.outputs.current-version }}
           prerelease: false
