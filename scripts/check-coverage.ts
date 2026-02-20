@@ -24,13 +24,42 @@ let fnh = 0;
 let brf = 0;
 let brh = 0;
 
+let currentFile: string | null = null;
+let includeCurrent = false;
+
+const shouldInclude = (filePath: string) => {
+  if (filePath.includes("/node_modules/")) return false;
+  return filePath.includes("/src/");
+};
+
+const addTotals = (key: string, value: number) => {
+  if (!includeCurrent) return;
+  if (key === "LF") lf += value;
+  if (key === "LH") lh += value;
+  if (key === "FNF") fnf += value;
+  if (key === "FNH") fnh += value;
+  if (key === "BRF") brf += value;
+  if (key === "BRH") brh += value;
+};
+
 for (const line of text.split("\n")) {
-  if (line.startsWith("LF:")) lf += Number(line.slice(3));
-  if (line.startsWith("LH:")) lh += Number(line.slice(3));
-  if (line.startsWith("FNF:")) fnf += Number(line.slice(4));
-  if (line.startsWith("FNH:")) fnh += Number(line.slice(4));
-  if (line.startsWith("BRF:")) brf += Number(line.slice(4));
-  if (line.startsWith("BRH:")) brh += Number(line.slice(4));
+  if (line.startsWith("SF:")) {
+    currentFile = line.slice(3).trim();
+    includeCurrent = currentFile.length > 0 && shouldInclude(currentFile);
+    continue;
+  }
+
+  if (line.startsWith("LF:")) addTotals("LF", Number(line.slice(3)));
+  if (line.startsWith("LH:")) addTotals("LH", Number(line.slice(3)));
+  if (line.startsWith("FNF:")) addTotals("FNF", Number(line.slice(4)));
+  if (line.startsWith("FNH:")) addTotals("FNH", Number(line.slice(4)));
+  if (line.startsWith("BRF:")) addTotals("BRF", Number(line.slice(4)));
+  if (line.startsWith("BRH:")) addTotals("BRH", Number(line.slice(4)));
+}
+
+if (lf === 0 && fnf === 0 && brf === 0) {
+  console.error("Coverage failure: no matching src/* files in lcov report.");
+  process.exit(1);
 }
 
 if (lf !== lh || fnf !== fnh || brf !== brh) {
