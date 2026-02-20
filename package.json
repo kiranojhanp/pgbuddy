@@ -22,7 +22,6 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
-    "test:coverage:check": "bash scripts/check-coverage.sh",
     "test:types": "tsc -p tsconfig.types.json --noEmit"
   },
   "repository": {
