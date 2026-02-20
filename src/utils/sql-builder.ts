@@ -117,9 +117,7 @@ export function createSimpleWhereFragment<T extends Row>(
   sql: Sql<{}>,
   conditions?: Partial<T>
 ): any {
-  if (!conditions) return sql``;
-
-  const entries = Object.entries(conditions);
+  const entries = Object.entries(conditions ?? {});
   if (!entries.length) return sql``;
 
   const whereClause = entries.reduce((acc, [key, value], index) => {
@@ -159,7 +157,7 @@ export function createAdvancedWhereFragment<T extends Row>(
   sql: Sql<{}>,
   conditions: WhereCondition<T>[]
 ): any {
-  if (!conditions.length) return sql``;
+  if (!conditions?.length) return sql``;
 
   const whereClause = conditions.reduce((acc, condition, index) => {
     const fragment = createConditionFragment(
@@ -205,7 +203,7 @@ export function createConditionFragment(
     if (!Array.isArray(value) || !value.length) {
       throw new QueryError(Errors.WHERE.INVALID_IN(field));
     }
-    return sql`${sql(field)} IN ${value}`;
+    return sql`${sql(field)} = ANY(${value})`;
   }
 
   // LIKE operators
@@ -336,7 +334,5 @@ export function createLimitFragment(
   if (take) return sql`LIMIT ${take}`;
 
   // Only offset (skip) provided
-  if (skip) return sql`OFFSET ${skip}`;
-
-  return sql``;
+  return sql`OFFSET ${skip}`;
 }

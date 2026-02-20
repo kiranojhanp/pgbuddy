@@ -67,52 +67,17 @@ const updatedUser = await users.where({ id: 1 }).update({ active: false });
 const deletedUser = await users.where({ id: 1 }).delete();
 ```
 
-### Legacy API
-
-```typescript
-import postgres from "postgres";
-import { PgBuddy } from "pgbuddy";
-
-const sql = postgres("postgres://username:password@localhost:5432/dbname");
-const pgBuddy = new PgBuddy(sql);
-
-interface User {
-  id: number;
-  email: string;
-}
-
-const userTable = pgBuddy.table<User>("users");
-
-// Simple type-safe queries
-await userTable.select({
-  where: { email: "user@example.com" },
-});
-```
-
-}
-
-const userTable = pgBuddy.table<User>('users');
-
-// Simple type-safe queries
-await userTable.select({
-where: { email: 'user@example.com' }
-});
-
-```
-
 ## Documentation
 
-PgBuddy provides two APIs for database operations:
+PgBuddy documentation:
 
-### Chainable API (New)
-- [Chainable API](./docs/chainable-api.md) - Documentation for the new chainable API
-
-### Legacy API
 - [Introduction](./docs/introduction.md)
+- [Chainable API](./docs/chainable-api.md)
 - [CRUD Operations](./docs/crud-operations.md)
 - [Select Operations](./docs/select-operations.md)
 - [API Reference](./docs/api-reference.md)
 - [Examples](./docs/examples.md)
+- [Data Transformation](./docs/data-transformation.md)
 
 ## Advanced Features
 

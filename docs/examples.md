@@ -4,11 +4,11 @@
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddy } from 'pgbuddy';
+import { PgBuddyClient } from 'pgbuddy';
 
 // Database connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
-const pgBuddy = new PgBuddy(sql);
+const db = new PgBuddyClient(sql);
 
 // Define table types
 interface User {
@@ -20,7 +20,7 @@ interface User {
   updated_at: Date;
 }
 
-const userTable = pgBuddy.table<User>('users');
+const userTable = db.table<User>('users');
 ```
 
 ## Common Use Cases
@@ -29,37 +29,33 @@ const userTable = pgBuddy.table<User>('users');
 
 ```typescript
 async function createUser(userData: Omit<User, 'id' | 'created_at' | 'updated_at'>) {
-  return userTable.insert({
-    data: userData,
-    select: ['id', 'email']
-  });
+  return userTable.select(['id', 'email']).create(userData);
 }
 
 async function deactivateInactiveUsers(daysInactive: number) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysInactive);
 
-  return userTable.update({
-    data: { status: 'inactive' },
-    where: [
+  return userTable
+    .where([
       { field: 'last_login', operator: '<', value: cutoffDate },
       { field: 'status', operator: '=', value: 'active' }
-    ]
-  });
+    ])
+    .update({ status: 'inactive' });
 }
 
 async function searchUsers(query: string) {
-  return userTable.select({
-    where: [
+  return userTable
+    .where([
       {
         field: 'name',
         operator: 'LIKE',
         value: query,
         pattern: 'contains'
       }
-    ],
-    orderBy: [{ column: 'name', direction: 'ASC' }]
-  });
+    ])
+    .orderBy([{ column: 'name', direction: 'ASC' }])
+    .findMany();
 }
 ```
 
@@ -76,40 +72,37 @@ interface Post {
   created_at: Date;
 }
 
-const postTable = pgBuddy.table<Post>('posts');
+const postTable = db.table<Post>('posts');
 
 // Create draft post
 async function createDraft(authorId: number, title: string, content: string) {
-  return postTable.insert({
-    data: {
-      author_id: authorId,
-      title,
-      content,
-      status: 'draft',
-      publish_date: null
-    }
+  return postTable.create({
+    author_id: authorId,
+    title,
+    content,
+    status: 'draft',
+    publish_date: null
   });
 }
 
 // Publish post
 async function publishPost(postId: number) {
-  return postTable.update({
-    data: {
+  return postTable
+    .where({ id: postId })
+    .update({
       status: 'published',
       publish_date: new Date()
-    },
-    where: { id: postId }
-  });
+    });
 }
 
 // Get published posts with pagination
 async function getPublishedPosts(page: number, pageSize: number) {
-  return postTable.select({
-    where: { status: 'published' },
-    orderBy: [{ column: 'publish_date', direction: 'DESC' }],
-    take: pageSize,
-    skip: (page - 1) * pageSize
-  });
+  return postTable
+    .where({ status: 'published' })
+    .orderBy([{ column: 'publish_date', direction: 'DESC' }])
+    .take(pageSize)
+    .skip((page - 1) * pageSize)
+    .findMany();
 }
 ```
 
@@ -127,31 +120,28 @@ interface Order {
   tracking_number: string | null;
 }
 
-const orderTable = pgBuddy.table<Order>('orders');
+const orderTable = db.table<Order>('orders');
 
 // Create new order
 async function createOrder(customerId: number, amount: number, shippingAddress: string) {
-  return orderTable.insert({
-    data: {
-      customer_id: customerId,
-      status: 'pending',
-      total_amount: amount,
-      shipping_address: shippingAddress,
-      tracking_number: null
-    }
+  return orderTable.create({
+    customer_id: customerId,
+    status: 'pending',
+    total_amount: amount,
+    shipping_address: shippingAddress,
+    tracking_number: null
   });
 }
 
 // Update order status
 async function updateOrderStatus(orderId: number, status: Order['status'], trackingNumber?: string) {
-  return orderTable.update({
-    data: {
+  return orderTable
+    .where({ id: orderId })
+    .update({
       status,
       tracking_number: trackingNumber || null,
       updated_at: new Date()
-    },
-    where: { id: orderId }
-  });
+    });
 }
 
 // Get customer orders with filters
@@ -164,18 +154,18 @@ async function getCustomerOrders(customerId: number, status?: Order['status']) {
     conditions.push({ field: 'status', operator: '=', value: status });
   }
 
-  return orderTable.select({
-    where: conditions,
-    orderBy: [{ column: 'created_at', direction: 'DESC' }]
-  });
+  return orderTable
+    .where(conditions)
+    .orderBy([{ column: 'created_at', direction: 'DESC' }])
+    .findMany();
 }
 
 // Get orders pending shipment
 async function getPendingShipments() {
-  return orderTable.select({
-    where: { status: 'processing' },
-    orderBy: [{ column: 'created_at', direction: 'ASC' }]
-  });
+  return orderTable
+    .where({ status: 'processing' })
+    .orderBy([{ column: 'created_at', direction: 'ASC' }])
+    .findMany();
 }
 ```
 
@@ -193,46 +183,45 @@ interface Product {
   last_restock_date: Date;
 }
 
-const productTable = pgBuddy.table<Product>('products');
+const productTable = db.table<Product>('products');
 
 // Update stock levels
 async function updateStock(productId: number, quantity: number) {
-  return productTable.update({
-    data: {
+  return productTable
+    .where({ id: productId })
+    .update({
       stock_quantity: quantity,
       last_restock_date: new Date()
-    },
-    where: { id: productId }
-  });
+    });
 }
 
 // Get low stock products
 async function getLowStockProducts() {
-  return productTable.select({
-    where: [
+  return productTable
+    .where([
       {
         field: 'stock_quantity',
         operator: '<=',
         value: sql`low_stock_threshold`
       }
-    ],
-    orderBy: [{ column: 'stock_quantity', direction: 'ASC' }]
-  });
+    ])
+    .orderBy([{ column: 'stock_quantity', direction: 'ASC' }])
+    .findMany();
 }
 
 // Search products
 async function searchProducts(query: string) {
-  return productTable.select({
-    where: [
+  return productTable
+    .where([
       {
         field: 'name',
         operator: 'ILIKE',
         value: query,
         pattern: 'contains'
       }
-    ],
-    orderBy: [{ column: 'name', direction: 'ASC' }]
-  });
+    ])
+    .orderBy([{ column: 'name', direction: 'ASC' }])
+    .findMany();
 }
 ```
 
@@ -248,7 +237,7 @@ interface EventLog {
   timestamp: Date;
 }
 
-const eventLogTable = pgBuddy.table<EventLog>('event_logs');
+const eventLogTable = db.table<EventLog>('event_logs');
 
 // Log new event
 async function logEvent(
@@ -257,14 +246,12 @@ async function logEvent(
   message: string,
   metadata: Record<string, any> = {}
 ) {
-  return eventLogTable.insert({
-    data: {
-      event_type: eventType,
-      severity,
-      message,
-      metadata,
-      timestamp: new Date()
-    }
+  return eventLogTable.create({
+    event_type: eventType,
+    severity,
+    message,
+    metadata,
+    timestamp: new Date()
   });
 }
 
@@ -273,27 +260,27 @@ async function getRecentErrors(hours: number = 24) {
   const cutoff = new Date();
   cutoff.setHours(cutoff.getHours() - hours);
 
-  return eventLogTable.select({
-    where: [
+  return eventLogTable
+    .where([
       { field: 'severity', operator: '=', value: 'error' },
       { field: 'timestamp', operator: '>', value: cutoff }
-    ],
-    orderBy: [{ column: 'timestamp', direction: 'DESC' }]
-  });
+    ])
+    .orderBy([{ column: 'timestamp', direction: 'DESC' }])
+    .findMany();
 }
 
 // Get event statistics
 async function getEventStats(startDate: Date, endDate: Date) {
-  return eventLogTable.select({
-    where: [
+  return eventLogTable
+    .where([
       { field: 'timestamp', operator: '>=', value: startDate },
       { field: 'timestamp', operator: '<=', value: endDate }
-    ],
-    orderBy: [
+    ])
+    .orderBy([
       { column: 'event_type', direction: 'ASC' },
       { column: 'severity', direction: 'ASC' }
-    ]
-  });
+    ])
+    .findMany();
 }
 ```
 
@@ -324,10 +311,7 @@ async function handleDatabaseOperation<T>(
 // Usage with error handling
 async function safeCreateUser(userData: Partial<User>) {
   return handleDatabaseOperation(async () => {
-    const user = await userTable.insert({
-      data: userData,
-      select: ['id', 'email']
-    });
+    const user = await userTable.select(['id', 'email']).create(userData);
     return user;
   });
 }

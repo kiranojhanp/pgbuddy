@@ -25,13 +25,13 @@ yarn add pgbuddy postgres
 
 ```typescript
 import postgres from 'postgres';
-import { PgBuddy } from 'pgbuddy';
+import { PgBuddyClient } from 'pgbuddy';
 
 // Initialize postgres connection
 const sql = postgres('postgres://username:password@localhost:5432/dbname');
 
-// Create PgBuddy instance
-const pgBuddy = new PgBuddy(sql);
+// Create PgBuddy client
+const db = new PgBuddyClient(sql);
 
 // Define your table type
 interface User {
@@ -42,7 +42,7 @@ interface User {
 }
 
 // Create table interface
-const userTable = pgBuddy.table<User>('users');
+const userTable = db.table<User>('users');
 ```
 
 ### Advanced Features
@@ -51,7 +51,7 @@ PgBuddy is intentionally designed as a lightweight wrapper that focuses on type 
 
 1. **Access the Underlying postgres.js Instance**:
 ```typescript
-const pgBuddy = new PgBuddy(sql);
+const db = new PgBuddyClient(sql);
 // Use the sql instance directly for advanced features
 const result = await sql`
   WITH RECURSIVE cte AS (...)

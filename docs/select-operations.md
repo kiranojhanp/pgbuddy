@@ -5,18 +5,18 @@
 ### Simple Select
 
 ```typescript
-const users = await userTable.select({
-  where: { status: 'active' }
-});
+const users = await userTable
+  .where({ status: 'active' })
+  .findMany();
 ```
 
 ### Select Specific Fields
 
 ```typescript
-const users = await userTable.select({
-  select: ['id', 'name', 'email'],
-  where: { status: 'active' }
-});
+const users = await userTable
+  .select(['id', 'name', 'email'])
+  .where({ status: 'active' })
+  .findMany();
 ```
 
 ## Advanced Filtering
@@ -24,38 +24,38 @@ const users = await userTable.select({
 ### Complex Conditions
 
 ```typescript
-const users = await userTable.select({
-  where: [
+const users = await userTable
+  .where([
     { field: 'age', operator: '>=', value: 18 },
     { field: 'status', operator: '=', value: 'active' },
     { field: 'last_login', operator: '>', value: lastMonth }
-  ]
-});
+  ])
+  .findMany();
 ```
 
 ### Pattern Matching
 
 ```typescript
-const users = await userTable.select({
-  where: [
+const users = await userTable
+  .where([
     {
       field: 'email',
       operator: 'LIKE',
       value: '@example.com',
       pattern: 'endsWith'
     }
-  ]
-});
+  ])
+  .findMany();
 ```
 
 ### NULL Checks
 
 ```typescript
-const users = await userTable.select({
-  where: [
+const users = await userTable
+  .where([
     { field: 'deleted_at', operator: 'IS NULL' }
-  ]
-});
+  ])
+  .findMany();
 ```
 
 ## Sorting
@@ -63,22 +63,22 @@ const users = await userTable.select({
 ### Basic Sorting
 
 ```typescript
-const users = await userTable.select({
-  orderBy: [
+const users = await userTable
+  .orderBy([
     { column: 'created_at', direction: 'DESC' }
-  ]
-});
+  ])
+  .findMany();
 ```
 
 ### Multiple Sort Criteria
 
 ```typescript
-const users = await userTable.select({
-  orderBy: [
+const users = await userTable
+  .orderBy([
     { column: 'status', direction: 'ASC' },
     { column: 'created_at', direction: 'DESC' }
-  ]
-});
+  ])
+  .findMany();
 ```
 
 ## Pagination
@@ -86,21 +86,21 @@ const users = await userTable.select({
 ### Limit and Offset
 
 ```typescript
-const users = await userTable.select({
-  take: 10,  // LIMIT
-  skip: 20   // OFFSET
-});
+const users = await userTable
+  .skip(20)
+  .take(10)
+  .findMany();
 ```
 
 ### Page-based Pagination
 
 ```typescript
 function getPage(pageNumber: number, pageSize: number) {
-  return userTable.select({
-    take: pageSize,
-    skip: (pageNumber - 1) * pageSize,
-    orderBy: [{ column: 'id', direction: 'ASC' }]
-  });
+  return userTable
+    .orderBy([{ column: 'id', direction: 'ASC' }])
+    .skip((pageNumber - 1) * pageSize)
+    .take(pageSize)
+    .findMany();
 }
 ```
 
@@ -109,19 +109,19 @@ function getPage(pageNumber: number, pageSize: number) {
 ### Complete Example
 
 ```typescript
-const users = await userTable.select({
-  select: ['id', 'name', 'email', 'status'],
-  where: [
+const users = await userTable
+  .select(['id', 'name', 'email', 'status'])
+  .where([
     { field: 'status', operator: '=', value: 'active' },
     { field: 'email', operator: 'LIKE', value: '@company.com', pattern: 'endsWith' },
     { field: 'last_login', operator: '>', value: thirtyDaysAgo }
-  ],
-  orderBy: [
+  ])
+  .orderBy([
     { column: 'name', direction: 'ASC' }
-  ],
-  take: 20,
-  skip: 0
-});
+  ])
+  .skip(0)
+  .take(20)
+  .findMany();
 ```
 
 ## Performance Tips

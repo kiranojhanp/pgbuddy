@@ -1,5 +1,10 @@
-# PgBuddy - ```typescript
+# Chainable API
 
+This document explains the chainable API in PgBuddy.
+
+## Quick Start
+
+```typescript
 import postgres from "postgres";
 import { PgBuddyClient } from "pgbuddy";
 
@@ -7,9 +12,8 @@ import { PgBuddyClient } from "pgbuddy";
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
 
 // Create PgBuddyClient instance
-const db = new PgBuddyClient(sql); API
-
-This document explains the new chainable API in PgBuddy.
+const db = new PgBuddyClient(sql);
+```
 
 ## Installation
 
@@ -21,13 +25,13 @@ npm install pgbuddy postgres
 
 ```typescript
 import postgres from "postgres";
-import { PgClient } from "pgbuddy";
+import { PgBuddyClient } from "pgbuddy";
 
 // Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
 
-// Create PgClient instance
-const db = new PgClient(sql);
+// Create PgBuddyClient instance
+const db = new PgBuddyClient(sql);
 ```
 
 ## Defining Tables
@@ -175,29 +179,4 @@ try {
     console.error("Unexpected error:", error);
   }
 }
-```
-
-## Migration from Legacy API
-
-The legacy `PgBuddy` class is still available but marked as deprecated. For new code, use the `PgBuddyClient` class which provides the chainable interface.
-
-Legacy:
-
-```typescript
-const pgBuddy = new PgBuddy(sql);
-const result = await pgBuddy.table("users").select({
-  where: { status: "active" },
-  take: 10,
-});
-```
-
-New:
-
-```typescript
-const db = new PgBuddyClient(sql);
-const result = await db
-  .table("users")
-  .where({ status: "active" })
-  .take(10)
-  .findMany();
 ```

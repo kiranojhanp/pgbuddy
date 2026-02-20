@@ -61,15 +61,10 @@ import { PgBuddyClient } from "./client";
 import { Table } from "./table";
 import { Errors, QueryError, TableError } from "./errors";
 
-// Legacy query builder
-import { PgBuddy } from "./legacy";
 
 // Re-export types for external use
 import type {
-  InsertParams,
-  ModifyParams,
   SelectFields,
-  SelectParams,
   SqlOperator,
   WhereCondition,
   SortSpec,
@@ -77,12 +72,9 @@ import type {
 } from "./types";
 
 // Export the new client and related classes/types
-export { PgBuddyClient, Table, Errors, QueryError, TableError, PgBuddy };
+export { PgBuddyClient, Table, Errors, QueryError, TableError };
 export type {
-  InsertParams,
-  ModifyParams,
   SelectFields,
-  SelectParams,
   SqlOperator,
   WhereCondition,
   SortSpec,

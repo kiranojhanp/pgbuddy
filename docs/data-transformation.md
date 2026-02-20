@@ -11,7 +11,7 @@ First, configure postgres.js with your desired case transformation:
 ```typescript
 // db.ts
 import postgres from "postgres";
-import { PgBuddy } from "pgbuddy";
+import { PgBuddyClient } from "pgbuddy";
 
 // Configure postgres.js with case transformation
 const sql = postgres({
@@ -20,10 +20,10 @@ const sql = postgres({
   transform: postgres.camel  // This is a postgres.js feature
 });
 
-// Pass the configured postgres.js instance to PgBuddy
-const pgBuddy = new PgBuddy(sql);
+// Pass the configured postgres.js instance to PgBuddyClient
+const db = new PgBuddyClient(sql);
 
-export { sql, pgBuddy };
+export { sql, db };
 ```
 
 ## postgres.js Case Transformation Options
@@ -56,8 +56,8 @@ const sql = postgres({
   transform: postgres.camel
 });
 
-// Pass it to PgBuddy
-const pgBuddy = new PgBuddy(sql);
+// Pass it to PgBuddyClient
+const db = new PgBuddyClient(sql);
 
 // For direct postgres.js queries, the transformation will be applied
 await sql`
@@ -98,7 +98,7 @@ Use case transformation when:
 ```typescript
 // db.ts - Database configuration
 import postgres from "postgres";
-import { PgBuddy } from "pgbuddy";
+import { PgBuddyClient } from "pgbuddy";
 
 const sql = postgres({
   host: "localhost",
@@ -106,9 +106,9 @@ const sql = postgres({
   transform: postgres.camel
 });
 
-const pgBuddy = new PgBuddy(sql);
+const db = new PgBuddyClient(sql);
 
-export { sql, pgBuddy };
+export { sql, db };
 
 // types.ts - Type definitions
 interface UserProfile {
@@ -119,7 +119,7 @@ interface UserProfile {
 }
 
 // queries.ts - Database queries
-import { sql, pgBuddy } from './db';
+import { sql, db } from './db';
 
 // Using raw postgres.js - transformation will be applied
 const rawQuery = async () => {
@@ -128,12 +128,12 @@ const rawQuery = async () => {
 };
 
 // Using PgBuddy - working with the transformed data
-const userProfileTable = pgBuddy.table<UserProfile>('user_profiles');
+const userProfileTable = db.table<UserProfile>('user_profiles');
 
 const pgBuddyQuery = async () => {
-  return userProfileTable.select({
-    where: { userId: 1 }  // Use camelCase in your code
-  });
+  return userProfileTable
+    .where({ userId: 1 })
+    .findFirst();
 };
 ```
 

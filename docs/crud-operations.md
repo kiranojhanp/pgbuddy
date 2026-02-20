@@ -5,32 +5,27 @@
 ### Basic Insert
 
 ```typescript
-const user = await userTable.insert({
-  data: {
-    name: 'John Doe',
-    email: 'john@example.com'
-  }
+const user = await userTable.create({
+  name: 'John Doe',
+  email: 'john@example.com'
 });
 ```
 
 ### Bulk Insert
 
 ```typescript
-const users = await userTable.insert({
-  data: [
-    { name: 'John Doe', email: 'john@example.com' },
-    { name: 'Jane Doe', email: 'jane@example.com' }
-  ]
-});
+const users = await userTable.createMany([
+  { name: 'John Doe', email: 'john@example.com' },
+  { name: 'Jane Doe', email: 'jane@example.com' }
+]);
 ```
 
 ### Insert with Selected Return Fields
 
 ```typescript
-const user = await userTable.insert({
-  data: { name: 'John Doe', email: 'john@example.com' },
-  select: ['id', 'created_at']
-});
+const user = await userTable
+  .select(['id', 'created_at'])
+  .create({ name: 'John Doe', email: 'john@example.com' });
 ```
 
 ## Update Operations
@@ -38,32 +33,29 @@ const user = await userTable.insert({
 ### Basic Update
 
 ```typescript
-const updated = await userTable.update({
-  data: { status: 'active' },
-  where: { id: 1 }
-});
+const updated = await userTable
+  .where({ id: 1 })
+  .update({ status: 'active' });
 ```
 
 ### Complex Update Conditions
 
 ```typescript
-const updated = await userTable.update({
-  data: { last_login: new Date() },
-  where: [
+const updated = await userTable
+  .where([
     { field: 'status', operator: '=', value: 'pending' },
     { field: 'created_at', operator: '<', value: oneWeekAgo }
-  ]
-});
+  ])
+  .update({ last_login: new Date() });
 ```
 
 ### Update with Return Fields
 
 ```typescript
-const updated = await userTable.update({
-  data: { status: 'inactive' },
-  where: { id: 1 },
-  select: ['id', 'status', 'updated_at']
-});
+const updated = await userTable
+  .where({ id: 1 })
+  .select(['id', 'status', 'updated_at'])
+  .update({ status: 'inactive' });
 ```
 
 ## Delete Operations
@@ -71,29 +63,29 @@ const updated = await userTable.update({
 ### Basic Delete
 
 ```typescript
-const deleted = await userTable.delete({
-  where: { id: 1 }
-});
+const deleted = await userTable
+  .where({ id: 1 })
+  .delete();
 ```
 
 ### Complex Delete Conditions
 
 ```typescript
-const deleted = await userTable.delete({
-  where: [
+const deleted = await userTable
+  .where([
     { field: 'status', operator: '=', value: 'inactive' },
     { field: 'last_login', operator: '<', value: threeMonthsAgo }
-  ]
-});
+  ])
+  .delete();
 ```
 
 ### Delete with Return Fields
 
 ```typescript
-const deleted = await userTable.delete({
-  where: { id: 1 },
-  select: ['id', 'email']
-});
+const deleted = await userTable
+  .where({ id: 1 })
+  .select(['id', 'email'])
+  .delete();
 ```
 
 ## Best Practices
@@ -113,10 +105,9 @@ const deleted = await userTable.delete({
 4. **Error Handling**:
    ```typescript
    try {
-     const result = await userTable.update({
-       data: { status: 'active' },
-       where: { id: 1 }
-     });
+   const result = await userTable
+     .where({ id: 1 })
+     .update({ status: 'active' });
    } catch (error) {
      if (error instanceof QueryError) {
        // Handle query-specific errors

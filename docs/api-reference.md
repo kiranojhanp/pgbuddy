@@ -1,6 +1,6 @@
 # API Reference
 
-## PgBuddy Class
+## PgBuddyClient
 
 ### Constructor
 
@@ -8,85 +8,93 @@
 constructor(sql: Sql<{}>)
 ```
 
-Creates a new PgBuddy instance with a postgres connection.
+Creates a new PgBuddyClient instance with a postgres.js connection.
 
-### Methods
+### table<T extends Row>(tableName: string)
 
-#### table<T extends Row>(tableName: string)
-
-Creates a table-specific CRUD operations interface.
+Creates a chainable table query builder.
 
 - **Parameters:**
   - `tableName`: string - The name of the table
   - `T`: Generic type parameter representing the table structure
-- **Returns:** Table operations object
-- **Throws:** `TableError` if table name is invalid
+- **Returns:** `Table<T>`
+- **Throws:** `TableError` if the table name is invalid
 
-## Table Operations
+## Table<T>
 
-### Insert
+The Table API is chainable. You can compose query state with `select`, `where`, `skip`, `take`, and `orderBy`, then execute with `findMany`, `findFirst`, `findUnique`, or `count`. Mutations use `create`, `createMany`, `update`, and `delete`.
 
-```typescript
-insert<K extends (keyof T)[] = ["*"]>(params: InsertParams<T, K>): Promise<SelectFields<T, K>>
-```
+### Chainable query methods
 
-- **Parameters:**
-  - `data`: Single record or array of records to insert
-  - `select?`: Array of fields to return (default: ["*"])
-- **Returns:** Inserted records
-- **Throws:** `QueryError` if data is invalid
+#### select<K extends (keyof T)[]>(fields: K)
 
-### Update
+Specify which columns to return. Affects `find*`, `create`, `createMany`, `update`, and `delete` return values.
 
-```typescript
-update<K extends (keyof T)[] = ["*"]>(params: ModifyParams<T, K>): Promise<SelectFields<T, K>>
-```
+#### where(conditions: WhereCondition<T>[] | Partial<T>)
 
-- **Parameters:**
-  - `data`: Record with fields to update
-  - `where`: Conditions for update
-  - `select?`: Array of fields to return (default: ["*"])
-- **Returns:** Updated records
-- **Throws:** `QueryError` if data or conditions are invalid
+Filter results with either field-value equality or advanced `WhereCondition` operators.
 
-### Delete
+#### skip(count: number)
 
-```typescript
-delete<K extends (keyof T)[] = ["*"]>(params: ModifyParams<T, K>): Promise<SelectFields<T, K>>
-```
+Skip a number of records (offset). Throws `QueryError` if invalid.
 
-- **Parameters:**
-  - `where`: Conditions for deletion
-  - `select?`: Array of fields to return (default: ["*"])
-- **Returns:** Deleted records
-- **Throws:** `QueryError` if conditions are missing
+#### take(count: number)
 
-### Select
+Limit the number of records returned. Throws `QueryError` if invalid.
 
-```typescript
-select<K extends (keyof T)[] = ["*"]>(params: SelectParams<T, K>): Promise<SelectFields<T, K>>
-```
+#### orderBy(spec: SortSpec<T>[]) 
 
-- **Parameters:**
-  - `select?`: Array of fields to return (default: ["*"])
-  - `where?`: Filter conditions
-  - `orderBy?`: Sort specifications
-  - `take?`: Number of records to return
-  - `skip?`: Number of records to skip
-- **Returns:** Matching records
-- **Throws:** `QueryError` if pagination parameters are invalid
+Sort results by column(s) and direction.
+
+### Query execution
+
+#### findMany()
+
+Returns all matching records.
+
+#### findFirst()
+
+Returns the first matching record or `null`.
+
+#### findUnique()
+
+Returns the only matching record or `null`. Throws `QueryError` if multiple records match.
+
+#### count()
+
+Returns the number of matching records.
+
+### Mutations
+
+#### create(data: Partial<T>)
+
+Insert a single record and return it (respects `select`).
+
+#### createMany(records: Partial<T>[]) 
+
+Insert multiple records and return them (respects `select`).
+
+#### update(data: Partial<T>)
+
+Update records matching `where` and return the updated rows (respects `select`). Requires `where`.
+
+#### delete()
+
+Delete records matching `where` and return the deleted rows (respects `select`). Requires `where`.
 
 ## Types
 
 ### WhereCondition<T>
 
 ```typescript
-interface WhereCondition<T> {
+type WhereCondition<T> = {
   field: keyof T;
-  operator: SqlOperator;
-  value: any;
-  pattern?: "startsWith" | "endsWith" | "contains" | "exact";
-}
+} & (
+  | { operator: "=" | "!=" | ">" | "<" | ">=" | "<="; value: string | number | boolean | Date }
+  | { operator: "LIKE" | "ILIKE"; value: string; pattern?: LikePattern }
+  | { operator: "IN"; value: Array<string | number | boolean | Date> }
+  | { operator: "IS NULL" | "IS NOT NULL"; value?: never }
+);
 ```
 
 ### SqlOperator
@@ -99,18 +107,24 @@ type SqlOperator =
   | "<"
   | ">="
   | "<="
-  | "IN"
   | "LIKE"
   | "ILIKE"
+  | "IN"
   | "IS NULL"
   | "IS NOT NULL";
 ```
 
-### OrderBy<T>
+### LikePattern
 
 ```typescript
-interface OrderBy<T> {
-  column: keyof T;
+type LikePattern = "startsWith" | "endsWith" | "contains" | "exact";
+```
+
+### SortSpec<T>
+
+```typescript
+interface SortSpec<T> {
+  column: keyof T & string;
   direction: "ASC" | "DESC";
 }
 ```
@@ -119,8 +133,8 @@ interface OrderBy<T> {
 
 ### QueryError
 
-Thrown for invalid query parameters or conditions.
+Thrown for invalid query parameters, pagination values, or unsafe operations.
 
 ### TableError
 
-Thrown for invalid table operations or configurations.
+Thrown when table configuration is invalid.
