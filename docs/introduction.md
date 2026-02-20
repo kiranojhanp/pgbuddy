@@ -74,12 +74,11 @@ const result = await sql`
 ```
 
 2. **Use postgres.js Features**:
-- Transactions
-- Prepared Statements
-- Listen/Notify
-- Copy From/To
-- Custom Types
-- And more...
+- Transactions: use `sql.begin(...)` to reserve a connection and let postgres.js roll back on errors.
+- Ordering guarantees: postgres.js notes ordering is only guaranteed when using `sql.begin()` or `max: 1`.
+- Unsafe SQL: `sql.unsafe(...)` exists for advanced cases but can introduce SQL injection risk if misused.
+- Data transforms: use `transform` helpers like `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
+- Error diagnostics: access `error.query` / `error.parameters` or set `debug: true`.
 
 For these advanced features, please refer to the [postgres.js documentation](https://github.com/porsager/postgres).
 

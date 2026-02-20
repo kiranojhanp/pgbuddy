@@ -85,18 +85,15 @@ PgBuddy documentation:
 - [Examples](./docs/examples.md)
 - [Data Transformation](./docs/data-transformation.md)
 
-## Advanced Features
+## Advanced Features (postgres.js)
 
-PgBuddy is a wrapper around postgres.js. For advanced PostgreSQL features like:
+PgBuddy is a thin DX layer. For advanced capabilities, use the underlying `sql` instance from postgres.js directly:
 
-- Transactions
-- Prepared Statements
-- Listen/Notify
-- Copy Operations
-- Custom Types
-- Connection Pooling
-
-Please refer to the [postgres.js documentation](https://github.com/porsager/postgres).
+- Transactions: use `sql.begin(...)` to reserve a connection; postgres.js automatically rolls back on errors.
+- Ordering guarantees: postgres.js notes ordering is only guaranteed when using `sql.begin()` or `max: 1`.
+- Unsafe SQL: `sql.unsafe(...)` exists for advanced cases but can introduce SQL injection risk if misused.
+- Data transforms: use `transform` helpers like `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
+- Error diagnostics: access `error.query` / `error.parameters` or set `debug: true`.
 
 ## License
 
