@@ -5,6 +5,10 @@ on:
       - master
   workflow_dispatch:
 
+# Permission to generate an OIDC token
+permissions:
+  id-token: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
