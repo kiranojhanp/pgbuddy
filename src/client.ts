@@ -1,9 +1,10 @@
 import type { Row, Sql } from "postgres";
+import type { ZodRawShape } from "zod";
 import { ZodObject } from "zod";
 import { Errors, TableError } from "./errors";
 import { Table } from "./table";
-import { isValidIdentifier, isValidName } from "./utils";
 import type { Insertable } from "./types";
+import { isValidIdentifier, isValidName } from "./utils";
 import { ZodTable } from "./zod-table";
 
 /**
@@ -36,7 +37,7 @@ import { ZodTable } from "./zod-table";
  * ```
  */
 export class PgBuddyClient {
-  private sql: Sql<{}>;
+  private sql: Sql<Record<string, unknown>>;
 
   private strictNames: boolean;
   private allowSchema: boolean;
@@ -57,7 +58,7 @@ export class PgBuddyClient {
    * ```
    */
   constructor(
-    sql: Sql<{}>,
+    sql: Sql<Record<string, unknown>>,
     options?: { strictNames?: boolean; allowSchema?: boolean }
   ) {
     this.sql = sql;
@@ -98,27 +99,30 @@ export class PgBuddyClient {
     tableName: string,
     options?: { strictNames?: boolean; allowSchema?: boolean }
   ): Table<T, ["*"], I>;
-  table<S extends ZodObject<any>>(
+  table<S extends ZodObject<ZodRawShape>>(
     tableName: string,
     schema: S,
     options?: { strictNames?: boolean; allowSchema?: boolean }
   ): ZodTable<S>;
-  table<T extends Row, I extends Row = T, S extends ZodObject<any> = ZodObject<any>>(
+  table<
+    T extends Row,
+    I extends Row = T,
+    S extends ZodObject<ZodRawShape> = ZodObject<ZodRawShape>,
+  >(
     tableName: string,
     schemaOrOptions?: S | { strictNames?: boolean; allowSchema?: boolean },
     options?: { strictNames?: boolean; allowSchema?: boolean }
   ): Table<T, ["*"], I> | ZodTable<S> {
-    const schema =
-      schemaOrOptions instanceof ZodObject ? schemaOrOptions : undefined;
-    const resolvedOptions =
-      schemaOrOptions instanceof ZodObject ? options : schemaOrOptions;
+    const schema = schemaOrOptions instanceof ZodObject ? schemaOrOptions : undefined;
+    const resolvedOptions = schemaOrOptions instanceof ZodObject ? options : schemaOrOptions;
 
-    const strictNames =
-      resolvedOptions?.strictNames ?? this.strictNames ?? false;
-    const allowSchema =
-      resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
+    const strictNames = resolvedOptions?.strictNames ?? this.strictNames ?? false;
+    const allowSchema = resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
 
-    const trimmedName = String(tableName ?? "").trim();
+    if (typeof tableName !== "string") {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
+    }
+    const trimmedName = tableName.trim();
     const isValid = strictNames
       ? isValidIdentifier(trimmedName, { allowSchema })
       : isValidName(trimmedName);
@@ -127,13 +131,16 @@ export class PgBuddyClient {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
 
-    const table = new Table<any, ["*"], any>(this.sql, trimmedName, {
+    // Use unknown cast through Row to avoid explicit any in the internal implementation
+    const table = new Table<Row, ["*"], Row>(this.sql, trimmedName, {
       strictNames,
       allowSchema,
     });
 
     if (schema) {
-      return new ZodTable(table, schema) as ZodTable<S>;
+      // table is typed as Table<Row> internally (impl signature); cast to align with ZodTable's expected generic
+      // biome-ignore lint/suspicious/noExplicitAny: necessary to bridge internal Row type and ZodTable's generic
+      return new ZodTable(table as unknown as Table<any, ["*"], any>, schema) as ZodTable<S>;
     }
 
     return table as Table<T, ["*"], I>;

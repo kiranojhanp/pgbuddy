@@ -1,14 +1,14 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "./errors";
-import type { SelectFields, WhereCondition, SortSpec, SelectKeys } from "./types";
+import type { SelectFields, SelectKeys, SortSpec, WhereCondition } from "./types";
 import {
   buildSelect,
   buildWhereConditions,
-  createSortFragment,
   createLimitFragment,
-  validatePagination,
+  createSortFragment,
   isValidData,
   isValidWhereConditions,
+  validatePagination,
 } from "./utils";
 
 /**
@@ -52,12 +52,8 @@ type TableState<T extends Row> = {
   allowSchema?: boolean;
 };
 
-export class Table<
-  T extends Row,
-  K extends SelectKeys<T> = ["*"],
-  I extends Row = T
-> {
-  private sql: Sql<{}>;
+export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row = T> {
+  private sql: Sql<Record<string, unknown>>;
   private tableName: string;
   private whereConditions?: WhereCondition<T>[] | Partial<T>;
   private selectedFields: K;
@@ -67,7 +63,7 @@ export class Table<
   private strictNames: boolean;
   private allowSchema: boolean;
 
-  constructor(sql: Sql<{}>, tableName: string, state?: TableState<T>) {
+  constructor(sql: Sql<Record<string, unknown>>, tableName: string, state?: TableState<T>) {
     this.sql = sql;
     this.tableName = tableName;
     this.whereConditions = state?.whereConditions;
@@ -270,7 +266,7 @@ export class Table<
    */
   async findFirst(): Promise<SelectFields<T, K>[0] | null> {
     const results = (await this.take(1).executeSelect()) as SelectFields<T, K>;
-    return results.length > 0 ? results[0] : null;
+    return results.length > 0 ? (results[0] ?? null) : null;
   }
 
   /**
@@ -306,10 +302,10 @@ export class Table<
     const results = (await this.take(2).executeSelect()) as SelectFields<T, K>;
 
     if (results.length > 1) {
-      throw new QueryError("Expected at most one record but found multiple");
+      throw new QueryError(Errors.QUERY.NOT_UNIQUE);
     }
 
-    return results.length === 1 ? results[0] : null;
+    return results.length === 1 ? (results[0] ?? null) : null;
   }
 
   /**
@@ -344,7 +340,7 @@ export class Table<
             })}
         `;
 
-    return parseInt(result[0].count, 10);
+    return parseInt(result[0]?.count ?? "0", 10);
   }
 
   /**
@@ -397,7 +393,11 @@ export class Table<
             })}
         `;
 
-    return result[0];
+    const created = result[0];
+    if (!created) {
+      throw new QueryError(Errors.QUERY.INSERT_RETURNED_EMPTY);
+    }
+    return created;
   }
 
   /**
@@ -439,15 +439,16 @@ export class Table<
     }
 
     // Validate and normalize columns from the first record
-    if (!isValidData(records[0])) {
+    // records.length === 0 was checked above, so records[0] is always defined here
+    const firstRecord = records.at(0);
+    if (!firstRecord) {
+      throw new QueryError(Errors.INSERT.INVALID_DATA);
+    }
+    if (!isValidData(firstRecord)) {
       throw new QueryError(Errors.INSERT.INVALID_DATA);
     }
 
-    const columns = Object.keys(records[0]);
-    if (columns.length === 0) {
-      throw new QueryError(Errors.INSERT.NO_COLUMNS);
-    }
-
+    const columns = Object.keys(firstRecord);
     const columnSet = new Set(columns);
 
     for (const record of records) {
