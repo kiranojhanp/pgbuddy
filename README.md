@@ -1,16 +1,27 @@
 # PgBuddy
 
-A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) query builder wrapping `postgres.js`.
+> A no-nonsense, type-safe, [tiny](https://bundlephobia.com/package/pgbuddy) query builder wrapping `postgres.js`.
 
-![PGBuddy banner](assets/banner.png)
+![PgBuddy banner](assets/banner.png)
 
-## Features
+---
 
-- Type-safe queries with TypeScript
-- SQL injection prevention
-- Simple CRUD operation builders
-- Chainable query API
-- Just a thin wrapper over postgres.js
+## The problem
+
+`postgres.js` is fast and lightweight, but raw SQL strings don't give you type safety or validation. PgBuddy wraps it with a chainable API so your queries know about your schema — without adding a full ORM.
+
+---
+
+## Table of contents
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Chainable API](#chainable-api)
+- [Advanced usage](#advanced-usage)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
 
 ## Installation
 
@@ -18,13 +29,15 @@ A no-nonsense, type-safe and [tiny](https://bundlephobia.com/package/pgbuddy) qu
 npm install pgbuddy postgres
 ```
 
-If you want schema-first typing and validation with Zod:
+For schema validation with Zod:
 
 ```bash
 npm install zod
 ```
 
-## Quick Start
+---
+
+## Quick start
 
 ```typescript
 import postgres from "postgres";
@@ -44,7 +57,7 @@ const UserSchema = z.object({
 
 const users = db.table("users", UserSchema);
 
-// All ops validate against the schema
+// Create — validated against the schema
 await users.create({
   id: 1,
   email: "user@example.com",
@@ -53,105 +66,91 @@ await users.create({
   last_login: null,
 });
 
-// Updates validate against schema.partial()
+// Update — validated against schema.partial()
 await users.where({ id: 1 }).update({ active: false });
 
-// Where keys and values are validated
+// Query — where keys and values are validated
 await users.where({ email: "user@example.com" }).findFirst();
 ```
 
-<details>
-<summary>Chainable API (with Zod)</summary>
+---
+
+## Chainable API
 
 ```typescript
-import postgres from "postgres";
-import { z } from "zod";
-import { PgBuddyClient } from "pgbuddy";
-
-// Create postgres.js connection
-const sql = postgres("postgres://username:password@localhost:5432/dbname");
-const db = new PgBuddyClient(sql);
-
-const UserSchema = z.object({
-  id: z.number().int(),
-  email: z.string().email(),
-  name: z.string(),
-  active: z.boolean(),
-});
-
 const users = db.table("users", UserSchema);
 
-// Find users with chainable methods
+// Find many
 const activeUsers = await users
   .where({ active: true })
   .orderBy([{ column: "id", direction: "DESC" }])
   .take(10)
   .findMany();
 
-// Find one (nullable)
+// Find first (returns null if none match)
 const newestUser = await users
   .where({ active: true })
   .orderBy([{ column: "id", direction: "DESC" }])
   .findFirst();
 
-// Find unique (nullable, throws if multiple match)
+// Find unique (returns null if none, throws if multiple match)
 const userByEmail = await users
   .where({ email: "user@example.com" })
   .findUnique();
 
-// Count matching records
+// Count
 const activeCount = await users.where({ active: true }).count();
 
-// Create a user
+// Create one
 const newUser = await users.create({
   email: "user@example.com",
   name: "User",
   active: true,
 });
 
-// Create multiple users
+// Create many
 const newUsers = await users.createMany([
   { email: "user1@example.com", name: "User 1", active: true },
   { email: "user2@example.com", name: "User 2", active: true },
 ]);
 
-// Update users (returns an array)
-const updatedUsers = await users.where({ id: 1 }).update({ active: false });
-const [updatedUser] = updatedUsers;
+// Update (returns array)
+const [updatedUser] = await users.where({ id: 1 }).update({ active: false });
 
-// Delete users (returns an array)
-const deletedUsers = await users.where({ id: 1 }).delete();
-const [deletedUser] = deletedUsers;
+// Delete (returns array)
+const [deletedUser] = await users.where({ id: 1 }).delete();
 ```
 
-</details>
+---
+
+## Advanced usage
+
+PgBuddy is a thin layer over `postgres.js`. For anything beyond CRUD, use the underlying `sql` instance directly:
+
+**Transactions** — use `sql.begin(...)` to reserve a connection. postgres.js rolls back automatically on errors.
+
+**Ordering guarantees** — row order is only guaranteed inside `sql.begin()` or with `max: 1`.
+
+**Raw SQL** — `sql.unsafe(...)` exists for cases that need it, but skips injection protection if misused.
+
+**Data transforms** — postgres.js ships helpers like `postgres.camel`, `postgres.toCamel`, and `postgres.fromCamel`.
+
+**Error diagnostics** — access `error.query` and `error.parameters`, or set `debug: true` on the connection.
+
+---
 
 ## Documentation
 
-PgBuddy documentation:
-
 - [Introduction](./docs/introduction.md)
 - [Chainable API](./docs/chainable-api.md)
-- [CRUD Operations](./docs/crud-operations.md)
-- [Select Operations](./docs/select-operations.md)
-- [API Reference](./docs/api-reference.md)
+- [CRUD operations](./docs/crud-operations.md)
+- [Select operations](./docs/select-operations.md)
+- [API reference](./docs/api-reference.md)
 - [Examples](./docs/examples.md)
-- [Data Transformation](./docs/data-transformation.md)
+- [Data transformation](./docs/data-transformation.md)
 
-## Advanced Features (postgres.js)
-
-PgBuddy is a thin DX layer. For advanced capabilities, use the underlying `sql` instance from postgres.js directly:
-
-- Transactions: use `sql.begin(...)` to reserve a connection; postgres.js automatically rolls back on errors.
-- Ordering guarantees: postgres.js notes ordering is only guaranteed when using `sql.begin()` or `max: 1`.
-- Unsafe SQL: `sql.unsafe(...)` exists for advanced cases but can introduce SQL injection risk if misused.
-- Data transforms: use `transform` helpers like `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
-- Error diagnostics: access `error.query` / `error.parameters` or set `debug: true`.
+---
 
 ## License
 
-MIT
-
-## Contributing
-
-Contributions welcome!
+MIT — contributions welcome.
