@@ -8,9 +8,64 @@
 
 ## The problem
 
-`postgres.js` has TypeScript support, but it's built around raw SQL strings. Typos in column names surface at runtime, not compile time. There's no way to validate that results match your expected shape. And without a schema, you write generics by hand and keep them in sync manually.
+`postgres.js` has TypeScript support, but it's built around raw SQL strings.
 
-PgBuddy wraps postgres.js with a chainable API backed by your Zod schema, so your queries know about your table structure — without a full ORM.
+Typos in column names surface at runtime, not compile time:
+
+```typescript
+// postgres.js — no error until this query runs
+const result = await sql`
+  SELECT * FROM users WHERE emal = ${email}
+`;
+```
+
+```typescript
+// PgBuddy — caught at compile time
+await users.where({ emal: email }); // TS error: 'emal' does not exist on type
+```
+
+Results aren't validated against any schema:
+
+```typescript
+// postgres.js — result is typed as any[], you trust the DB matches your type
+const result = await sql<User[]>`SELECT * FROM users`;
+const user = result[0]; // could be anything
+```
+
+```typescript
+// PgBuddy — every result is validated against your Zod schema at runtime
+const user = await users.findFirst();
+// throws if the DB returns a shape that doesn't match UserSchema
+```
+
+Without a schema, you write types by hand and keep them in sync with the database yourself:
+
+```typescript
+// postgres.js — you define this and update it whenever the DB changes
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
+  last_login: Date | null;
+}
+const result = await sql<User[]>`SELECT * FROM users`;
+```
+
+```typescript
+// PgBuddy — result type comes from your Zod schema
+const UserSchema = z.object({
+  id: z.number().int(),
+  email: z.string().email(),
+  name: z.string(),
+  active: z.boolean(),
+  last_login: z.date().nullable(),
+});
+
+const users = db.table("users", UserSchema);
+const user = await users.findFirst();
+// typed as { id: number; email: string; name: string; active: boolean; last_login: Date | null } | null
+```
 
 ### Source of truth
 
