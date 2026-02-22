@@ -46,8 +46,8 @@ interface User {
   id: number;
   email: string;
   name: string;
-  active: boolean;
-  last_login: Date | null;
+  status: string;
+  created_at: Date;
 }
 const result = await sql<User[]>`SELECT * FROM users`;
 ```
@@ -58,13 +58,13 @@ const UserSchema = z.object({
   id: z.number().int(),
   email: z.string().email(),
   name: z.string(),
-  active: z.boolean(),
-  last_login: z.date().nullable(),
+  status: z.string(),
+  created_at: z.date(),
 });
 
 const users = db.table("users", UserSchema);
 const user = await users.findFirst();
-// typed as { id: number; email: string; name: string; active: boolean; last_login: Date | null } | null
+// typed as { id: number; email: string; name: string; status: string; created_at: Date } | null
 ```
 
 ### Source of truth
@@ -100,6 +100,39 @@ npm install zod
 
 ## Quick start
 
+**Without Zod** — use a plain TypeScript interface and the `Insertable` helper to mark auto-generated keys as optional on insert:
+
+```typescript
+import postgres from "postgres";
+import { PgBuddyClient, type Insertable } from "pgbuddy";
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  status: string;
+  created_at: Date;
+}
+
+type UserInsert = Insertable<User, "id">;
+
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
+const db = new PgBuddyClient(sql);
+
+const users = db.table<User, UserInsert>("users");
+
+// Create — id is optional because it's in the auto-keys list
+await users.create({ name: "Alice", email: "alice@example.com", status: "active", created_at: new Date() });
+
+// Update
+await users.where({ id: 1 }).update({ status: "inactive" });
+
+// Query
+await users.where({ status: "active" }).findFirst();
+```
+
+**With Zod** — the schema validates every result at runtime:
+
 ```typescript
 import postgres from "postgres";
 import { z } from "zod";
@@ -112,23 +145,22 @@ const UserSchema = z.object({
   id: z.number().int(),
   email: z.string().email(),
   name: z.string(),
-  active: z.boolean(),
-  last_login: z.date().nullable(),
+  status: z.string(),
+  created_at: z.date(),
 });
 
 const users = db.table("users", UserSchema);
 
-// Create — validated against the schema
+// Create — validated against the schema on insert and on the returned row
 await users.create({
-  id: 1,
   email: "user@example.com",
   name: "User",
-  active: true,
-  last_login: null,
+  status: "active",
+  created_at: new Date(),
 });
 
 // Update — validated against schema.partial()
-await users.where({ id: 1 }).update({ active: false });
+await users.where({ id: 1 }).update({ status: "inactive" });
 
 // Query — where keys and values are validated
 await users.where({ email: "user@example.com" }).findFirst();
@@ -138,20 +170,44 @@ await users.where({ email: "user@example.com" }).findFirst();
 
 ## Chainable API
 
+The examples below use a plain TypeScript interface. The same API works identically with a Zod-backed `ZodTable`.
+
 ```typescript
-const users = db.table("users", UserSchema);
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  status: string;
+  created_at: Date;
+}
+
+type UserInsert = Insertable<User, "id">;
+const users = db.table<User, UserInsert>("users");
 
 // Find many
 const activeUsers = await users
-  .where({ active: true })
-  .orderBy([{ column: "id", direction: "DESC" }])
+  .where({ status: "active" })
+  .orderBy([{ column: "created_at", direction: "DESC" }])
   .take(10)
   .findMany();
 
+// Select specific columns
+const emails = await users
+  .select(["id", "email"])
+  .where({ status: "active" })
+  .findMany();
+
+// Pagination — skip + take
+const page2 = await users
+  .skip(10)
+  .take(5)
+  .orderBy([{ column: "created_at", direction: "DESC" }])
+  .findMany();
+
 // Find first (returns null if none match)
-const newestUser = await users
-  .where({ active: true })
-  .orderBy([{ column: "id", direction: "DESC" }])
+const newestActive = await users
+  .where({ status: "active" })
+  .orderBy([{ column: "created_at", direction: "DESC" }])
   .findFirst();
 
 // Find unique (returns null if none, throws if multiple match)
@@ -160,26 +216,36 @@ const userByEmail = await users
   .findUnique();
 
 // Count
-const activeCount = await users.where({ active: true }).count();
+const activeCount = await users.where({ status: "active" }).count();
 
-// Create one
+// Create one (id is auto-generated, not required)
 const newUser = await users.create({
-  email: "user@example.com",
-  name: "User",
-  active: true,
+  name: "Alice",
+  email: "alice@example.com",
+  status: "active",
+  created_at: new Date(),
 });
 
 // Create many
 const newUsers = await users.createMany([
-  { email: "user1@example.com", name: "User 1", active: true },
-  { email: "user2@example.com", name: "User 2", active: true },
+  { name: "Bob", email: "bob@example.com", status: "active", created_at: new Date() },
+  { name: "Carol", email: "carol@example.com", status: "inactive", created_at: new Date() },
 ]);
 
-// Update (returns array)
-const [updatedUser] = await users.where({ id: 1 }).update({ active: false });
+// Update (returns updated rows)
+const updated = await users.where({ id: 1 }).update({ status: "inactive" });
 
-// Delete (returns array)
-const [deletedUser] = await users.where({ id: 1 }).delete();
+// Delete (returns deleted rows)
+const deleted = await users.where({ id: 1 }).delete();
+
+// Advanced where — operators and LIKE patterns
+const results = await users
+  .where([
+    { field: "status", operator: "=", value: "active" },
+    { field: "name", operator: "LIKE", value: "Ali", pattern: "startsWith" },
+  ])
+  .orderBy([{ column: "created_at", direction: "DESC" }])
+  .findFirst();
 ```
 
 ---
