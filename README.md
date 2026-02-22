@@ -14,13 +14,7 @@ A no-nonsense, type-safe, tiny query builder wrapping [postgres.js](https://gith
 ## Installation
 
 ```bash
-npm install pgbuddy postgres
-```
-
-Zod is optional but recommended for runtime validation:
-
-```bash
-npm install zod
+npm install pgbuddy postgres zod
 ```
 
 ---
