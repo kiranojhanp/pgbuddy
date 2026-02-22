@@ -145,18 +145,8 @@ const users = await userTable
 
 ## Performance Tips
 
-1. **Select Specific Fields**:
-   - Always specify needed columns instead of using `*`
-   - Reduces network bandwidth and processing time
-
-2. **Use Appropriate Indexes**:
-   - Ensure indexes exist for frequently queried fields
-   - Consider index usage in WHERE and ORDER BY clauses
-
-3. **Efficient Pagination**:
-   - Use `take` and `skip` with appropriate limits
-   - Consider keyset pagination for large datasets
-
-4. **Optimize WHERE Conditions**:
-   - Put most restrictive conditions first
-   - Use appropriate operators for the use case
+- Use `select` to specify only the columns you need — returning fewer columns reduces network and memory overhead.
+- Make sure indexes exist on fields used in `where` and `orderBy` clauses.
+- Use `take` with a reasonable limit to avoid fetching unbounded result sets.
+- For large tables, consider keyset pagination over offset-based pagination.
+- Place the most selective `where` conditions first to help the query planner.

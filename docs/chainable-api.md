@@ -1,21 +1,5 @@
 # Chainable API
 
-This document explains the chainable API in PgBuddy.
-
-## Quick Start
-
-```typescript
-import postgres from "postgres";
-import { z } from "zod";
-import { PgBuddyClient } from "pgbuddy";
-
-// PostgreSQL connection
-const sql = postgres("postgres://username:password@localhost:5432/dbname");
-
-// Create PgBuddyClient instance
-const db = new PgBuddyClient(sql);
-```
-
 ## Installation
 
 ```bash
@@ -29,10 +13,7 @@ import postgres from "postgres";
 import { z } from "zod";
 import { PgBuddyClient } from "pgbuddy";
 
-// Create postgres.js connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
-
-// Create PgBuddyClient instance
 const db = new PgBuddyClient(sql);
 ```
 
@@ -75,7 +56,6 @@ const paginatedUsers = await users
 ### Find First
 
 ```typescript
-// Find first matching record
 const firstUser = await users
   .where({ status: "active" })
   .orderBy([{ column: "created_at", direction: "DESC" }])
@@ -85,7 +65,7 @@ const firstUser = await users
 ### Find Unique
 
 ```typescript
-// Find a unique record (throws if multiple found)
+// Throws if more than one record matches
 const uniqueUser = await users.where({ id: 1 }).findUnique();
 ```
 
@@ -94,7 +74,6 @@ const uniqueUser = await users.where({ id: 1 }).findUnique();
 ### Create
 
 ```typescript
-// Create a single record
 const newUser = await users.create({
   name: "John Doe",
   email: "john@example.com",
@@ -102,7 +81,6 @@ const newUser = await users.create({
   created_at: new Date(),
 });
 
-// Create multiple records
 const newUsers = await users.createMany([
   {
     name: "John Doe",
@@ -122,7 +100,7 @@ const newUsers = await users.createMany([
 ### Update
 
 ```typescript
-// Update records (returns an array)
+// Returns an array of updated records
 const updatedUsers = await users.where({ id: 1 }).update({ status: "inactive" });
 const [updatedUser] = updatedUsers;
 ```
@@ -130,7 +108,7 @@ const [updatedUser] = updatedUsers;
 ### Delete
 
 ```typescript
-// Delete records (returns an array)
+// Returns an array of deleted records
 const deletedUsers = await users.where({ id: 1 }).delete();
 const [deletedUser] = deletedUsers;
 ```
@@ -138,14 +116,12 @@ const [deletedUser] = deletedUsers;
 ## Count
 
 ```typescript
-// Count records
 const userCount = await users.where({ status: "active" }).count();
 ```
 
 ## Advanced Where Conditions
 
 ```typescript
-// Advanced filtering
 const advancedQuery = await users
   .where([
     { field: "name", operator: "LIKE", value: "John", pattern: "startsWith" },
@@ -154,9 +130,7 @@ const advancedQuery = await users
   .findMany();
 ```
 
-## Operators
-
-Available operators:
+## Available Operators
 
 - `=`, `!=`, `>`, `<`, `>=`, `<=`
 - `LIKE`, `ILIKE` (with optional patterns: `startsWith`, `endsWith`, `contains`, `exact`)
@@ -165,15 +139,14 @@ Available operators:
 
 ## Error Handling
 
-The library throws typed errors for various conditions:
+Two error types are thrown:
 
-- `TableError`: For table-related errors
-- `QueryError`: For query-related errors
+- `TableError` — thrown when table configuration is invalid
+- `QueryError` — thrown for invalid queries, missing `where` on mutations, or multiple results from `findUnique`
 
 ```typescript
 try {
   const user = await users.where({ id: 999 }).findUnique();
-  // Use user data
 } catch (error) {
   if (error instanceof QueryError) {
     console.error("Query error:", error.message);

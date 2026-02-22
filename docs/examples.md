@@ -330,13 +330,3 @@ async function safeCreateUser(userData: UserInput) {
   });
 }
 ```
-
-These examples demonstrate common real-world usage patterns for PgBuddy in different types of applications. They showcase:
-
-- Type safety with TypeScript
-- Complex query conditions
-- Error handling patterns
-- Business logic implementation
-- System design patterns
-
-Each example can be extended or modified based on specific requirements while maintaining type safety and query efficiency.

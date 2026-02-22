@@ -2,16 +2,16 @@
 
 ## Introduction
 
-PgBuddy is a type-safe query builder that works as a wrapper around [postgres.js](https://github.com/porsager/postgres). It provides a higher-level, type-safe interface while maintaining access to all underlying postgres.js functionality.
+PgBuddy is a type-safe query builder that wraps [postgres.js](https://github.com/porsager/postgres). It gives you a typed interface for common CRUD operations while keeping full access to postgres.js underneath.
 
 ### Features
 
-- 🛡️ **Type Safety**: Full TypeScript support with strongly typed queries and results
-- 🔒 **SQL Injection Prevention**: Built-in protection through parameterized queries
-- 🎯 **CRUD Operations**: Simple yet powerful interface for Create, Read, Update, and Delete operations
-- 📦 **Minimal Dependencies**: Just a lightweight wrapper over postgres.js
-- 🎨 **Flexible Querying**: Support for complex filters, sorting, and pagination
-- ⚡ **Full postgres.js Access**: Direct access to all postgres.js features when needed
+- Full TypeScript support with strongly typed queries and results
+- SQL injection prevention through parameterized queries
+- Simple interface for Create, Read, Update, and Delete operations
+- Lightweight wrapper over postgres.js with no additional overhead
+- Support for complex filters, sorting, and pagination
+- Direct access to all postgres.js features when needed
 
 ### Installation
 
@@ -79,9 +79,9 @@ const activeUsers = await users
 
 ### Advanced Features
 
-PgBuddy is intentionally designed as a lightweight wrapper that focuses on type safety and common CRUD operations. For advanced PostgreSQL features, you can:
+PgBuddy is a lightweight wrapper focused on type safety and common CRUD operations. For advanced PostgreSQL features, you can:
 
-1. **Access the Underlying postgres.js Instance**:
+1. **Access the underlying postgres.js instance**:
 ```typescript
 const db = new PgBuddyClient(sql);
 // Use the sql instance directly for advanced features
@@ -91,41 +91,26 @@ const result = await sql`
 `;
 ```
 
-2. **Use postgres.js Features**:
+2. **Use postgres.js features**:
 - Transactions: use `sql.begin(...)` to reserve a connection and let postgres.js roll back on errors.
 - Ordering guarantees: postgres.js notes ordering is only guaranteed when using `sql.begin()` or `max: 1`.
 - Unsafe SQL: `sql.unsafe(...)` exists for advanced cases but can introduce SQL injection risk if misused.
 - Data transforms: use `transform` helpers like `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
 - Error diagnostics: access `error.query` / `error.parameters` or set `debug: true`.
 
-For these advanced features, please refer to the [postgres.js documentation](https://github.com/porsager/postgres).
+For these advanced features, refer to the [postgres.js documentation](https://github.com/porsager/postgres).
 
 ### Why PgBuddy?
 
-1. **Type Safety First**: 
-   - Catch errors at compile time instead of runtime
-   - AutoComplete support for table columns and query options
-   - Type inference for query results
+Type errors surface at compile time rather than runtime. You get autocomplete for table columns and query options, and TypeScript can infer result types directly.
 
-2. **Developer Experience**:
-   - Intuitive API design for common operations
-   - Seamless integration with postgres.js
-   - No magic, just a thin typescript layer
-
-3. **Safety Features**:
-   - SQL injection prevention
-   - Input validation
-   - Required WHERE clauses for destructive operations
+The API covers common operations without magic — it's a thin TypeScript layer over postgres.js. WHERE clauses are required for destructive operations, and input validation is built in.
 
 ### Relationship with postgres.js
 
-PgBuddy is built on top of postgres.js and:
-- Provides type-safe wrappers for common operations
-- Maintains full access to postgres.js functionality
-- Adds zero overhead to postgres.js performance
-- Doesn't modify or limit postgres.js features
+PgBuddy is built on top of postgres.js. It adds typed wrappers for common operations and doesn't modify or limit any postgres.js features. There's no performance overhead.
 
-For anything not covered by PgBuddy's high-level interface, you can and should use postgres.js directly. This includes:
+For anything PgBuddy doesn't cover, use postgres.js directly. This includes:
 - Complex queries with CTEs
 - Window functions
 - Advanced PostgreSQL features

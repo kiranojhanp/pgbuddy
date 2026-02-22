@@ -108,28 +108,20 @@ const deleted = await userTable
 
 ## Best Practices
 
-1. **Always Use WHERE Clauses**:
-   - Required for update and delete operations
-   - Prevents accidental bulk operations
+- `where` is required for `update` and `delete` — calling either without it throws a `QueryError`.
+- Use `select` to limit which columns are returned from mutations.
+- For large inserts, `createMany` sends a single query rather than N separate inserts.
+- Wrap mutations in try/catch and handle `QueryError` for query failures and `TableError` for configuration issues:
 
-2. **Return Relevant Fields**:
-   - Use the `select` parameter to limit returned data
-   - Helps with performance and network bandwidth
-
-3. **Bulk Operations**:
-   - Use array input for bulk inserts
-   - Consider batching large operations
-
-4. **Error Handling**:
-   ```typescript
-   try {
-   const result = await userTable
-     .where({ id: 1 })
-     .update({ status: 'active' });
-   } catch (error) {
-     if (error instanceof QueryError) {
-       // Handle query-specific errors
-     }
-     // Handle other errors
-   }
-   ```
+```typescript
+try {
+  const result = await userTable
+    .where({ id: 1 })
+    .update({ status: 'active' });
+} catch (error) {
+  if (error instanceof QueryError) {
+    // Handle query-specific errors
+  }
+  // Handle other errors
+}
+```
