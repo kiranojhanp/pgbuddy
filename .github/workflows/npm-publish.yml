@@ -4,21 +4,22 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js (for npm publish + provenance)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
@@ -29,40 +30,47 @@ jobs:
         with:
           bun-version: "1.2.19"
 
+      - name: Extract Version
+        shell: bash
+        run: |
+          # Pulls the version from package.json and sets it to GITHUB_ENV
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bun run lint
-
-      - name: Test
-        run: bun test
+      - name: Lint and Test
+        run: |
+          bun run lint
+          bun test
 
       - name: Ensure tag is on default branch HEAD
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
+          # Use the context variable for the default branch (usually 'main')
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
 
-          # Determine the default branch name (e.g., main/master)
-          DEFAULT_BRANCH="$(git remote show origin | awk '/HEAD branch/ {print $NF}')"
-          echo "Default branch: $DEFAULT_BRANCH"
-
-          # Fetch that branch and compare HEAD SHA
           git fetch origin "$DEFAULT_BRANCH" --depth=1
-          DEFAULT_SHA="$(git rev-parse "origin/$DEFAULT_BRANCH")"
+          DEFAULT_SHA=$(git rev-parse "origin/$DEFAULT_BRANCH")
 
           if [[ "$GITHUB_SHA" != "$DEFAULT_SHA" ]]; then
-            echo "Tag must point to origin/$DEFAULT_BRANCH HEAD ($DEFAULT_SHA)"
+            echo "Error: Tag must be pushed to the latest commit on $DEFAULT_BRANCH."
+            echo "Tag SHA: $GITHUB_SHA | $DEFAULT_BRANCH SHA: $DEFAULT_SHA"
             exit 1
           fi
 
-      - name: Verify tag matches package.json version
+      - name: Verify tag matches package.json
+        if: github.event_name == 'push'
         shell: bash
         run: |
-          set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/v}"
-          VER="$(node -p "require('./package.json').version")"
-          [[ "$TAG" == "$VER" ]] || { echo "Tag ($TAG) != package.json version ($VER)"; exit 1; }
+          if [[ "$TAG" != "$VERSION" ]]; then
+            echo "Error: Git tag (v$TAG) does not match package.json version ($VERSION)"
+            exit 1
+          fi
 
       - name: Build
         run: bun run build
@@ -70,10 +78,11 @@ jobs:
       - name: Verify npm package contents
         run: npm pack --dry-run
 
-      - name: Publish to npm (OIDC trusted publishing)
+      - name: Publish to npm
         run: npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
           generate_release_notes: true
