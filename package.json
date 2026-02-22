@@ -27,6 +27,9 @@
     "test:coverage": "bun test --coverage",
     "test:types": "tsc -p tsconfig.types.json --noEmit"
   },
+  "publishConfig": {
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kiranojhanp/pgbuddy.git"

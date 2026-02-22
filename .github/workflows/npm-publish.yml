@@ -1,81 +1,72 @@
 name: Publish to NPM
+
 on:
   push:
-    branches:
-      - master
-  workflow_dispatch:
+    tags:
+      - "v*"
 
-# Permission to generate an OIDC token
 permissions:
+  contents: read
   id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.js (for npm publish + provenance)
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.2.19"
 
       - name: Install dependencies
-        run: npm install --no-package-lock
+        run: bun install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: bun run lint
 
-      - name: Run tests
-        run: npm test
+      - name: Test
+        run: bun test
 
-      - name: Get version from package.json
-        id: package-version
-        uses: martinbeentjes/npm-get-version-action@v1.3.1
-
-      - name: Check if version exists
-        id: version-check
+      - name: Ensure tag is on main HEAD
+        shell: bash
         run: |
-          if curl -sf "https://registry.npmjs.org/${{ github.event.repository.name }}/${{ steps.package-version.outputs.current-version }}" > /dev/null; then
-            echo "Version already exists"
+          set -euo pipefail
+          git fetch origin main --depth=1
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if [[ "$GITHUB_SHA" != "$MAIN_SHA" ]]; then
+            echo "Tag must point to origin/main HEAD ($MAIN_SHA)"
             exit 1
           fi
-        continue-on-error: true
 
-      - name: Generate Changelog
-        id: changelog
-        uses: TriPSs/conventional-changelog-action@v5
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          git-message: "chore(release): {version}"
-          git-user-name: "GitHub Action"
-          git-user-email: "action@github.com"
-          version-file: "./package.json"
-          skip-version-file: true
-          skip-git-pull: true
-          skip-commit: true
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VER="$(node -p "require('./package.json').version")"
+          [[ "$TAG" == "$VER" ]] || { echo "Tag ($TAG) != package.json version ($VER)"; exit 1; }
 
       - name: Build
-        run: npm run build
+        run: bun run build
 
-      - name: Publish to NPM
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify npm package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm (OIDC trusted publishing)
+        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
-        uses: elgohr/Github-Release-Action@v5
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
-          title: Release v${{ steps.package-version.outputs.current-version }}
-          tag: v${{ steps.package-version.outputs.current-version }}
-          prerelease: false
+          generate_release_notes: true
