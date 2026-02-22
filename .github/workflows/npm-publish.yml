@@ -2,7 +2,7 @@ name: Publish to NPM
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -21,6 +21,12 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-package-lock
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
 
       - name: Get version from package.json
         id: package-version
