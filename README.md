@@ -8,7 +8,13 @@
 
 ## The problem
 
-`postgres.js` is fast and lightweight, but raw SQL strings don't give you type safety or validation. PgBuddy wraps it with a chainable API so your queries know about your schema — without adding a full ORM.
+`postgres.js` has TypeScript support, but it's built around raw SQL strings. Typos in column names surface at runtime, not compile time. There's no way to validate that results match your expected shape. And without a schema, you write generics by hand and keep them in sync manually.
+
+PgBuddy wraps postgres.js with a chainable API backed by your Zod schema, so your queries know about your table structure — without a full ORM.
+
+### Source of truth
+
+PgBuddy defaults to Zod as the source of truth: you define the shape in code, the database is expected to match. If you'd rather go the other way — generate types from a live PostgreSQL schema instead — [Kanel](https://kristiandupont.github.io/kanel/) introspects your database and generates TypeScript types and Zod schemas from it. Those schemas work directly with `db.table()`.
 
 ---
 
