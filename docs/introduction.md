@@ -47,6 +47,30 @@ const UserSchema = z.object({
 const users = db.table('users', UserSchema);
 ```
 
+### Without Zod
+
+If you want to skip runtime validation, you can provide TypeScript types directly.
+
+```typescript
+import postgres from 'postgres';
+import { PgBuddy, Insertable } from 'pgbuddy';
+
+const sql = postgres(process.env.DATABASE_URL);
+const db = new PgBuddy(sql);
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+type UserInsert = Insertable<User, 'id'>;
+
+const users = db.table<User, UserInsert>('users');
+```
+
+Tip: Use [Kanel](https://github.com/kristiandupont/kanel) to auto-generate TypeScript interfaces directly from your database schema.
+
 ### Using the chainable API
 
 ```typescript

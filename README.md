@@ -27,8 +27,6 @@ npm install zod
 
 ## Quick start
 
-### With Zod (recommended)
-
 ```ts
 import postgres from "postgres";
 import { PgBuddy } from "pgbuddy";
@@ -59,42 +57,7 @@ await users.update({ where: { id: user.id }, data: { name: "Alice Smith" } });
 await users.delete({ where: { id: user.id } });
 ```
 
-### Without Zod
-
-```ts
-import postgres from "postgres";
-import { PgBuddy, Insertable } from "pgbuddy";
-
-const sql = postgres(process.env.DATABASE_URL);
-const db = new PgBuddy(sql);
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-type UserInsert = Insertable<User, "id">;
-
-const users = db.table<User, UserInsert>("users");
-
-// Create
-const user = await users.create({ name: "Alice", email: "alice@example.com" });
-
-// Read
-const all = await users.findMany();
-const one = await users.findFirst({ where: { email: "alice@example.com" } });
-
-// Update
-await users.update({ where: { id: user.id }, data: { name: "Alice Smith" } });
-
-// Delete
-await users.delete({ where: { id: user.id } });
-```
-
-> **Tip:** Use [Kanel](https://github.com/kristiandupont/kanel) to auto-generate TypeScript interfaces directly from your database schema.
-
----
+Tip: Use [Kanel](https://github.com/kristiandupont/kanel) to auto-generate TypeScript interfaces directly from your database schema.
 
 ## Documentation
 
