@@ -10,7 +10,7 @@ interface User {
 }
 
 describe("Table - update and delete", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -68,22 +68,20 @@ describe("Table - update and delete", () => {
   });
 
   test("update without where throws", async () => {
-    await expect(
-      db.table<User>("users").update({ status: "inactive" })
-    ).rejects.toThrow();
+    await expect(db.table<User>("users").update({ status: "inactive" })).rejects.toThrow();
   });
 
   test("update with empty data throws", async () => {
     await expect(
-      db.table<User>("users").where({ email: "ada@example.com" }).update({} as Partial<User>)
+      db
+        .table<User>("users")
+        .where({ email: "ada@example.com" })
+        .update({} as Partial<User>)
     ).rejects.toThrow();
   });
 
   test("delete removes matching records and returns them", async () => {
-    const deleted = await db
-      .table<User>("users")
-      .where({ email: "ada@example.com" })
-      .delete();
+    const deleted = await db.table<User>("users").where({ email: "ada@example.com" }).delete();
 
     expect(deleted).toHaveLength(1);
 

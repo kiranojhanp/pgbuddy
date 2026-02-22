@@ -4,7 +4,7 @@ import { Errors, PgBuddyClient, QueryError } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 describe("ZodTable", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -63,7 +63,7 @@ describe("ZodTable", () => {
         email: "not-an-email",
         status: "active",
         last_login: null,
-      }),
+      })
     ).rejects.toThrow(QueryError);
   });
 
@@ -86,14 +86,12 @@ describe("ZodTable", () => {
   test("where validates keys and values", async () => {
     const users = db.table("users", UserSchema);
 
-    expect(() =>
-      users.where({ missing: "nope" } as unknown as Record<string, string>),
-    ).toThrow(Errors.WHERE.INVALID_FIELD("missing"));
+    expect(() => users.where({ missing: "nope" } as unknown as Record<string, string>)).toThrow(
+      Errors.WHERE.INVALID_FIELD("missing")
+    );
 
     expect(() =>
-      users.where({ id: "nope" } as unknown as Partial<
-        z.infer<typeof UserSchema>
-      >),
+      users.where({ id: "nope" } as unknown as Partial<z.infer<typeof UserSchema>>)
     ).toThrow(QueryError);
   });
 
@@ -107,15 +105,11 @@ describe("ZodTable", () => {
     });
 
     await expect(
-      users
-        .where([{ field: "status", operator: "IN", value: ["active"] }])
-        .findMany(),
+      users.where([{ field: "status", operator: "IN", value: ["active"] }]).findMany()
     ).resolves.toHaveLength(1);
 
     expect(() =>
-      users.where([
-        { field: "id", operator: "IN", value: ["oops"] as unknown as number[] },
-      ]),
+      users.where([{ field: "id", operator: "IN", value: ["oops"] as unknown as number[] }])
     ).toThrow(QueryError);
   });
 
@@ -136,9 +130,7 @@ describe("ZodTable", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(11);
 
-    const first = await users
-      .orderBy([{ column: "id", direction: "ASC" }])
-      .findFirst();
+    const first = await users.orderBy([{ column: "id", direction: "ASC" }]).findFirst();
     expect(first?.id).toBe(10);
 
     const unique = await users.where({ id: 10 }).findUnique();
@@ -162,15 +154,11 @@ describe("ZodTable", () => {
     });
 
     expect(() =>
-      users.where([
-        { field: "email", operator: "LIKE", value: 123 as unknown as string },
-      ]),
+      users.where([{ field: "email", operator: "LIKE", value: 123 as unknown as string }])
     ).toThrow(Errors.WHERE.INVALID_LIKE("email"));
 
     expect(() =>
-      users.where([
-        { field: "last_login", operator: "IS NULL", value: null as never },
-      ]),
+      users.where([{ field: "last_login", operator: "IS NULL", value: null as never }])
     ).toThrow(Errors.WHERE.INVALID_FIELD("last_login"));
   });
 
@@ -180,22 +168,22 @@ describe("ZodTable", () => {
       users.createMany([
         { id: 30, email: "ok@example.com", status: "active", last_login: null },
         { id: 31, email: "bad-email", status: "active", last_login: null },
-      ]),
+      ])
     ).rejects.toThrow(QueryError);
   });
 
   test("where rejects undefined values in object filters", () => {
     const users = db.table("users", UserSchema);
-    expect(() =>
-      users.where({ email: undefined as unknown as string }),
-    ).toThrow(Errors.WHERE.INVALID_FIELD("email"));
+    expect(() => users.where({ email: undefined as unknown as string })).toThrow(
+      Errors.WHERE.INVALID_FIELD("email")
+    );
   });
 
   test("advanced where rejects empty IN list", () => {
     const users = db.table("users", UserSchema);
-    expect(() =>
-      users.where([{ field: "id", operator: "IN", value: [] }]),
-    ).toThrow(Errors.WHERE.INVALID_IN("id"));
+    expect(() => users.where([{ field: "id", operator: "IN", value: [] }])).toThrow(
+      Errors.WHERE.INVALID_IN("id")
+    );
   });
 
   test("update rejects unknown fields", async () => {
@@ -210,9 +198,7 @@ describe("ZodTable", () => {
     await expect(
       users
         .where({ id: 40 })
-        .update({ unknown: "nope" } as unknown as Partial<
-          z.input<typeof UserSchema>
-        >),
+        .update({ unknown: "nope" } as unknown as Partial<z.input<typeof UserSchema>>)
     ).rejects.toThrow(QueryError);
   });
 
@@ -224,7 +210,7 @@ describe("ZodTable", () => {
         email: null as unknown as string,
         status: "active",
         last_login: null,
-      }),
+      })
     ).rejects.toThrow(QueryError);
   });
 
@@ -242,9 +228,7 @@ describe("ZodTable", () => {
       last_login: null,
     });
 
-    const results = await users
-      .where([{ field: "last_login", operator: "IS NULL" }])
-      .findMany();
+    const results = await users.where([{ field: "last_login", operator: "IS NULL" }]).findMany();
 
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe(50);

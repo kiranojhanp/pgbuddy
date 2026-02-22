@@ -1,4 +1,4 @@
-import type net from "net";
+import type net from "node:net";
 import { getAvailablePort } from "../helpers/pglite";
 
 type FakeServer = {

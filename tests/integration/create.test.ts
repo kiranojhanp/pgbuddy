@@ -10,7 +10,7 @@ interface User {
 }
 
 describe("Table - create", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -74,9 +74,7 @@ describe("Table - create", () => {
   });
 
   test("create rejects empty data", async () => {
-    await expect(
-      db.table<User>("users").create({} as unknown as User)
-    ).rejects.toThrow();
+    await expect(db.table<User>("users").create({} as unknown as User)).rejects.toThrow();
   });
 
   test("createMany rejects empty array", async () => {

@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { PgBuddyClient, Errors, QueryError, TableError } from "../../src";
+import { Errors, PgBuddyClient, QueryError, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 interface User {
@@ -10,7 +10,7 @@ interface User {
 }
 
 describe("Table - validation", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -46,12 +46,8 @@ describe("Table - validation", () => {
 
   test("strict table name validation rejects invalid identifiers", () => {
     expect(() => db.table<User>("users", { strictNames: true })).not.toThrow();
-    expect(() => db.table<User>("user-profiles", { strictNames: true })).toThrow(
-      TableError
-    );
-    expect(() => db.table<User>("public.users", { strictNames: true })).toThrow(
-      TableError
-    );
+    expect(() => db.table<User>("user-profiles", { strictNames: true })).toThrow(TableError);
+    expect(() => db.table<User>("public.users", { strictNames: true })).toThrow(TableError);
     expect(() =>
       db.table<User>("public.users", { strictNames: true, allowSchema: true })
     ).not.toThrow();
@@ -67,63 +63,72 @@ describe("Table - validation", () => {
   });
 
   test("create rejects empty data object", async () => {
-    await expect(
-      db.table<User>("users").create({} as unknown as User)
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    await expect(db.table<User>("users").create({} as unknown as User)).rejects.toThrow(
+      Errors.INSERT.INVALID_DATA
+    );
   });
 
   test("create rejects non-plain objects", async () => {
-    await expect(
-      db.table<User>("users").create([] as unknown as User)
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    await expect(db.table<User>("users").create([] as unknown as User)).rejects.toThrow(
+      Errors.INSERT.INVALID_DATA
+    );
 
-    await expect(
-      db.table<User>("users").create(new Date() as unknown as User)
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    await expect(db.table<User>("users").create(new Date() as unknown as User)).rejects.toThrow(
+      Errors.INSERT.INVALID_DATA
+    );
   });
 
   test("createMany rejects empty array", async () => {
-    await expect(
-      db.table<User>("users").createMany([] as User[])
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    await expect(db.table<User>("users").createMany([] as User[])).rejects.toThrow(
+      Errors.INSERT.INVALID_DATA
+    );
   });
 
   test("createMany rejects inconsistent columns", async () => {
     await expect(
-      db.table<User>("users").createMany([
-        { id: 1001, email: "ada@example.com", status: "active", last_login: null },
-        { id: 1002, email: "grace@example.com", last_login: null } as unknown as User,
-      ])
+      db
+        .table<User>("users")
+        .createMany([
+          { id: 1001, email: "ada@example.com", status: "active", last_login: null },
+          { id: 1002, email: "grace@example.com", last_login: null } as unknown as User,
+        ])
     ).rejects.toThrow(Errors.INSERT.INCONSISTENT_COLUMNS);
   });
 
   test("update rejects missing where clause", async () => {
-    await expect(
-      db.table<User>("users").update({ status: "active" })
-    ).rejects.toThrow(Errors.UPDATE.NO_CONDITIONS);
+    await expect(db.table<User>("users").update({ status: "active" })).rejects.toThrow(
+      Errors.UPDATE.NO_CONDITIONS
+    );
   });
 
   test("update rejects empty data object", async () => {
     await expect(
-      db.table<User>("users").where({ email: "ada@example.com" }).update({} as Partial<User>)
+      db
+        .table<User>("users")
+        .where({ email: "ada@example.com" })
+        .update({} as Partial<User>)
     ).rejects.toThrow(Errors.UPDATE.INVALID_DATA);
   });
 
   test("update rejects invalid where clause", async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: intentional invalid input for negative test
+    const invalidWhere = [] as unknown as any;
     await expect(
-      db.table<User>("users").where([] as unknown as any).update({ status: "active" })
+      db.table<User>("users").where(invalidWhere).update({ status: "active" })
     ).rejects.toThrow(Errors.UPDATE.NO_CONDITIONS);
   });
 
   test("delete rejects missing where clause", async () => {
-    await expect(
-      db.table<User>("users").delete()
-    ).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
+    await expect(db.table<User>("users").delete()).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
   });
 
   test("delete rejects invalid where clause", async () => {
     await expect(
-      db.table<User>("users").where([] as unknown as any).delete()
+      db
+        .table<User>("users")
+        // biome-ignore lint/suspicious/noExplicitAny: intentional invalid input for negative test
+        .where([] as unknown as any)
+        .delete()
     ).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
   });
 
@@ -131,7 +136,10 @@ describe("Table - validation", () => {
     await sql`INSERT INTO users (email, status, last_login) VALUES ('ada@example.com', 'active', NULL);`;
 
     await expect(
-      db.table<User>("users").select([""] as Array<keyof User>).findMany()
+      db
+        .table<User>("users")
+        .select([""] as Array<keyof User>)
+        .findMany()
     ).rejects.toThrow(Errors.SELECT.INVALID_COLUMNS([""]));
   });
 

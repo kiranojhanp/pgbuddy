@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import { Errors, QueryError, type SqlOperator } from "../../src";
 import {
   buildSelect,
   buildWhereConditions,
@@ -10,7 +11,6 @@ import {
   createSortFragment,
   getLikePattern,
 } from "../../src/utils/sql-builder";
-import { Errors, QueryError, type SqlOperator } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 type Item = {
@@ -21,7 +21,7 @@ type Item = {
 };
 
 describe("sql-builder utilities", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
 
   const expectQueryError = (fn: () => void, message: string) => {
@@ -68,7 +68,8 @@ describe("sql-builder utilities", () => {
 
   test("buildSelect supports star and column lists", async () => {
     const allRows = await sql`SELECT ${buildSelect<Item>(sql, ["*"])} FROM items ORDER BY id`;
-    const projected = await sql`SELECT ${buildSelect<Item>(sql, ["id", "name"])} FROM items ORDER BY id`;
+    const projected =
+      await sql`SELECT ${buildSelect<Item>(sql, ["id", "name"])} FROM items ORDER BY id`;
 
     expect(allRows).toHaveLength(3);
     expect(allRows[0]).toHaveProperty("score");
@@ -164,12 +165,13 @@ describe("sql-builder utilities", () => {
     const inFragment = createConditionFragment(sql, "name", "IN", ["alpha", "gamma"]);
     const inRows = await sql`SELECT * FROM items WHERE ${inFragment} ORDER BY id`;
 
-    const likeFragment = createLikeCondition(sql, "name", "LIKE", "a%", undefined);
+    // Use "startsWith" pattern instead of raw "a%" - wildcards in values are now always escaped
+    const likeFragment = createLikeCondition(sql, "name", "LIKE", "a", "startsWith");
     const likeRows = await sql`SELECT * FROM items WHERE ${likeFragment} ORDER BY id`;
 
     expect(inRows).toHaveLength(2);
     expect(likeRows).toHaveLength(1);
-    expect(likeRows[0].name).toBe("alpha");
+    expect(likeRows[0]?.name).toBe("alpha");
   });
 
   test("createConditionFragment handles IS NOT NULL and comparisons", async () => {
@@ -190,11 +192,14 @@ describe("sql-builder utilities", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("createLikeCondition uses wildcard values as-is", async () => {
+  test("createLikeCondition always escapes wildcard characters", async () => {
+    // Values containing _ or % are now always escaped - they match literally
     const wildcardFragment = createLikeCondition(sql, "name", "LIKE", "a____", undefined);
     const rows = await sql`SELECT * FROM items WHERE ${wildcardFragment}`;
 
-    expect(rows).toHaveLength(1);
+    // "a____" is escaped to "a\_\_\_\_" so it only matches the literal string "a____"
+    // None of our test items have that exact name, so 0 rows returned
+    expect(rows).toHaveLength(0);
   });
 
   test("createLikeCondition rejects non-string", () => {

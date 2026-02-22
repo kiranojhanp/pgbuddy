@@ -1,5 +1,4 @@
-import type { Model, Updatable, Insertable } from "../../src";
-import type { Table } from "../../src";
+import type { Insertable, Model, Table, Updatable } from "../../src";
 
 interface User {
   id: number;
@@ -18,10 +17,10 @@ const insert1: UserModel["Insert"] = {
 };
 
 // Update type is partial
-const update1: Updatable<User> = { status: "inactive" };
+const _update1: Updatable<User> = { status: "inactive" };
 
 // Insertable type helper works directly
-const insert2: Insertable<User, "id"> = {
+const _insert2: Insertable<User, "id"> = {
   email: "b@example.com",
   status: "active",
   last_login: null,

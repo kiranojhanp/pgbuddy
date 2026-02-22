@@ -5,5 +5,3 @@ const globals = globalThis as typeof globalThis & {
 };
 
 globals.startPglite = startPglite;
-
-export {};

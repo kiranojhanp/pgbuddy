@@ -10,7 +10,7 @@ interface User {
 }
 
 describe("Table - find", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -66,10 +66,7 @@ describe("Table - find", () => {
   });
 
   test("findMany respects select projection", async () => {
-    const users = await db
-      .table<User>("users")
-      .select(["id", "email"])
-      .findMany();
+    const users = await db.table<User>("users").select(["id", "email"]).findMany();
 
     expect("status" in users[0]).toBe(false);
   });
@@ -82,19 +79,13 @@ describe("Table - find", () => {
   });
 
   test("findFirst returns null when no rows match", async () => {
-    const user = await db
-      .table<User>("users")
-      .where({ email: "nobody@example.com" })
-      .findFirst();
+    const user = await db.table<User>("users").where({ email: "nobody@example.com" }).findFirst();
 
     expect(user).toBeNull();
   });
 
   test("findUnique returns the single matching record", async () => {
-    const user = await db
-      .table<User>("users")
-      .where({ email: "a@example.com" })
-      .findUnique();
+    const user = await db.table<User>("users").where({ email: "a@example.com" }).findUnique();
 
     expect(user?.email).toBe("a@example.com");
   });

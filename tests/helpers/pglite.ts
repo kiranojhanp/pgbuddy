@@ -1,6 +1,6 @@
+import net from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
-import net from "net";
 import postgres from "postgres";
 
 type ServerLike = {

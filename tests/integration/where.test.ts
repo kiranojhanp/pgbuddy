@@ -10,7 +10,7 @@ interface User {
 }
 
 describe("Table - where operators", () => {
-  let sql: Sql<{}>;
+  let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
   let db: PgBuddyClient;
 
@@ -84,10 +84,7 @@ describe("Table - where operators", () => {
   });
 
   test("simple equality filter", async () => {
-    const users = await db
-      .table<User>("users")
-      .where({ status: "inactive" })
-      .findMany();
+    const users = await db.table<User>("users").where({ status: "inactive" }).findMany();
 
     expect(users).toHaveLength(1);
     expect(users[0].email).toBe("linus@corp.com");
