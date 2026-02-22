@@ -21,9 +21,7 @@ type UserInput = z.input<typeof UserSchema>;
 const userTable = db.table('users', UserSchema);
 ```
 
-## Common Use Cases
-
-### User Management System
+## User management
 
 ```typescript
 async function createUser(
@@ -59,7 +57,7 @@ async function searchUsers(query: string) {
 }
 ```
 
-### Blog Post System
+## Blog posts
 
 ```typescript
 const PostSchema = z.object({
@@ -76,7 +74,6 @@ type Post = z.infer<typeof PostSchema>;
 
 const postTable = db.table('posts', PostSchema);
 
-// Create draft post
 async function createDraft(authorId: number, title: string, content: string) {
   return postTable.create({
     author_id: authorId,
@@ -87,7 +84,6 @@ async function createDraft(authorId: number, title: string, content: string) {
   });
 }
 
-// Publish post
 async function publishPost(postId: number) {
   return postTable
     .where({ id: postId })
@@ -97,7 +93,6 @@ async function publishPost(postId: number) {
     });
 }
 
-// Get published posts with pagination
 async function getPublishedPosts(page: number, pageSize: number) {
   return postTable
     .where({ status: 'published' })
@@ -108,7 +103,7 @@ async function getPublishedPosts(page: number, pageSize: number) {
 }
 ```
 
-### Order Processing System
+## Order processing
 
 ```typescript
 const OrderSchema = z.object({
@@ -126,7 +121,6 @@ type Order = z.infer<typeof OrderSchema>;
 
 const orderTable = db.table('orders', OrderSchema);
 
-// Create new order
 async function createOrder(customerId: number, amount: number, shippingAddress: string) {
   return orderTable.create({
     customer_id: customerId,
@@ -137,7 +131,6 @@ async function createOrder(customerId: number, amount: number, shippingAddress: 
   });
 }
 
-// Update order status
 async function updateOrderStatus(orderId: number, status: Order['status'], trackingNumber?: string) {
   return orderTable
     .where({ id: orderId })
@@ -148,7 +141,6 @@ async function updateOrderStatus(orderId: number, status: Order['status'], track
     });
 }
 
-// Get customer orders with filters
 async function getCustomerOrders(customerId: number, status?: Order['status']) {
   const conditions: Array<WhereCondition<Order>> = [
     { field: 'customer_id', operator: '=', value: customerId }
@@ -164,7 +156,6 @@ async function getCustomerOrders(customerId: number, status?: Order['status']) {
     .findMany();
 }
 
-// Get orders pending shipment
 async function getPendingShipments() {
   return orderTable
     .where({ status: 'processing' })
@@ -173,7 +164,7 @@ async function getPendingShipments() {
 }
 ```
 
-### Inventory Management System
+## Inventory
 
 ```typescript
 const ProductSchema = z.object({
@@ -191,7 +182,6 @@ type Product = z.infer<typeof ProductSchema>;
 
 const productTable = db.table('products', ProductSchema);
 
-// Update stock levels
 async function updateStock(productId: number, quantity: number) {
   return productTable
     .where({ id: productId })
@@ -201,7 +191,6 @@ async function updateStock(productId: number, quantity: number) {
     });
 }
 
-// Get low stock products
 async function getLowStockProducts() {
   return productTable
     .where([
@@ -215,7 +204,6 @@ async function getLowStockProducts() {
     .findMany();
 }
 
-// Search products
 async function searchProducts(query: string) {
   return productTable
     .where([
@@ -231,7 +219,7 @@ async function searchProducts(query: string) {
 }
 ```
 
-### Event Logging System
+## Event logging
 
 ```typescript
 const EventLogSchema = z.object({
@@ -247,7 +235,6 @@ type EventLog = z.infer<typeof EventLogSchema>;
 
 const eventLogTable = db.table('event_logs', EventLogSchema);
 
-// Log new event
 async function logEvent(
   eventType: string,
   severity: EventLog['severity'],
@@ -263,7 +250,6 @@ async function logEvent(
   });
 }
 
-// Get recent errors
 async function getRecentErrors(hours: number = 24) {
   const cutoff = new Date();
   cutoff.setHours(cutoff.getHours() - hours);
@@ -277,7 +263,6 @@ async function getRecentErrors(hours: number = 24) {
     .findMany();
 }
 
-// Get event statistics
 async function getEventStats(startDate: Date, endDate: Date) {
   return eventLogTable
     .where([
@@ -292,4 +277,4 @@ async function getEventStats(startDate: Date, endDate: Date) {
 }
 ```
 
-For error handling patterns, see [Error Types](api-reference.md#error-types) in the API reference.
+For error handling, see [Error types](api-reference.md#error-types) in the API reference.
