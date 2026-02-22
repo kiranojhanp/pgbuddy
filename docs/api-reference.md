@@ -22,8 +22,8 @@ table<S extends ZodObject<any>>(
 
 Creates a chainable table query builder with Zod validation.
 
-- `tableName` — the name of the table
-- `schema` — Zod schema used for input/output validation
+- `tableName` — table name
+- `schema` — Zod schema for input/output validation
 - `options` — optional name validation flags
 - Returns `ZodTable<S>`
 
@@ -38,8 +38,8 @@ table<T extends Row, I extends Row = T>(
 
 Creates a chainable table query builder without Zod validation.
 
-- `tableName` — the name of the table
-- `T` — type parameter representing the full row type
+- `tableName` — table name
+- `T` — full row type
 - `I` — insertable row type (defaults to `T`)
 - `options` — optional name validation flags
 - Returns `Table<T, ["*"], I>`
@@ -53,10 +53,10 @@ tableWithInsert<T extends Row, AutoKeys extends keyof T>(
 )
 ```
 
-Creates a table query builder where insert types are inferred from auto-generated keys.
+Creates a table query builder where auto-generated keys are optional on insert.
 
-- `tableName` — the name of the table
-- `T` — type parameter representing the full row type
+- `tableName` — table name
+- `T` — full row type
 - `AutoKeys` — keys in `T` that are auto-generated and optional on insert
 - `options` — optional name validation flags
 - Returns `Table<T, ["*"], Insertable<T, AutoKeys>>`
@@ -67,6 +67,7 @@ Creates a table query builder where insert types are inferred from auto-generate
 ## ZodTable\<S\>
 
 `ZodTable` has the same chainable API as `Table`, with runtime validation added:
+
 - `where` validates field names and values against the schema
 - `create` / `createMany` validate input data
 - `update` validates partial updates
@@ -85,7 +86,7 @@ The `Table` API is chainable. Build up query state with `select`, `where`, `skip
 select<K extends (keyof T)[]>(fields: K)
 ```
 
-Specify which columns to return. Affects `find*`, `create`, `createMany`, `update`, and `delete` return values.
+Specify which columns to return. Applies to `find*`, `create`, `createMany`, `update`, and `delete`.
 
 #### where(conditions)
 
@@ -93,7 +94,7 @@ Specify which columns to return. Affects `find*`, `create`, `createMany`, `updat
 where(conditions: WhereCondition<T>[] | Partial<T>)
 ```
 
-Filter results with either field-value equality or advanced `WhereCondition` operators.
+Filter results with field-value equality or advanced `WhereCondition` operators.
 
 #### skip(count)
 
@@ -127,11 +128,11 @@ Returns all matching records.
 
 #### findFirst()
 
-Returns the first matching record or `null`.
+Returns the first matching record, or `null`.
 
 #### findUnique()
 
-Returns the only matching record or `null`. Throws `QueryError` if more than one record matches.
+Returns the only matching record, or `null`. Throws `QueryError` if more than one record matches.
 
 #### count()
 
@@ -145,7 +146,7 @@ Returns the number of matching records.
 create(data: I)
 ```
 
-Insert a single record and return it (respects `select`). `I` is the insertable row type for the table (defaults to `T`).
+Insert a single record and return it (respects `select`). `I` is the insertable row type (defaults to `T`).
 
 #### createMany(records)
 
@@ -198,7 +199,7 @@ type Model<T extends Row, AutoKeys extends keyof T = never> = {
 };
 ```
 
-Groups `Insert`, `Update`, and `Select` types together — useful for Prisma-style type organisation without Zod.
+Groups `Insert`, `Update`, and `Select` types — a Prisma-style type bundle without Zod.
 
 ### WhereCondition\<T\>
 
@@ -247,7 +248,7 @@ interface SortSpec<T> {
 
 ---
 
-## Error Types
+## Error types
 
 ### QueryError
 

@@ -4,7 +4,7 @@ These examples assume a table is already set up. See the [Introduction](introduc
 
 ## Basic Queries
 
-### Simple Select
+### Simple select
 
 ```typescript
 const users = await userTable
@@ -12,7 +12,7 @@ const users = await userTable
   .findMany();
 ```
 
-### Select Specific Fields
+### Select specific fields
 
 ```typescript
 const users = await userTable
@@ -23,7 +23,7 @@ const users = await userTable
 
 ## Advanced Filtering
 
-### Complex Conditions
+### Complex conditions
 
 ```typescript
 const users = await userTable
@@ -35,7 +35,7 @@ const users = await userTable
   .findMany();
 ```
 
-### Pattern Matching
+### Pattern matching
 
 ```typescript
 const users = await userTable
@@ -50,7 +50,7 @@ const users = await userTable
   .findMany();
 ```
 
-### NULL Checks
+### NULL checks
 
 ```typescript
 const users = await userTable
@@ -62,7 +62,7 @@ const users = await userTable
 
 ## Sorting
 
-### Basic Sorting
+### Basic sorting
 
 ```typescript
 const users = await userTable
@@ -72,7 +72,7 @@ const users = await userTable
   .findMany();
 ```
 
-### Multiple Sort Criteria
+### Multiple sort criteria
 
 ```typescript
 const users = await userTable
@@ -85,7 +85,7 @@ const users = await userTable
 
 ## Pagination
 
-### Limit and Offset
+### Limit and offset
 
 ```typescript
 const users = await userTable
@@ -94,7 +94,7 @@ const users = await userTable
   .findMany();
 ```
 
-### Page-based Pagination
+### Page-based pagination
 
 ```typescript
 function getPage(pageNumber: number, pageSize: number) {
@@ -106,9 +106,7 @@ function getPage(pageNumber: number, pageSize: number) {
 }
 ```
 
-## Combining Features
-
-### Complete Example
+## Combining features
 
 ```typescript
 const users = await userTable
@@ -126,10 +124,10 @@ const users = await userTable
   .findMany();
 ```
 
-## Performance Tips
+## Performance tips
 
-- Use `select` to specify only the columns you need — returning fewer columns reduces network and memory overhead.
-- Make sure indexes exist on fields used in `where` and `orderBy` clauses.
-- Use `take` with a reasonable limit to avoid fetching unbounded result sets.
-- For large tables, consider keyset pagination over offset-based pagination.
-- Place the most selective `where` conditions first to help the query planner.
+- Use `select` to return only the columns you need — fewer columns means less data over the wire.
+- Index the fields you filter and sort on.
+- Always use `take` to bound result sets on large tables.
+- For large datasets, keyset pagination performs better than offset-based pagination.
+- Put your most selective `where` conditions first.

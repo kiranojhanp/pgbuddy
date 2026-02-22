@@ -1,10 +1,8 @@
-# Case Transformation with postgres.js and PgBuddy
+# Case transformation
 
 Case transformation is a postgres.js feature. Configure it on the connection and PgBuddy will work with the already-transformed data.
 
 ## Setup
-
-Configure postgres.js with your desired transformation, then pass the instance to `PgBuddyClient`:
 
 ```typescript
 // db.ts
@@ -22,9 +20,9 @@ const db = new PgBuddyClient(sql);
 export { sql, db };
 ```
 
-## postgres.js Transformation Options
+## Transformation options
 
-### Two-way transformations
+### Two-way
 
 ```typescript
 postgres({ transform: postgres.camel })   // snake_case ↔ camelCase
@@ -32,7 +30,7 @@ postgres({ transform: postgres.pascal })  // snake_case ↔ PascalCase
 postgres({ transform: postgres.kebab })   // snake_case ↔ kebab-case
 ```
 
-### One-way transformations
+### One-way
 
 ```typescript
 // Database → application (snake_case → camelCase)
@@ -61,23 +59,21 @@ await sql`
   )
 `;
 
-// Interpolated values are transformed before being sent to the database
+// camelCase values are transformed to snake_case before the query runs
 await sql`INSERT INTO user_profiles ${sql([{
   userId: 1,          // → user_id
   firstName: 'John',  // → first_name
   lastName: 'Doe'     // → last_name
 }])}`;
 
-// Query results come back transformed to camelCase
+// Results come back in camelCase
 const data = await sql`SELECT user_id, first_name, last_name FROM user_profiles`;
 console.log(data[0]); // { userId: 1, firstName: 'John', lastName: 'Doe' }
 ```
 
-## Notes
+## How it fits with PgBuddy
 
-The transformation runs inside postgres.js before data reaches PgBuddy. This means PgBuddy's schema should use the transformed casing (camelCase if you're using `postgres.camel`), and your `where` field names should match too.
-
-## Example Application Architecture
+Transformation runs inside postgres.js before data reaches PgBuddy. So PgBuddy's schema should use the transformed casing — camelCase if you're using `postgres.camel` — and `where` field names need to match too.
 
 ```typescript
 // types.ts
@@ -89,7 +85,7 @@ interface UserProfile {
 
 // queries.ts
 import { z } from 'zod';
-import { sql, db } from './db'; // db.ts configured with postgres.camel (see Setup above)
+import { sql, db } from './db';
 
 // Raw postgres.js — transformation applied automatically
 const rawQuery = async () => {
@@ -107,8 +103,6 @@ const UserProfileSchema = z.object({
 const userProfileTable = db.table('user_profiles', UserProfileSchema);
 
 const pgBuddyQuery = async () => {
-  return userProfileTable
-    .where({ userId: 1 })
-    .findFirst();
+  return userProfileTable.where({ userId: 1 }).findFirst();
 };
 ```

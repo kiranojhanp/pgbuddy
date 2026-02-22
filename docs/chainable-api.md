@@ -1,12 +1,13 @@
 # Chainable API
 
-## Defining Tables
+## Defining tables
 
 ```typescript
 import { z } from "zod";
 import { PgBuddyClient } from "pgbuddy";
 
-// Assumes db is already created: const db = new PgBuddyClient(sql);
+const sql = postgres("postgres://...");
+const db = new PgBuddyClient(sql);
 
 const UserSchema = z.object({
   id: z.number().int(),
@@ -19,15 +20,15 @@ const UserSchema = z.object({
 const users = db.table("users", UserSchema);
 ```
 
-## Find Operations
+## Find operations
 
-### Find Many
+### findMany
 
 ```typescript
-// Find all records
+// All records
 const allUsers = await users.findMany();
 
-// Find with conditions
+// With conditions
 const activeUsers = await users.where({ status: "active" }).findMany();
 
 // Select specific fields
@@ -41,7 +42,7 @@ const paginatedUsers = await users
   .findMany();
 ```
 
-### Find First
+### findFirst
 
 ```typescript
 const firstUser = await users
@@ -50,14 +51,14 @@ const firstUser = await users
   .findFirst();
 ```
 
-### Find Unique
+### findUnique
 
 ```typescript
-// Throws if more than one record matches
+// Throws QueryError if more than one record matches
 const uniqueUser = await users.where({ id: 1 }).findUnique();
 ```
 
-## Create, Update, Delete
+## Mutations
 
 ### Create
 
@@ -70,18 +71,8 @@ const newUser = await users.create({
 });
 
 const newUsers = await users.createMany([
-  {
-    name: "John Doe",
-    email: "john@example.com",
-    status: "active",
-    created_at: new Date(),
-  },
-  {
-    name: "Jane Smith",
-    email: "jane@example.com",
-    status: "active",
-    created_at: new Date(),
-  },
+  { name: "John Doe", email: "john@example.com", status: "active", created_at: new Date() },
+  { name: "Jane Smith", email: "jane@example.com", status: "active", created_at: new Date() },
 ]);
 ```
 
@@ -89,16 +80,14 @@ const newUsers = await users.createMany([
 
 ```typescript
 // Returns an array of updated records
-const updatedUsers = await users.where({ id: 1 }).update({ status: "inactive" });
-const [updatedUser] = updatedUsers;
+const [updatedUser] = await users.where({ id: 1 }).update({ status: "inactive" });
 ```
 
 ### Delete
 
 ```typescript
 // Returns an array of deleted records
-const deletedUsers = await users.where({ id: 1 }).delete();
-const [deletedUser] = deletedUsers;
+const [deletedUser] = await users.where({ id: 1 }).delete();
 ```
 
 ## Count
@@ -107,10 +96,10 @@ const [deletedUser] = deletedUsers;
 const userCount = await users.where({ status: "active" }).count();
 ```
 
-## Advanced Where Conditions
+## Advanced where conditions
 
 ```typescript
-const advancedQuery = await users
+const results = await users
   .where([
     { field: "name", operator: "LIKE", value: "John", pattern: "startsWith" },
     { field: "created_at", operator: ">", value: new Date("2023-01-01") },
@@ -118,14 +107,14 @@ const advancedQuery = await users
   .findMany();
 ```
 
-## Available Operators
+## Available operators
 
 - `=`, `!=`, `>`, `<`, `>=`, `<=`
-- `LIKE`, `ILIKE` (with optional patterns: `startsWith`, `endsWith`, `contains`, `exact`)
+- `LIKE`, `ILIKE` — with optional patterns: `startsWith`, `endsWith`, `contains`, `exact`
 - `IN`
 - `IS NULL`, `IS NOT NULL`
 
-## Error Handling
+## Error handling
 
 PgBuddy throws two error types:
 

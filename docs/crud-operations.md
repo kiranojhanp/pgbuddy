@@ -2,9 +2,9 @@
 
 These examples assume a table is already set up. See the [Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup.
 
-## Insert Operations
+## Insert
 
-### Basic Insert
+### Basic insert
 
 ```typescript
 const user = await userTable.create({
@@ -13,7 +13,7 @@ const user = await userTable.create({
 });
 ```
 
-### Bulk Insert
+### Bulk insert
 
 ```typescript
 const users = await userTable.createMany([
@@ -22,7 +22,7 @@ const users = await userTable.createMany([
 ]);
 ```
 
-### Insert with Selected Return Fields
+### Insert with selected return fields
 
 ```typescript
 const user = await userTable
@@ -30,18 +30,17 @@ const user = await userTable
   .create({ name: 'John Doe', email: 'john@example.com' });
 ```
 
-## Update Operations
+## Update
 
-### Basic Update
+### Basic update
 
 ```typescript
-const updated = await userTable
+const [updatedUser] = await userTable
   .where({ id: 1 })
   .update({ status: 'active' });
-const [updatedUser] = updated;
 ```
 
-### Complex Update Conditions
+### Complex update conditions
 
 ```typescript
 const updated = await userTable
@@ -52,7 +51,7 @@ const updated = await userTable
   .update({ last_login: new Date() });
 ```
 
-### Update with Return Fields
+### Update with selected return fields
 
 ```typescript
 const updated = await userTable
@@ -61,18 +60,17 @@ const updated = await userTable
   .update({ status: 'inactive' });
 ```
 
-## Delete Operations
+## Delete
 
-### Basic Delete
+### Basic delete
 
 ```typescript
-const deleted = await userTable
+const [deletedUser] = await userTable
   .where({ id: 1 })
   .delete();
-const [deletedUser] = deleted;
 ```
 
-### Complex Delete Conditions
+### Complex delete conditions
 
 ```typescript
 const deleted = await userTable
@@ -83,7 +81,7 @@ const deleted = await userTable
   .delete();
 ```
 
-### Delete with Return Fields
+### Delete with selected return fields
 
 ```typescript
 const deleted = await userTable
@@ -92,9 +90,9 @@ const deleted = await userTable
   .delete();
 ```
 
-## Best Practices
+## Notes
 
 - `where` is required for `update` and `delete` — calling either without it throws a `QueryError`.
 - Use `select` to limit which columns are returned from mutations.
-- For large inserts, `createMany` sends a single query rather than N separate inserts.
-- See [Error Types](api-reference.md#error-types) in the API reference for details on `QueryError` and `TableError`.
+- `createMany` sends a single query regardless of how many records you pass.
+- See [Error Types](api-reference.md#error-types) for details on `QueryError` and `TableError`.
