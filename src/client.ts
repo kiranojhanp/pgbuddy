@@ -1,11 +1,22 @@
 import type { Row, Sql } from "postgres";
-import type { ZodRawShape } from "zod";
-import { ZodObject } from "zod";
+import type { ZodObject, ZodRawShape } from "zod";
 import { Errors, TableError } from "./errors";
 import { Table } from "./table";
 import type { Insertable } from "./types";
 import { isValidIdentifier, isValidName } from "./utils";
 import { ZodTable } from "./zod-table";
+
+function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "shape" in value &&
+    typeof (value as { shape: unknown }).shape === "object" &&
+    "safeParse" in value &&
+    typeof (value as { safeParse: unknown }).safeParse === "function" &&
+    "_def" in value
+  );
+}
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -113,8 +124,8 @@ export class PgBuddyClient {
     schemaOrOptions?: S | { strictNames?: boolean; allowSchema?: boolean },
     options?: { strictNames?: boolean; allowSchema?: boolean }
   ): Table<T, ["*"], I> | ZodTable<S> {
-    const schema = schemaOrOptions instanceof ZodObject ? schemaOrOptions : undefined;
-    const resolvedOptions = schemaOrOptions instanceof ZodObject ? options : schemaOrOptions;
+    const schema = isZodSchema(schemaOrOptions) ? schemaOrOptions : undefined;
+    const resolvedOptions = isZodSchema(schemaOrOptions) ? options : schemaOrOptions;
 
     const strictNames = resolvedOptions?.strictNames ?? this.strictNames ?? false;
     const allowSchema = resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
