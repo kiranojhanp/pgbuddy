@@ -1,15 +1,9 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "../errors";
-import type {
-  WhereCondition,
-  SortSpec,
-  LikePattern,
-  SqlOperator,
-  SelectKeys,
-} from "../types";
+import type { LikePattern, SelectKeys, SortSpec, SqlOperator, WhereCondition } from "../types";
 import { isValidIdentifier, isValidName } from "./validators";
 
-type SqlFragment = ReturnType<Sql<{}>["unsafe"]>;
+type SqlFragment = ReturnType<Sql<Record<string, unknown>>["unsafe"]>;
 type NameOptions = { strictNames?: boolean; allowSchema?: boolean };
 type IdentifierKind = "select" | "where";
 
@@ -67,7 +61,7 @@ function normalizeIdentifier(
  * ```
  */
 export function buildSelect<T extends Row>(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   select: SelectKeys<T>,
   options?: NameOptions
 ): SqlFragment {
@@ -76,9 +70,7 @@ export function buildSelect<T extends Row>(
     return sql`*`;
   }
 
-  const columns = (select as string[]).map((col) =>
-    normalizeIdentifier(col, options, "select")
-  );
+  const columns = (select as string[]).map((col) => normalizeIdentifier(col, options, "select"));
 
   // Return safe column selection
   return sql(columns) as unknown as SqlFragment;
@@ -110,7 +102,7 @@ export function buildSelect<T extends Row>(
  * ```
  */
 export function buildWhereConditions<T extends Row>(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   where?: WhereCondition<T>[] | Partial<T>,
   options?: NameOptions
 ): SqlFragment {
@@ -146,7 +138,7 @@ export function buildWhereConditions<T extends Row>(
  * ```
  */
 export function createSimpleWhereFragment<T extends Row>(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   conditions?: Partial<T>,
   options?: NameOptions
 ): SqlFragment {
@@ -156,9 +148,7 @@ export function createSimpleWhereFragment<T extends Row>(
   const whereClause = entries.reduce((acc, [key, value], index) => {
     const normalizedKey = normalizeIdentifier(key, options, "where");
     const condition =
-      value === null
-        ? sql`${sql(normalizedKey)} IS NULL`
-        : sql`${sql(normalizedKey)} = ${value}`;
+      value === null ? sql`${sql(normalizedKey)} IS NULL` : sql`${sql(normalizedKey)} = ${value}`;
 
     return index === 0 ? condition : sql`${acc} AND ${condition}`;
   }, sql``);
@@ -190,7 +180,7 @@ export function createSimpleWhereFragment<T extends Row>(
  * ```
  */
 export function createAdvancedWhereFragment<T extends Row>(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   conditions: WhereCondition<T>[],
   options?: NameOptions
 ): SqlFragment {
@@ -223,10 +213,10 @@ export function createAdvancedWhereFragment<T extends Row>(
  * @throws {QueryError} If operator or value is invalid
  */
 export function createConditionFragment(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   field: string,
   operator: SqlOperator,
-  value: any,
+  value: unknown,
   pattern?: LikePattern
 ): SqlFragment {
   if (operator === "IS NULL") {
@@ -271,22 +261,18 @@ export function createConditionFragment(
  * @throws {QueryError} If operator or value is invalid
  */
 export function createLikeCondition(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   field: string,
   operator: SqlOperator,
-  value: any,
+  value: unknown,
   pattern?: LikePattern
 ): SqlFragment {
   if (typeof value !== "string") {
     throw new QueryError(Errors.WHERE.INVALID_LIKE(field));
   }
 
-  // If the user has already included % or _ wildcards, use as-is
-  if (value.includes("%") || value.includes("_")) {
-    return sql`${sql(field)} ${sql.unsafe(operator)} ${value}`;
-  }
-
-  // Otherwise, escape special characters and apply pattern
+  // Always escape special LIKE characters to prevent unintended wildcard injection.
+  // Use the `pattern` option to control wildcard placement explicitly.
   const escapedValue = value.replace(/[%_\\]/g, (char) => `\\${char}`);
   const likePattern = getLikePattern(escapedValue, pattern);
 
@@ -308,9 +294,9 @@ export function createLikeCondition(
  */
 export function getLikePattern(value: string, pattern?: LikePattern): string {
   const patterns = {
-    startsWith: () => value + "%",
-    endsWith: () => "%" + value,
-    contains: () => "%" + value + "%",
+    startsWith: () => `${value}%`,
+    endsWith: () => `%${value}`,
+    contains: () => `%${value}%`,
     exact: () => value,
     default: () => value,
   };
@@ -326,7 +312,7 @@ export function getLikePattern(value: string, pattern?: LikePattern): string {
  * @throws {QueryError} If direction is invalid
  */
 export function createSortFragment<T extends Row>(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   orderBy?: SortSpec<T>[],
   options?: NameOptions
 ): SqlFragment {
@@ -356,7 +342,7 @@ export function createSortFragment<T extends Row>(
  * @returns SQL fragment for LIMIT/OFFSET
  */
 export function createLimitFragment(
-  sql: Sql<{}>,
+  sql: Sql<Record<string, unknown>>,
   take?: number,
   skip?: number
 ): SqlFragment {
@@ -372,6 +358,5 @@ export function createLimitFragment(
   if (take !== undefined) return sql`LIMIT ${take}`;
 
   // Only offset (skip) provided
-  if (skip === undefined) return sql``;
-  return sql`OFFSET ${skip}`;
+  return sql`OFFSET ${skip as number}`;
 }
