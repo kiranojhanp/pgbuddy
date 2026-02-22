@@ -1,15 +1,10 @@
 import type { Row } from "postgres";
-import type {
-  ZodIssue,
-  ZodObject,
-  input as ZodInput,
-  output as ZodOutput,
-} from "zod";
+import type { input as ZodInput, ZodIssue, ZodObject, output as ZodOutput, ZodRawShape } from "zod";
 import { Errors, QueryError } from "./errors";
+import type { Table } from "./table";
 import type { SelectFields, SelectKeys, SortSpec, WhereCondition } from "./types";
-import { Table } from "./table";
 
-type ZodSchema = ZodObject<any>;
+type ZodSchema = ZodObject<ZodRawShape>;
 type RowFromSchema<S extends ZodSchema> = ZodOutput<S>;
 type InsertFromSchema<S extends ZodSchema> = ZodInput<S>;
 type ZodParseResult = { success: boolean; data?: unknown; error?: { issues: ZodIssue[] } };
@@ -33,12 +28,7 @@ function getIssues(result: ZodParseResult): ZodIssue[] {
   return result.error?.issues ?? [];
 }
 
-function validateValue(
-  field: string,
-  schema: ZodLikeType,
-  value: unknown,
-  context: string
-): void {
+function validateValue(field: string, schema: ZodLikeType, value: unknown, context: string): void {
   if (value === null) return;
   const result = schema.safeParse(value);
   if (!result.success) {
@@ -47,11 +37,11 @@ function validateValue(
 }
 
 function getShape(schema: ZodSchema): ZodShape {
-  return schema.shape as ZodShape;
+  return schema.shape as unknown as ZodShape;
 }
 
 function ensureFieldExists(shape: ZodShape, field: string): void {
-  if (!Object.prototype.hasOwnProperty.call(shape, field)) {
+  if (!Object.hasOwn(shape, field)) {
     throw new QueryError(Errors.WHERE.INVALID_FIELD(field));
   }
 }
@@ -66,7 +56,10 @@ function validateWhereObject<S extends ZodSchema>(
       throw new QueryError(Errors.WHERE.INVALID_FIELD(key));
     }
     ensureFieldExists(shape, key);
-    validateValue(key, shape[key], value, "where value");
+    const fieldSchema = shape[key];
+    if (fieldSchema) {
+      validateValue(key, fieldSchema, value, "where value");
+    }
   }
 }
 
@@ -91,7 +84,10 @@ function validateWhereAdvanced<S extends ZodSchema>(
         throw new QueryError(Errors.WHERE.INVALID_IN(field));
       }
       for (const entry of condition.value) {
-        validateValue(field, shape[field], entry, "where IN value");
+        const fieldSchema = shape[field];
+        if (fieldSchema) {
+          validateValue(field, fieldSchema, entry, "where IN value");
+        }
       }
       continue;
     }
@@ -103,14 +99,17 @@ function validateWhereAdvanced<S extends ZodSchema>(
       continue;
     }
 
-    validateValue(field, shape[field], condition.value, "where value");
+    const fieldSchema = shape[field];
+    if (fieldSchema) {
+      validateValue(field, fieldSchema, condition.value, "where value");
+    }
   }
 }
 
 export class ZodTable<
   S extends ZodSchema,
   K extends SelectKeys<RowFromSchema<S>> = ["*"],
-  I extends Row = RowFromSchema<S>
+  I extends Row = RowFromSchema<S>,
 > {
   private table: Table<RowFromSchema<S>, K, I>;
   private schema: S;
@@ -120,9 +119,7 @@ export class ZodTable<
     this.schema = schema;
   }
 
-  select<K2 extends SelectKeys<RowFromSchema<S>>>(
-    fields: K2
-  ): ZodTable<S, K2, I> {
+  select<K2 extends SelectKeys<RowFromSchema<S>>>(fields: K2): ZodTable<S, K2, I> {
     return new ZodTable<S, K2, I>(this.table.select(fields), this.schema);
   }
 
@@ -154,15 +151,11 @@ export class ZodTable<
   }
 
   async findFirst(): Promise<SelectFields<RowFromSchema<S>, K>[0] | null> {
-    return this.table.findFirst() as Promise<
-      SelectFields<RowFromSchema<S>, K>[0] | null
-    >;
+    return this.table.findFirst() as Promise<SelectFields<RowFromSchema<S>, K>[0] | null>;
   }
 
   async findUnique(): Promise<SelectFields<RowFromSchema<S>, K>[0] | null> {
-    return this.table.findUnique() as Promise<
-      SelectFields<RowFromSchema<S>, K>[0] | null
-    >;
+    return this.table.findUnique() as Promise<SelectFields<RowFromSchema<S>, K>[0] | null>;
   }
 
   async count(): Promise<number> {
@@ -174,14 +167,10 @@ export class ZodTable<
     if (!result.success) {
       throw invalidDataError("data", getIssues(result));
     }
-    return this.table.create(result.data as I) as Promise<
-      SelectFields<RowFromSchema<S>, K>[0]
-    >;
+    return this.table.create(result.data as I) as Promise<SelectFields<RowFromSchema<S>, K>[0]>;
   }
 
-  async createMany(
-    records: InsertFromSchema<S>[]
-  ): Promise<SelectFields<RowFromSchema<S>, K>> {
+  async createMany(records: InsertFromSchema<S>[]): Promise<SelectFields<RowFromSchema<S>, K>> {
     const parsed: RowFromSchema<S>[] = [];
     for (let i = 0; i < records.length; i += 1) {
       const result = this.schema.safeParse(records[i]);
@@ -190,14 +179,10 @@ export class ZodTable<
       }
       parsed.push(result.data);
     }
-    return this.table.createMany(parsed as I[]) as Promise<
-      SelectFields<RowFromSchema<S>, K>
-    >;
+    return this.table.createMany(parsed as I[]) as Promise<SelectFields<RowFromSchema<S>, K>>;
   }
 
-  async update(
-    data: Partial<InsertFromSchema<S>>
-  ): Promise<SelectFields<RowFromSchema<S>, K>> {
+  async update(data: Partial<InsertFromSchema<S>>): Promise<SelectFields<RowFromSchema<S>, K>> {
     const partialSchema = this.schema.partial();
     const result = partialSchema.safeParse(data);
     if (!result.success) {
