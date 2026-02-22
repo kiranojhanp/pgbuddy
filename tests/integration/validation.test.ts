@@ -140,7 +140,8 @@ describe("Table - validation", () => {
         .table<User>("users")
         .select([""] as unknown as Array<keyof User>)
         .findMany()
-    ).rejects.toThrow(Errors.SELECT.INVALID_COLUMNS(""));  });
+    ).rejects.toThrow(Errors.SELECT.INVALID_COLUMNS(""));
+  });
 
   test("tableWithInsert returns a usable table", () => {
     expect(() => db.tableWithInsert<User, "id">("users")).not.toThrow();
