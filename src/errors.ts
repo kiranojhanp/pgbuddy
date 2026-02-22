@@ -6,6 +6,10 @@ export const Errors = {
   TABLE: {
     INVALID_NAME: "Invalid table name",
   },
+  QUERY: {
+    NOT_UNIQUE: "Expected at most one record but found multiple",
+    INSERT_RETURNED_EMPTY: "Insert returned no rows",
+  },
   INSERT: {
     INVALID_DATA: "Invalid data to insert",
     NO_COLUMNS: "No columns specified",
@@ -28,11 +32,9 @@ export const Errors = {
     INVALID_FIELD: (field: string) => `Invalid field: ${field}`,
     INVALID_IN: (field: string) => `Invalid IN values: ${field}`,
     INVALID_LIKE: (field: string) => `LIKE/ILIKE requires string: ${field}`,
-    INVALID_COMPARISON: (field: string, op: string) =>
-      `Invalid value for ${op}: ${field}`,
+    INVALID_COMPARISON: (field: string, op: string) => `Invalid value for ${op}: ${field}`,
     INVALID_SORT: "Sort must be ASC/DESC",
-    UNSUPPORTED_OPERATOR: (field: string, op: string) =>
-      `Unsupported operator ${op}: ${field}`,
+    UNSUPPORTED_OPERATOR: (field: string, op: string) => `Unsupported operator ${op}: ${field}`,
   },
 } as const;
 

@@ -59,28 +59,32 @@
 
 // Export the new client
 import { PgBuddyClient } from "./client";
-import { Table } from "./table";
 import { Errors, QueryError, TableError } from "./errors";
-import { ZodTable } from "./zod-table";
-
-
+import { Table } from "./table";
 // Re-export types for external use
 import type {
-  SelectFields,
-  SqlOperator,
-  WhereCondition,
-  SortSpec,
-  LikePattern,
   Insertable,
-  Updatable,
-  Selectable,
+  LikePattern,
   Model,
+  PickFields,
+  Selectable,
+  SelectFields,
+  SelectKeys,
+  SortDirection,
+  SortSpec,
+  SqlOperator,
+  Updatable,
+  WhereCondition,
 } from "./types";
+import { ZodTable } from "./zod-table";
 
 // Export the new client and related classes/types
 export { PgBuddyClient, Table, ZodTable, Errors, QueryError, TableError };
 export type {
   SelectFields,
+  SelectKeys,
+  PickFields,
+  SortDirection,
   SqlOperator,
   WhereCondition,
   SortSpec,
