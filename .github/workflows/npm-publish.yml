@@ -38,14 +38,21 @@ jobs:
       - name: Test
         run: bun test
 
-      - name: Ensure tag is on main HEAD
+      - name: Ensure tag is on default branch HEAD
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          MAIN_SHA="$(git rev-parse origin/main)"
-          if [[ "$GITHUB_SHA" != "$MAIN_SHA" ]]; then
-            echo "Tag must point to origin/main HEAD ($MAIN_SHA)"
+
+          # Determine the default branch name (e.g., main/master)
+          DEFAULT_BRANCH="$(git remote show origin | awk '/HEAD branch/ {print $NF}')"
+          echo "Default branch: $DEFAULT_BRANCH"
+
+          # Fetch that branch and compare HEAD SHA
+          git fetch origin "$DEFAULT_BRANCH" --depth=1
+          DEFAULT_SHA="$(git rev-parse "origin/$DEFAULT_BRANCH")"
+
+          if [[ "$GITHUB_SHA" != "$DEFAULT_SHA" ]]; then
+            echo "Tag must point to origin/$DEFAULT_BRANCH HEAD ($DEFAULT_SHA)"
             exit 1
           fi
 
