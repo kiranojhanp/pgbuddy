@@ -1,8 +1,6 @@
 # Case Transformation with postgres.js and PgBuddy
 
-## Overview
-
-PgBuddy is a thin wrapper around a postgres.js instance, so all postgres.js features are available. Case transformation is a postgres.js feature — here's how to use it with PgBuddy.
+Case transformation is a postgres.js feature. Configure it on the connection and PgBuddy will work with the already-transformed data.
 
 ## Setup
 
@@ -77,45 +75,29 @@ console.log(data[0]); // { userId: 1, firstName: 'John', lastName: 'Doe' }
 
 ## Notes
 
-- The transformation is applied by postgres.js, not PgBuddy.
-- It only applies to postgres.js operations — PgBuddy receives already-transformed data.
-- Use this when your database uses snake_case but your application code uses camelCase.
+The transformation runs inside postgres.js before data reaches PgBuddy. This means PgBuddy's schema should use the transformed casing (camelCase if you're using `postgres.camel`), and your `where` field names should match too.
 
 ## Example Application Architecture
 
 ```typescript
-// db.ts - Database configuration
-import postgres from "postgres";
-import { PgBuddyClient } from "pgbuddy";
-
-const sql = postgres({
-  host: "localhost",
-  database: "mydb",
-  transform: postgres.camel
-});
-
-const db = new PgBuddyClient(sql);
-
-export { sql, db };
-
-// types.ts - Type definitions
+// types.ts
 interface UserProfile {
   userId: number;
   firstName: string;
   lastName: string;
 }
 
-// queries.ts - Database queries
+// queries.ts
 import { z } from 'zod';
-import { sql, db } from './db';
+import { sql, db } from './db'; // db.ts configured with postgres.camel (see Setup above)
 
-// Raw postgres.js query — transformation is applied automatically
+// Raw postgres.js — transformation applied automatically
 const rawQuery = async () => {
   return sql`SELECT user_id, first_name FROM user_profiles`;
   // Results: { userId, firstName }
 };
 
-// PgBuddy query — schema uses camelCase to match the transformed output
+// PgBuddy — schema uses camelCase to match transformed output
 const UserProfileSchema = z.object({
   userId: z.number().int(),
   firstName: z.string(),

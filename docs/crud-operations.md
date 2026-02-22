@@ -1,22 +1,8 @@
 # CRUD Operations
 
+These examples assume a table is already set up. See the [Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup.
+
 ## Insert Operations
-
-Assumes your table is defined with a Zod schema, for example:
-
-```typescript
-import { z } from "zod";
-
-const UserSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  email: z.string().email(),
-  status: z.enum(["active", "inactive"]),
-  created_at: z.date(),
-});
-
-const userTable = db.table("users", UserSchema);
-```
 
 ### Basic Insert
 
@@ -111,17 +97,4 @@ const deleted = await userTable
 - `where` is required for `update` and `delete` — calling either without it throws a `QueryError`.
 - Use `select` to limit which columns are returned from mutations.
 - For large inserts, `createMany` sends a single query rather than N separate inserts.
-- Wrap mutations in try/catch and handle `QueryError` for query failures and `TableError` for configuration issues:
-
-```typescript
-try {
-  const result = await userTable
-    .where({ id: 1 })
-    .update({ status: 'active' });
-} catch (error) {
-  if (error instanceof QueryError) {
-    // Handle query-specific errors
-  }
-  // Handle other errors
-}
-```
+- See [Error Types](api-reference.md#error-types) in the API reference for details on `QueryError` and `TableError`.

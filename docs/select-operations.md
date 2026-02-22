@@ -1,23 +1,6 @@
 # Select Operations
 
-## Setup
-
-```typescript
-import { z } from 'zod';
-
-const UserSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  email: z.string().email(),
-  status: z.enum(['active', 'inactive']),
-  age: z.number().int(),
-  last_login: z.date().nullable(),
-  deleted_at: z.date().nullable(),
-  created_at: z.date()
-});
-
-const userTable = db.table('users', UserSchema);
-```
+These examples assume a table is already set up. See the [Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup. The schema used here has fields: `id`, `name`, `email`, `status`, `age`, `last_login`, `deleted_at`, `created_at`.
 
 ## Basic Queries
 

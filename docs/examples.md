@@ -1,15 +1,9 @@
 # Examples
 
-## Setup
+These examples assume `db` is a `PgBuddyClient` instance. See the [Introduction](introduction.md) for setup.
 
 ```typescript
-import postgres from 'postgres';
 import { z } from 'zod';
-import { PgBuddyClient } from 'pgbuddy';
-
-// Database connection
-const sql = postgres('postgres://username:password@localhost:5432/dbname');
-const db = new PgBuddyClient(sql);
 
 const UserSchema = z.object({
   id: z.number().int(),
@@ -298,35 +292,4 @@ async function getEventStats(startDate: Date, endDate: Date) {
 }
 ```
 
-## Error Handling Examples
-
-```typescript
-// Generic error handler
-async function handleDatabaseOperation<T>(
-  operation: () => Promise<T>
-): Promise<T | null> {
-  try {
-    return await operation();
-  } catch (error) {
-    if (error instanceof QueryError) {
-      console.error('Query Error:', error.message);
-      // Handle specific query errors
-    } else if (error instanceof TableError) {
-      console.error('Table Error:', error.message);
-      // Handle table-related errors
-    } else {
-      console.error('Unexpected Error:', error);
-      // Handle other errors
-    }
-    return null;
-  }
-}
-
-// Usage with error handling
-async function safeCreateUser(userData: UserInput) {
-  return handleDatabaseOperation(async () => {
-    const user = await userTable.select(['id', 'email']).create(userData);
-    return user;
-  });
-}
-```
+For error handling patterns, see [Error Types](api-reference.md#error-types) in the API reference.

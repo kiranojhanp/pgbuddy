@@ -198,7 +198,7 @@ type Model<T extends Row, AutoKeys extends keyof T = never> = {
 };
 ```
 
-Groups `Insert`, `Update`, and `Select` types together for Prisma-like ergonomics without Zod.
+Groups `Insert`, `Update`, and `Select` types together — useful for Prisma-style type organisation without Zod.
 
 ### WhereCondition\<T\>
 

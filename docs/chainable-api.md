@@ -1,25 +1,13 @@
 # Chainable API
 
-## Installation
-
-```bash
-npm install pgbuddy postgres
-```
-
-## Setup
-
-```typescript
-import postgres from "postgres";
-import { z } from "zod";
-import { PgBuddyClient } from "pgbuddy";
-
-const sql = postgres("postgres://username:password@localhost:5432/dbname");
-const db = new PgBuddyClient(sql);
-```
-
 ## Defining Tables
 
 ```typescript
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
+
+// Assumes db is already created: const db = new PgBuddyClient(sql);
+
 const UserSchema = z.object({
   id: z.number().int(),
   name: z.string(),
@@ -139,10 +127,10 @@ const advancedQuery = await users
 
 ## Error Handling
 
-Two error types are thrown:
+PgBuddy throws two error types:
 
-- `TableError` — thrown when table configuration is invalid
-- `QueryError` — thrown for invalid queries, missing `where` on mutations, or multiple results from `findUnique`
+- `TableError` — invalid table configuration
+- `QueryError` — invalid queries, missing `where` on mutations, or multiple results from `findUnique`
 
 ```typescript
 try {

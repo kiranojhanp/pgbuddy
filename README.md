@@ -127,15 +127,11 @@ const [deletedUser] = await users.where({ id: 1 }).delete();
 
 PgBuddy is a thin layer over `postgres.js`. For anything beyond CRUD, use the underlying `sql` instance directly:
 
-**Transactions** — use `sql.begin(...)` to reserve a connection. postgres.js rolls back automatically on errors.
-
-**Ordering guarantees** — row order is only guaranteed inside `sql.begin()` or with `max: 1`.
-
-**Raw SQL** — `sql.unsafe(...)` exists for cases that need it, but skips injection protection if misused.
-
-**Data transforms** — postgres.js ships helpers like `postgres.camel`, `postgres.toCamel`, and `postgres.fromCamel`.
-
-**Error diagnostics** — access `error.query` and `error.parameters`, or set `debug: true` on the connection.
+- Transactions: `sql.begin(...)` reserves a connection; postgres.js rolls back on errors automatically.
+- Ordering: row order is only guaranteed inside `sql.begin()` or with `max: 1`.
+- Raw SQL: `sql.unsafe(...)` bypasses injection protection — use carefully.
+- Case transforms: `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
+- Diagnostics: `error.query`, `error.parameters`, or `debug: true` on the connection.
 
 ---
 
@@ -148,6 +144,12 @@ PgBuddy is a thin layer over `postgres.js`. For anything beyond CRUD, use the un
 - [API reference](./docs/api-reference.md)
 - [Examples](./docs/examples.md)
 - [Data transformation](./docs/data-transformation.md)
+
+---
+
+## Roadmap
+
+Zod is the only supported validation library right now. The next version will add adapters for Yup, Valibot, and a custom validator interface — so you can bring whatever schema library your project already uses.
 
 ---
 
