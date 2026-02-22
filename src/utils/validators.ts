@@ -1,10 +1,10 @@
 import { Errors, QueryError } from "../errors";
 
-function isPlainObject(value: any): value is Record<string, unknown> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return false;
   if (value instanceof Date) return false;
-  const proto = Object.getPrototypeOf(value);
+  const proto = Object.getPrototypeOf(value) as unknown;
   return proto === Object.prototype || proto === null;
 }
 
@@ -25,14 +25,11 @@ function isPlainObject(value: any): value is Record<string, unknown> {
  * isValidName(123);        // false (not a string)
  * ```
  */
-export function isValidName(name: any): boolean {
+export function isValidName(name: unknown): boolean {
   return Boolean(name && typeof name === "string" && name.trim());
 }
 
-export function isValidIdentifier(
-  name: any,
-  options?: { allowSchema?: boolean }
-): boolean {
+export function isValidIdentifier(name: unknown, options?: { allowSchema?: boolean }): boolean {
   if (!isValidName(name)) return false;
   const trimmed = String(name).trim();
   const parts = options?.allowSchema ? trimmed.split(".") : [trimmed];
@@ -93,7 +90,7 @@ export function validatePagination(skip?: number, take?: number): void {
  * isValidData("string");                  // false (not an object)
  * ```
  */
-export function isValidData(data: any): boolean {
+export function isValidData(data: unknown): boolean {
   return isPlainObject(data) && Object.keys(data).length > 0;
 }
 
@@ -123,7 +120,7 @@ export function isValidData(data: any): boolean {
  * isValidWhereConditions("string");             // false (not an object)
  * ```
  */
-export function isValidWhereConditions(where: any): boolean {
+export function isValidWhereConditions(where: unknown): boolean {
   if (Array.isArray(where)) {
     return (
       where.length > 0 &&
