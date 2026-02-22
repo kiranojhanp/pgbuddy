@@ -169,9 +169,7 @@ export interface SortSpec<T extends Row> {
  * - ["*"] selects all columns
  * - Otherwise an array of column names
  */
-export type SelectKeys<T extends Row> =
-  | ["*"]
-  | readonly (keyof T & string)[];
+export type SelectKeys<T extends Row> = ["*"] | readonly (keyof T & string)[];
 
 /**
  * Utility type to pick specific fields from a given type.
