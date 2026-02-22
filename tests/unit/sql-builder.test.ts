@@ -78,14 +78,14 @@ describe("sql-builder utilities", () => {
   });
 
   test("buildSelect rejects invalid column names", () => {
-    expect(() => buildSelect<Item>(sql, [""] as Array<keyof Item>)).toThrow(
+    expect(() => buildSelect<Item>(sql, [""] as unknown as Array<keyof Item>)).toThrow(
       Errors.SELECT.INVALID_COLUMNS("")
     );
   });
 
   test("buildSelect rejects invalid identifiers in strict mode", () => {
     expect(() =>
-      buildSelect<Item>(sql, ["bad-name"] as Array<keyof Item>, {
+      buildSelect<Item>(sql, ["bad-name"] as unknown as Array<keyof Item>, {
         strictNames: true,
       })
     ).toThrow(Errors.SELECT.INVALID_COLUMNS("bad-name"));
