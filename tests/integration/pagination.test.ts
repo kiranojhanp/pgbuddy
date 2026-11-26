@@ -97,4 +97,21 @@ describe("findManyAndCount", () => {
       users.orderBy([{ column: "id", direction: "ASC" }]).findManyInfinite()
     ).rejects.toBeInstanceOf(QueryError);
   });
+
+  test("supports backward keyset pages", async () => {
+    const users = db.table("users", UserSchema).orderBy([{ column: "id", direction: "ASC" }]);
+
+    const older = await users.cursor({ id: 4 }).take(2).findManyInfinite({ direction: "backward" });
+    expect(older.rows.map((row) => row.id)).toEqual([2, 3]);
+    expect(older.nextCursor).toEqual({ id: 2 });
+    expect(older.hasMore).toBe(true);
+
+    const oldest = await users
+      .cursor(older.nextCursor as { id: number })
+      .take(2)
+      .findManyInfinite({ direction: "backward" });
+    expect(oldest.rows.map((row) => row.id)).toEqual([1]);
+    expect(oldest.nextCursor).toBeNull();
+    expect(oldest.hasMore).toBe(false);
+  });
 });

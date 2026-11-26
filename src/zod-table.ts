@@ -1776,7 +1776,7 @@ export class ZodTable<
   }
 
   async findManyInfinite<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
-    options?: ComputedOptions<X>
+    options?: ComputedOptions<X> & { direction?: "forward" | "backward" }
   ): Promise<{
     rows: Array<
       WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>

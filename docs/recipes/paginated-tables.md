@@ -106,6 +106,20 @@ unique ordering (or a composite cursor) to avoid duplicates/skips. It requires
 an explicit `orderBy` of schema columns and a `take()` limit; raw `orderByRaw`
 is not supported for cursor derivation. It does not fetch a total.
 
+For backward navigation, use `{ direction: "backward" }` with the first visible
+row as the cursor:
+
+```ts
+const older = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .cursor(firstVisibleId)
+  .take(20)
+  .findManyInfinite({ direction: "backward" });
+```
+
+Rows are returned in the original order; `nextCursor` continues toward older
+rows.
+
 ## Choosing a pagination mode
 
 - **Offset pages** (`skip`/`take` + `findManyAndCount`) work well for

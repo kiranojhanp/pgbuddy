@@ -591,6 +591,19 @@ const next = await users
 It returns `{ rows, nextCursor, hasMore }` and requires an explicit `orderBy`
 and `take()`; it does not fetch a total.
 
+Use `{ direction: "backward" }` to move toward older rows:
+
+```ts
+const older = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .cursor({ id: currentFirstId })
+  .take(20)
+  .findManyInfinite({ direction: "backward" });
+```
+
+Rows are returned in the original order, and `nextCursor` continues in the
+chosen direction.
+
 ## Streaming and cancellation
 
 ```ts

@@ -537,7 +537,9 @@ findManyInfinite(options?: ComputedOptions): Promise<{
 
 Fetches a keyset page and returns the cursor for the next page. Requires an
 explicit `orderBy` of schema columns and a `take()` limit. `nextCursor` is
-derived from the order columns of the last returned row. The helper fetches one
+derived from the order columns of the last returned row. Pass
+`{ direction: "backward" }` to page toward older rows; results stay in the
+original order. The helper fetches one
 extra row to determine `hasMore`; it does not return a total.
 
 #### findManyAndCount()

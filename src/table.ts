@@ -1834,7 +1834,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * `orderBy` of schema columns and a `take()` limit.
    */
   async findManyInfinite<X extends ComputedMap = Record<never, never>>(
-    options?: ComputedOptions<X>
+    options?: ComputedOptions<X> & { direction?: "forward" | "backward" }
   ): Promise<InfinitePage<T, SelectFields<T, K>[0] & ComputedResult<X>>> {
     if (this.orderByRawValue || !this.orderByValue?.length) {
       throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
@@ -1845,20 +1845,33 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
     }
 
-    const rows = (await this.clone({ takeValue: take + 1 }).findMany(options)) as Array<
-      SelectFields<T, K>[0] & ComputedResult<X>
-    >;
+    const direction = options?.direction ?? "forward";
+    if (direction !== "forward" && direction !== "backward") {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+    const order =
+      direction === "backward"
+        ? this.orderByValue.map((spec) => ({
+            ...spec,
+            direction: (spec.direction === "ASC" ? "DESC" : "ASC") as "ASC" | "DESC",
+          }))
+        : this.orderByValue;
+
+    const rows = (await this.clone({ takeValue: take + 1, orderByValue: order }).findMany(
+      options
+    )) as Array<SelectFields<T, K>[0] & ComputedResult<X>>;
     const pageRows = rows.slice(0, take);
     const hasMore = rows.length > take;
-    const last = pageRows.at(-1);
+    if (direction === "backward") pageRows.reverse();
+    const cursorRow = direction === "backward" ? pageRows[0] : pageRows.at(-1);
 
-    if (!hasMore || !last) {
+    if (!hasMore || !cursorRow) {
       return { rows: pageRows, nextCursor: null, hasMore: false };
     }
 
     const nextCursor: Partial<T> = {};
-    for (const spec of this.orderByValue) {
-      const value = last[spec.column];
+    for (const spec of order) {
+      const value = cursorRow[spec.column];
       if (value === undefined || value === null) {
         throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
       }
