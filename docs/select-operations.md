@@ -216,6 +216,7 @@ await db.transaction(async (tx) => {
 
 - Use `select` to return only the columns you need.
 - Index the fields you filter and sort on.
-- Bound result sets with `take`/`defaultTake`.
+- Bound result sets with `take`/`defaultTake`; optionally set `maxSkip`.
+- Use `findManyAndCount()` when you need a page and total in one batch.
 - Prefer keyset cursors over large offsets.
 - Put the most selective conditions first.

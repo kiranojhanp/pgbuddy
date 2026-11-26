@@ -149,7 +149,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `postgres` peer dependency range is widened from `^3.4.5` to
   `^3.4.5 || ^4.0.0`. postgres.js v4 needed no pgbuddy runtime changes
   (pgbuddy imports postgres.js types only); the full suite passes against both
-  `3.4.5` and `4.1.1`, and CI now runs a version matrix.
+  `3.4.5` and `4.1.1`, and CI now runs a version matrix. This was later
+  superseded by the v4-only requirement in Unreleased.
 - **Security**: `allowSchema` is now enforced in non-strict mode too. Dotted
   table and column names (`public.users`, `users.id`) are rejected unless
   `allowSchema: true` is set. This is a behaviour change for code relying on

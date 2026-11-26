@@ -4,7 +4,7 @@
 
 `postgres.js` has TypeScript support, but it's built around raw SQL strings. PgBuddy wraps it with a chainable, schema-backed API: queries know the shape of your table, inputs are validated before they hit the database, and result types are inferred from your Zod schema.
 
-PgBuddy stays deliberately small. It models the common single-table operations, one-hop relations, narrow joins, grouped aggregates, and typed SQL expressions. Everything else remains available through the underlying postgres.js instance.
+PgBuddy stays deliberately small. It models common single-table operations, direct/through/nested relations, narrow chained joins, grouped aggregates, and typed SQL expressions. Everything else remains available through the underlying postgres.js instance.
 
 ### Source of truth
 

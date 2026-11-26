@@ -46,7 +46,7 @@ It declares one-hop relations in both directions:
 | Area | API exercised |
 | --- | --- |
 | Reads | `findMany`, `findFirst`, `findUnique`, `findUniqueOrThrow`, `findFirstOrThrow`, `count`, `exists` |
-| Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in the README |
+| Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in [Advanced execution](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md) |
 | Prepared params | `db.param()` + `prepareParams()` |
 | Plans | `explain()` |
 | Batch | `db.batch` with deferred builders and synchronous pending-query callback |

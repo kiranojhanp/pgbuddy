@@ -19,12 +19,14 @@ All options can be set on the client and overridden per table:
 | `strictNames` | `false` | When `true`, table and column names must match `^[A-Za-z_][A-Za-z0-9_]*$`. |
 | `allowSchema` | `false` | Allow schema-qualified (dotted) names such as `public.users` or `users.id`. Dotted names are rejected otherwise, even in non-strict mode. |
 | `allowedColumns` | `undefined` | Allowlist of columns accepted by `create`, `createMany` and `update`. Any other key throws a `QueryError`. Without it, every key is treated as a column. |
-| `maxTake` | `10000` | Upper bound for `take()`. A larger value throws a `QueryError`. |
+| `maxTake` | `10000` | Upper bound for `take()` and `stream()` batch sizes. A larger value throws a `QueryError`. |
+| `maxSkip` | `undefined` | Optional upper bound for `skip()` offsets. |
 | `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
 | `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
 | `columnMap` | `undefined` | Map schema field names to database column names for this table or the whole client. Values must be unique. |
 | `columnCodecs` | `undefined` | Per-field `{ encode?, decode? }` hooks for custom database representations. |
 | `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
+| `adapter` | `zodValidator` | Connection-level `ValidatorAdapter` for every table on this client. |
 
 ### sql
 
@@ -76,7 +78,8 @@ await findUser([1]);
 ```
 
 The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
-prepared plans are not supported yet.
+fixed-parameter plans use `Table.prepare()`; named-placeholder plans use
+`db.param()` + `Table.prepareParams()`.
 
 ### transaction(callback, options?)
 
@@ -99,10 +102,11 @@ The callback is rerun from the beginning on retryable SQLSTATE errors.
 ### batch(queries | callback)
 
 ```typescript
-batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
-batch<Q extends readonly PendingQuery<any>[]>(
+batch<Q extends readonly DeferredQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+batch<Q extends readonly DeferredQuery<any>[]>(
   callback: (tx: PgBuddyClient) => [...Q]
 ): Promise<BatchResults<Q>>;
+batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
 ```
 
 Runs pending postgres.js queries or deferred pgbuddy terminals through
