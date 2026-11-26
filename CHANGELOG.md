@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.
 - `ValidationAdapter` + `db.tableWithAdapter` for core CRUD/query chaining with
   non-Zod validators, including joins, aggregates, grouped queries, computed
-  projections, and `omit`.
+  projections, `omit`, and field-list adapter relations.
 - `ValidatorAdapter` + `db.tableWithValidator` (schema + adapter split,
   Prapti-style) with built-in `zodValidator` and schema-inferred types.
 - Tree-shakeable Valibot/Yup adapters at `pgbuddy/adapters/valibot` and

@@ -171,8 +171,12 @@ tableWithAdapter<T extends Row, I extends Row = T>(
 Creates a table backed by a non-Zod validation adapter. The adapter provides
 `fields`, `parse`, and `parsePartial`; pgbuddy calls them before writes. Core
 CRUD, query chaining, joins, aggregates, grouped queries, computed projections,
-and `omit` are supported. Relations and schema-derived projections remain
-Zod-only.
+and `omit` are supported.
+
+`options.adapterRelations` declares relations with field lists. Includes,
+counts, nested/through relations, filters, and mapping reuse the relation
+runtime; child rows are typed `Record<string, unknown>`. Schema-derived
+projections and typed relation selection remain Zod-only.
 
 ---
 

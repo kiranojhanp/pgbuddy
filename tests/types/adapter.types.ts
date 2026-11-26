@@ -29,7 +29,23 @@ async function check() {
   const [updated] = (await users.where({ id: 1 }).update({ email: "b@example.com" })) as User[];
   const _updated: User | undefined = updated;
 
-  return [_rows, _created, _updated];
+  const withPosts = db.tableWithAdapter("users", adapter, {
+    adapterRelations: {
+      posts: {
+        table: "posts",
+        fields: ["id", "user_id"],
+        localKey: "id",
+        foreignKey: "user_id",
+        relation: "many",
+      },
+    },
+  });
+
+  const included = await withPosts.include("posts").withCount("posts").findMany();
+  const _posts: Array<Record<string, unknown>> = included[0]?.posts ?? [];
+  const _postCount: number | undefined = included[0]?.posts_count;
+
+  return [_rows, _created, _updated, _posts, _postCount];
 }
 
 export { check };

@@ -56,6 +56,7 @@ describe("validation adapter table", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql);
 
+    await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await sql`
       CREATE TABLE users (
@@ -64,9 +65,17 @@ describe("validation adapter table", () => {
         status TEXT NOT NULL
       );
     `;
+    await sql`
+      CREATE TABLE posts (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL
+      );
+    `;
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await stop();
   });
@@ -154,5 +163,33 @@ describe("validation adapter table", () => {
       .whereRaw(sql`"users"."id" = 1`)
       .findMany();
     expect(joined[0]?.manager.email).toBe("ada@example.com");
+  });
+
+  test("supports adapter relations and counts", async () => {
+    const usersWithRelations = () =>
+      db.tableWithAdapter("users", adapter, {
+        unique: [["email"]],
+        adapterRelations: {
+          posts: {
+            table: "posts",
+            fields: ["id", "user_id", "title"],
+            localKey: "id",
+            foreignKey: "user_id",
+            relation: "many",
+          },
+        },
+      });
+
+    await usersWithRelations().create({
+      id: 1,
+      email: "ada@example.com",
+      status: "active",
+    });
+    await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First')`;
+
+    const rows = await usersWithRelations().include("posts").withCount("posts").findMany();
+
+    expect(rows[0]?.posts[0]?.title).toBe("First");
+    expect(rows[0]?.posts_count).toBe(1);
   });
 });

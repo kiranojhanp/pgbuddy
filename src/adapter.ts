@@ -1,11 +1,13 @@
 import type { Row } from "postgres";
-import type { ZodObject, ZodRawShape } from "zod";
+import { type ZodObject, type ZodRawShape, z } from "zod";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
 import type { GroupedQuery, JoinOptions, JoinQuery, ProjectedQuery, Table } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnCodecs,
+  ColumnMap,
   ComputedMap,
   CreateManyOptions,
   SelectKeys,
@@ -14,6 +16,7 @@ import type {
   UpdateData,
   UpsertOptions,
 } from "./types";
+import { type ZodRelations, ZodTable } from "./zod-table";
 
 export type ValidationResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -131,37 +134,194 @@ function parseOrThrow<T>(result: ValidationResult<T>, context: string): T {
   return result.data;
 }
 
+export type AdapterRelationConfig = {
+  table: string;
+  fields: readonly string[];
+  localKey: string | readonly string[];
+  foreignKey?: string | readonly string[];
+  relation: "one" | "many";
+  through?: {
+    table: string;
+    parentKey: string | readonly string[];
+    relatedKey: string | readonly string[];
+    targetKey?: string | readonly string[];
+  };
+  relations?: AdapterRelations;
+  columnMap?: ColumnMap;
+  columnCodecs?: ColumnCodecs;
+};
+
+export type AdapterRelations = Record<string, AdapterRelationConfig>;
+
+export type AdapterRelationValue<C extends AdapterRelationConfig> = C["relation"] extends "one"
+  ? Record<string, unknown> | null
+  : Array<Record<string, unknown>>;
+
+export type AdapterRelationFields<R extends AdapterRelations, Inc extends keyof R> = {
+  [N in Inc]: AdapterRelationValue<R[N]>;
+};
+
+export type AdapterCountFields<Name extends PropertyKey> = {
+  [P in `${Name & string}_count`]: number;
+};
+
+function toZodRelations(relations: AdapterRelations): ZodRelations {
+  const out: Record<string, unknown> = {};
+
+  for (const [name, config] of Object.entries(relations)) {
+    const schema = z.object(Object.fromEntries(config.fields.map((field) => [field, z.unknown()])));
+    out[name] = {
+      table: config.table,
+      schema,
+      localKey: config.localKey,
+      foreignKey: config.foreignKey,
+      relation: config.relation,
+      through: config.through,
+      columnMap: config.columnMap,
+      columnCodecs: config.columnCodecs,
+      relations: config.relations ? toZodRelations(config.relations) : undefined,
+    };
+  }
+
+  return out as ZodRelations;
+}
+
+/**
+ * A relation-bearing adapter query. Relation row shapes are untyped because
+ * the adapter exposes field names, not schemas.
+ */
+export class AdapterIncludedQuery<
+  T extends Row,
+  R extends AdapterRelations,
+  Joined extends Record<string, unknown>,
+> {
+  private readonly zodTable: ZodTable<ZodObject<ZodRawShape>>;
+
+  constructor(zodTable: ZodTable<ZodObject<ZodRawShape>>) {
+    this.zodTable = zodTable;
+  }
+
+  include<Name extends keyof R & string>(
+    name: Name
+  ): AdapterIncludedQuery<T, R, Joined & AdapterRelationFields<R, Name>> {
+    return new AdapterIncludedQuery<T, R, Joined & AdapterRelationFields<R, Name>>(
+      this.zodTable.include(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  withCount<Name extends keyof R & string>(
+    name: Name
+  ): AdapterIncludedQuery<T, R, Joined & AdapterCountFields<Name>> {
+    return new AdapterIncludedQuery<T, R, Joined & AdapterCountFields<Name>>(
+      this.zodTable.withCount(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  whereRelated<Name extends keyof R & string>(name: Name): AdapterIncludedQuery<T, R, Joined> {
+    return new AdapterIncludedQuery<T, R, Joined>(
+      this.zodTable.whereRelated(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  whereMissing<Name extends keyof R & string>(name: Name): AdapterIncludedQuery<T, R, Joined> {
+    return new AdapterIncludedQuery<T, R, Joined>(
+      this.zodTable.whereMissing(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  findMany(): Promise<Array<T & Joined>> {
+    return this.zodTable.findMany() as unknown as Promise<Array<T & Joined>>;
+  }
+
+  async findFirst(): Promise<(T & Joined) | null> {
+    const rows = await this.zodTable.findFirst();
+    return (rows as unknown as (T & Joined) | null) ?? null;
+  }
+
+  async findFirstOrThrow(): Promise<T & Joined> {
+    const row = await this.findFirst();
+    if (!row) throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
+    return row;
+  }
+}
+
 /**
  * A table built from a non-Zod validation adapter. Zod-backed tables retain
  * relations, schema-derived projections, and computed fields.
  */
-export class ValidatedTable<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row = T> {
+export class ValidatedTable<
+  T extends Row,
+  K extends SelectKeys<T> = ["*"],
+  I extends Row = T,
+  R extends AdapterRelations = Record<string, never>,
+> {
   private readonly table: Table<T, K, I>;
   private readonly adapter: ValidationAdapter<T, I>;
+  private readonly adapterRelations?: R;
+  private readonly relationTable?: ZodTable<ZodObject<ZodRawShape>>;
 
-  constructor(table: Table<T, K, I>, adapter: ValidationAdapter<T, I>) {
+  constructor(table: Table<T, K, I>, adapter: ValidationAdapter<T, I>, adapterRelations?: R) {
     this.table = table;
     this.adapter = adapter;
+    this.adapterRelations = adapterRelations;
+
+    if (adapterRelations && Object.keys(adapterRelations).length > 0) {
+      const schema = z.object(
+        Object.fromEntries(adapter.fields.map((field) => [field, z.unknown()]))
+      );
+      this.relationTable = new ZodTable(
+        table as unknown as Table<Record<string, unknown>, ["*"], Record<string, unknown>>,
+        schema,
+        toZodRelations(adapterRelations)
+      ) as unknown as ZodTable<ZodObject<ZodRawShape>>;
+    }
   }
 
-  private wrap<K2 extends SelectKeys<T>>(table: Table<T, K2, I>): ValidatedTable<T, K2, I> {
-    return new ValidatedTable<T, K2, I>(table, this.adapter);
+  private wrap<K2 extends SelectKeys<T>>(table: Table<T, K2, I>): ValidatedTable<T, K2, I, R> {
+    return new ValidatedTable<T, K2, I, R>(table, this.adapter, this.adapterRelations);
   }
 
-  select<K2 extends SelectKeys<T>>(fields: K2): ValidatedTable<T, K2, I> {
+  include<Name extends keyof R & string>(
+    name: Name
+  ): AdapterIncludedQuery<T, R, AdapterRelationFields<R, Name>> {
+    if (!this.relationTable) {
+      throw new QueryError("No adapter relations are configured for this table", {
+        code: "INVALID_RELATION",
+      });
+    }
+    return new AdapterIncludedQuery(
+      this.relationTable.include(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  withCount<Name extends keyof R & string>(
+    name: Name
+  ): AdapterIncludedQuery<T, R, AdapterCountFields<Name>> {
+    if (!this.relationTable) {
+      throw new QueryError("No adapter relations are configured for this table", {
+        code: "INVALID_RELATION",
+      });
+    }
+    return new AdapterIncludedQuery(
+      this.relationTable.withCount(name) as unknown as ZodTable<ZodObject<ZodRawShape>>
+    );
+  }
+
+  select<K2 extends SelectKeys<T>>(fields: K2): ValidatedTable<T, K2, I, R> {
     return this.wrap(this.table.select(fields));
   }
 
   omit<K2 extends readonly (keyof T & string)[]>(
     columns: K2
-  ): ValidatedTable<T, readonly Exclude<keyof T & string, K2[number]>[], I> {
+  ): ValidatedTable<T, readonly Exclude<keyof T & string, K2[number]>[], I, R> {
     return new ValidatedTable(
       this.table.omit(columns) as unknown as Table<
         T,
         readonly Exclude<keyof T & string, K2[number]>[],
         I
       >,
-      this.adapter
+      this.adapter,
+      this.adapterRelations
     );
   }
 
@@ -194,47 +354,47 @@ export class ValidatedTable<T extends Row, K extends SelectKeys<T> = ["*"], I ex
     return this.table.leftJoin<Name, J>(name, options);
   }
 
-  where(conditions: WhereInput<T>): ValidatedTable<T, K, I> {
+  where(conditions: WhereInput<T>): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.where(conditions));
   }
 
-  whereRaw(fragment: SqlFragment): ValidatedTable<T, K, I> {
+  whereRaw(fragment: SqlFragment): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.whereRaw(fragment));
   }
 
-  whereUnique(where: Partial<T>): ValidatedTable<T, K, I> {
+  whereUnique(where: Partial<T>): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.whereUnique(where));
   }
 
-  orderBy(spec: SortSpec<T>[]): ValidatedTable<T, K, I> {
+  orderBy(spec: SortSpec<T>[]): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.orderBy(spec));
   }
 
-  orderByRaw(fragment: SqlFragment): ValidatedTable<T, K, I> {
+  orderByRaw(fragment: SqlFragment): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.orderByRaw(fragment));
   }
 
-  skip(count: number): ValidatedTable<T, K, I> {
+  skip(count: number): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.skip(count));
   }
 
-  take(count: number): ValidatedTable<T, K, I> {
+  take(count: number): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.take(count));
   }
 
-  distinct(): ValidatedTable<T, K, I> {
+  distinct(): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.distinct());
   }
 
-  distinctOn(columns: readonly (keyof T & string)[]): ValidatedTable<T, K, I> {
+  distinctOn(columns: readonly (keyof T & string)[]): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.distinctOn(columns));
   }
 
-  distinctOnExpr(expressions: readonly SqlFragment[]): ValidatedTable<T, K, I> {
+  distinctOnExpr(expressions: readonly SqlFragment[]): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.distinctOnExpr(expressions));
   }
 
-  cursor(value: Partial<T>): ValidatedTable<T, K, I> {
+  cursor(value: Partial<T>): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.cursor(value));
   }
 

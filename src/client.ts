@@ -1,6 +1,7 @@
 import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
 import {
+  type AdapterRelations,
   bindValidator,
   isValidationAdapter,
   type ValidatedInput,
@@ -380,11 +381,15 @@ export class PgBuddyClient {
     return this.tableWithAdapter(tableName, adapter, options);
   }
 
-  tableWithAdapter<T extends Row, I extends Row = T>(
+  tableWithAdapter<
+    T extends Row,
+    I extends Row = T,
+    AR extends AdapterRelations = Record<string, never>,
+  >(
     tableName: string,
     adapter: ValidationAdapter<T, I>,
-    options?: PgBuddyClientOptions
-  ): ValidatedTable<T, ["*"], I> {
+    options?: PgBuddyClientOptions & { adapterRelations?: AR }
+  ): ValidatedTable<T, ["*"], I, AR> {
     if (!isValidationAdapter(adapter)) {
       throw new TableError("tableWithAdapter requires a ValidationAdapter");
     }
@@ -461,7 +466,11 @@ export class PgBuddyClient {
       columns: adapter.fields as readonly string[],
     });
 
-    return new ValidatedTable(table as unknown as Table<T, ["*"], I>, adapter);
+    return new ValidatedTable(
+      table as unknown as Table<T, ["*"], I>,
+      adapter,
+      options?.adapterRelations
+    );
   }
 
   table<S extends ZodObject<ZodRawShape>, R extends ZodRelations>(

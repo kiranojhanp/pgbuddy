@@ -127,8 +127,31 @@ schema.
 
 Both adapter paths support core CRUD and query chaining, including
 `where`/`orderBy`/`select`/`cursor`, writes, counts, `toSQL`, joins, aggregates,
-grouped queries, computed projections, and `omit`. Relations and
-schema-derived projections remain Zod-only.
+grouped queries, computed projections, and `omit`.
+
+Adapter tables can also declare relations with field lists. Child rows are
+typed as `Record<string, unknown>` because adapters expose field names, not
+schemas:
+
+```ts
+const users = db.tableWithAdapter("users", adapter, {
+  adapterRelations: {
+    posts: {
+      table: "posts",
+      fields: ["id", "user_id", "title"],
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+    },
+  },
+});
+
+const rows = await users.include("posts").withCount("posts").findMany();
+```
+
+Nested and through configs use the same shape as Zod relations; `columnMap` and
+`columnCodecs` are honored. Schema-derived projections and Zod's typed relation
+selection remain Zod-only.
 
 ## Filtering
 
@@ -737,7 +760,8 @@ a schema toolkit or a full SQL AST.
 
 1. **True protocol batch** — driver-level batching across v3/v4.
 2. **Hosted PostgreSQL 16 CI evidence** — local verification is complete.
-3. **Adapter relations parity** — relation support for non-Zod validators.
+3. **Adapter relation typing** — adapter relations are runtime-supported but
+   child rows are untyped.
 
 ## Compatibility
 
