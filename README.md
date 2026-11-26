@@ -420,42 +420,60 @@ See [docs/kitchen-sink.md](docs/kitchen-sink.md) for the walkthrough.
 
 ## Remaining TODOs
 
-### Query surface
+This is a priority order, not a release commitment. The guiding rule is to
+remove the most common reasons to drop to raw SQL without turning pgbuddy into
+a schema toolkit or a full SQL AST.
 
-- [ ] Multiple joins, table aliases, and self-joins (single `innerJoin`/`leftJoin` exists).
-- [ ] CTEs, set operations (`UNION`/`INTERSECT`/`EXCEPT`), and typed window functions.
-- [ ] `UPDATE … FROM`, `DELETE … USING`, and `INSERT … SELECT`.
+### P0 — do next
+
+- [ ] **Join v2: multiple joins, aliases, and self-joins.** The current
+  single-table `innerJoin`/`leftJoin` is the biggest remaining raw-SQL escape.
+  Extend `JoinQuery` rather than building a general join tree.
+- [ ] **Relation graph: many-to-many/through tables and nested includes.**
+  The relation API is still one-hop. These two should be designed together
+  because both need recursive relation metadata and tree-shaped results.
+- [ ] **Split the relation runtime out of `src/zod-table.ts`.** Do this with the
+  relation-graph work; that file is already ~1,700 lines and carries seven
+  generics.
+- [ ] **Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.**
+  Quick operational win; PGlite cannot catch every server-version difference.
+
+### P1 — high value, moderate effort
+
+- [ ] **Per-column mapping and custom serialization.** `postgres.camel` covers
+  the common camelCase/snake_case case, but mixed naming and custom DB types
+  need per-column `mapWith`/`$type`-style hooks.
+- [ ] **Validator adapter for non-Zod libraries.** Zod is required today; a
+  small adapter interface should be designed before a second validator is
+  added, without weakening validation.
+- [ ] **Relation ordering and per-relation aggregates.** Order by a related
+  field and support `count`/`sum`/`avg` per relation beyond `withCount`.
+- [ ] **Prepared statements, true batch, and `toSQL()`.** These all need a
+  deferred query object; postgres.js already prepares automatically, so this
+  is performance/tooling work rather than a correctness gap.
+
+### P2 — useful, but raw SQL is acceptable
+
 - [ ] Expression columns in `groupBy`; typed `HAVING`.
+- [ ] `UPDATE … FROM`, `DELETE … USING`, and `INSERT … SELECT`.
+- [ ] Query cancellation and streaming access.
 
-### Relations
+### P3 — out of scope / use raw SQL
 
-- [ ] Many-to-many / through relations.
-- [ ] Nested includes (`posts.comments`).
-- [ ] Relation ordering and per-relation aggregates beyond `withCount`.
-- [ ] Relation writes (`connect`/`create`/`update` graphs).
+- CTEs, set operations (`UNION`/`INTERSECT`/`EXCEPT`), and typed window
+  functions.
+- Views, enums, domains, RLS, generated columns, and constraints as schema
+  metadata.
+- Migrations, introspection, and code generation.
+- Relation writes (`connect`/`create`/`update` graphs).
+- Multi-dialect support (Postgres-only by design).
 
-### Query lifecycle
+### Recommended next three
 
-- [ ] Prepared statements and placeholders.
-- [ ] True batch API and `toSQL()` inspection.
-- [ ] Query cancellation / streaming access.
-
-### Mapping and schema
-
-- [ ] Per-column name mapping and custom serialization (`mapWith`/`$type` equivalents).
-- [ ] Views, enums, domains, RLS, generated columns, and constraints as metadata.
-- [ ] Migrations, introspection, and code generation.
-
-### Validation
-
-- [ ] Validator adapter for libraries other than Zod (Zod is required today).
-
-### Structure and verification
-
-- [ ] Split the relation runtime out of `src/zod-table.ts`.
-- [ ] Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.
-
-Not planned: multi-dialect support (Postgres-only by design).
+1. **Join v2** — highest impact per unit of effort.
+2. **Many-to-many + nested includes** — closes the relation ceiling.
+3. **Per-column mapping** — unblocks production schemas with mixed naming or
+   custom types.
 
 ## Compatibility
 
