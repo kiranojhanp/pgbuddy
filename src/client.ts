@@ -1,10 +1,48 @@
 import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
-import { Errors, TableError } from "./errors";
+import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
-import type { Insertable } from "./types";
-import { isValidIdentifier, isValidName } from "./utils";
-import { ZodTable } from "./zod-table";
+import type { Insertable, SelectKeys } from "./types";
+import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
+import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
+
+/**
+ * Options shared by {@link PgBuddyClient} and {@link PgBuddyClient.table}.
+ *
+ * - `strictNames` — require identifiers to match `[A-Za-z_][A-Za-z0-9_]*`
+ *   (default `false`)
+ * - `allowSchema` — allow schema-qualified (dotted) table and column names
+ *   (default `false`; even in non-strict mode dots are rejected otherwise)
+ * - `allowedColumns` — allowlist of column names accepted by `create`,
+ *   `createMany` and `update`. Recommended when write payloads may contain
+ *   user-controlled keys.
+ * - `maxTake` — upper bound for `take()` (default {@link DEFAULT_MAX_TAKE}).
+ * - `unique` — unique column sets used by `whereUnique` (for example
+ *   `[["email"], ["tenant_id", "slug"]]`).
+ * - `defaultTake` — default row limit for `findMany` when no `take()` is set.
+ * - `columns` — explicit column list for a plain `Table` (enables `omit` and
+ *   avoids `SELECT *`).
+ */
+export type PgBuddyClientOptions = {
+  strictNames?: boolean;
+  allowSchema?: boolean;
+  allowedColumns?: readonly string[];
+  maxTake?: number;
+  unique?: readonly (readonly string[])[];
+  defaultTake?: number;
+  columns?: readonly string[];
+  /** Relations available to `ZodTable.include`. */
+  relations?: ZodRelations;
+};
+
+/**
+ * Options for `db.transaction`.
+ */
+export type TransactionOptions = {
+  isolationLevel?: "read uncommitted" | "read committed" | "repeatable read" | "serializable";
+  readOnly?: boolean;
+  deferrable?: boolean;
+};
 
 function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
   return (
@@ -16,6 +54,28 @@ function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
     typeof (value as { safeParse: unknown }).safeParse === "function" &&
     "_def" in value
   );
+}
+
+function assertDefaultTake(defaultTake: number | undefined): void {
+  if (defaultTake !== undefined && (!Number.isInteger(defaultTake) || defaultTake <= 0)) {
+    throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
+  }
+}
+
+function assertUniqueOption(unique: readonly (readonly string[])[] | undefined): void {
+  if (unique === undefined) return;
+
+  if (
+    !Array.isArray(unique) ||
+    unique.some(
+      (columns) =>
+        !Array.isArray(columns) ||
+        columns.length === 0 ||
+        columns.some((column) => typeof column !== "string")
+    )
+  ) {
+    throw new TableError(Errors.TABLE.INVALID_UNIQUE);
+  }
 }
 
 /**
@@ -48,16 +108,25 @@ function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
  * ```
  */
 export class PgBuddyClient {
-  private sql: Sql<Record<string, unknown>>;
+  /**
+   * The underlying postgres.js instance. Use it as the escape hatch for raw
+   * SQL when pgbuddy does not model what you need.
+   */
+  readonly sql: Sql<Record<string, unknown>>;
 
   private strictNames: boolean;
   private allowSchema: boolean;
+  private allowedColumns?: readonly string[];
+  private maxTake?: number;
+  private uniqueKeys?: readonly (readonly string[])[];
+  private defaultTake?: number;
 
   /**
    * Creates a new PgBuddyClient instance.
    *
    * @param sql - A postgres.js SQL instance used for database operations.
    * You must first initialize a postgres.js connection and pass it here.
+   * @param options - Optional identifier and write-hardening options.
    *
    * @example
    * ```typescript
@@ -68,13 +137,96 @@ export class PgBuddyClient {
    * const db = new PgBuddyClient(sql);
    * ```
    */
-  constructor(
-    sql: Sql<Record<string, unknown>>,
-    options?: { strictNames?: boolean; allowSchema?: boolean }
-  ) {
+  constructor(sql: Sql<Record<string, unknown>>, options?: PgBuddyClientOptions) {
+    if (
+      options?.allowedColumns !== undefined &&
+      (!Array.isArray(options.allowedColumns) ||
+        !options.allowedColumns.every((column) => typeof column === "string"))
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_ALLOWED_COLUMNS);
+    }
+
+    if (
+      options?.maxTake !== undefined &&
+      (!Number.isInteger(options.maxTake) || options.maxTake <= 0)
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+
+    assertUniqueOption(options?.unique);
+    assertDefaultTake(options?.defaultTake);
+
     this.sql = sql;
     this.strictNames = Boolean(options?.strictNames);
     this.allowSchema = Boolean(options?.allowSchema);
+    this.allowedColumns = options?.allowedColumns ? [...options.allowedColumns] : undefined;
+    this.maxTake = options?.maxTake;
+    this.uniqueKeys = options?.unique?.map((list) => [...list]);
+    this.defaultTake = options?.defaultTake;
+  }
+
+  /**
+   * Run a callback in a transaction. `tx` is a `PgBuddyClient` bound to the
+   * transaction's connection; use it for every query inside the callback.
+   * Nested calls use savepoints (postgres.js).
+   *
+   * @example
+   * ```typescript
+   * await db.transaction(async (tx) => {
+   *   const users = tx.table<User>("users");
+   *   const orders = tx.table<Order>("orders");
+   *   await orders.create({ user_id: (await users.create({ ... })).id });
+   * });
+   * ```
+   */
+  async transaction<T>(
+    fn: (tx: PgBuddyClient) => Promise<T>,
+    transactionOptions?: TransactionOptions
+  ): Promise<T> {
+    const options: PgBuddyClientOptions = {
+      strictNames: this.strictNames,
+      allowSchema: this.allowSchema,
+      allowedColumns: this.allowedColumns,
+      maxTake: this.maxTake,
+      unique: this.uniqueKeys,
+      defaultTake: this.defaultTake,
+    };
+
+    // postgres.js v4 exposes nested `begin`; v3 exposes `savepoint` on the
+    // transaction-scoped sql. Support both.
+    const runner = this.sql as unknown as {
+      begin?: (
+        arg: string | ((txSql: Sql<Record<string, unknown>>) => Promise<T>),
+        cb?: (txSql: Sql<Record<string, unknown>>) => Promise<T>
+      ) => Promise<T>;
+      savepoint?: (
+        arg: string | ((txSql: Sql<Record<string, unknown>>) => Promise<T>),
+        cb?: (txSql: Sql<Record<string, unknown>>) => Promise<T>
+      ) => Promise<T>;
+    };
+    const start = runner.begin ?? runner.savepoint;
+
+    if (typeof start !== "function") {
+      throw new QueryError("Transactions are not supported by this postgres.js instance");
+    }
+
+    const parts: string[] = [];
+    if (transactionOptions?.isolationLevel) {
+      parts.push(`isolation level ${transactionOptions.isolationLevel}`);
+    }
+    if (transactionOptions?.readOnly) parts.push("read only");
+    if (transactionOptions?.deferrable) parts.push("deferrable");
+    const mode = parts.join(" ");
+
+    if (mode && typeof runner.begin !== "function") {
+      throw new QueryError("Transaction options are not supported in nested transactions");
+    }
+
+    const run = (txSql: Sql<Record<string, unknown>>) => new PgBuddyClient(txSql, options);
+
+    return mode
+      ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
+      : await start.call(this.sql, (txSql) => fn(run(txSql)));
   }
 
   /**
@@ -108,12 +260,17 @@ export class PgBuddyClient {
    */
   table<T extends Row, I extends Row = T>(
     tableName: string,
-    options?: { strictNames?: boolean; allowSchema?: boolean }
+    options?: PgBuddyClientOptions
   ): Table<T, ["*"], I>;
+  table<S extends ZodObject<ZodRawShape>, R extends ZodRelations>(
+    tableName: string,
+    schema: S,
+    options: PgBuddyClientOptions & { relations: R }
+  ): ZodTable<S, ["*"], RowFromSchema<S>, R>;
   table<S extends ZodObject<ZodRawShape>>(
     tableName: string,
     schema: S,
-    options?: { strictNames?: boolean; allowSchema?: boolean }
+    options?: PgBuddyClientOptions
   ): ZodTable<S>;
   table<
     T extends Row,
@@ -121,37 +278,102 @@ export class PgBuddyClient {
     S extends ZodObject<ZodRawShape> = ZodObject<ZodRawShape>,
   >(
     tableName: string,
-    schemaOrOptions?: S | { strictNames?: boolean; allowSchema?: boolean },
-    options?: { strictNames?: boolean; allowSchema?: boolean }
+    schemaOrOptions?: S | PgBuddyClientOptions,
+    options?: PgBuddyClientOptions
   ): Table<T, ["*"], I> | ZodTable<S> {
     const schema = isZodSchema(schemaOrOptions) ? schemaOrOptions : undefined;
     const resolvedOptions = isZodSchema(schemaOrOptions) ? options : schemaOrOptions;
 
     const strictNames = resolvedOptions?.strictNames ?? this.strictNames ?? false;
     const allowSchema = resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
+    const allowedColumns = resolvedOptions?.allowedColumns ?? this.allowedColumns;
+    const maxTake = resolvedOptions?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const uniqueKeys = resolvedOptions?.unique ?? this.uniqueKeys;
+    const defaultTake = resolvedOptions?.defaultTake ?? this.defaultTake;
+    const tableColumns = resolvedOptions?.columns;
 
     if (typeof tableName !== "string") {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
+
+    if (
+      allowedColumns !== undefined &&
+      (!Array.isArray(allowedColumns) ||
+        !allowedColumns.every((column) => typeof column === "string"))
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_ALLOWED_COLUMNS);
+    }
+
+    if (!Number.isInteger(maxTake) || maxTake <= 0) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+
+    assertUniqueOption(uniqueKeys);
+    assertDefaultTake(defaultTake);
+
+    if (
+      tableColumns !== undefined &&
+      (!Array.isArray(tableColumns) ||
+        tableColumns.length === 0 ||
+        tableColumns.some((column) => typeof column !== "string"))
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_COLUMNS);
+    }
+
+    if (schema && tableColumns) {
+      throw new TableError(Errors.TABLE.INVALID_COLUMNS);
+    }
+
+    if (defaultTake !== undefined && defaultTake > maxTake) {
+      throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
+    }
+
+    if (schema && uniqueKeys) {
+      for (const column of uniqueKeys.flat()) {
+        if (!Object.hasOwn(schema.shape, column)) {
+          throw new TableError(Errors.TABLE.INVALID_UNIQUE);
+        }
+      }
+    }
+
     const trimmedName = tableName.trim();
     const isValid = strictNames
       ? isValidIdentifier(trimmedName, { allowSchema })
-      : isValidName(trimmedName);
+      : // postgres.js treats "." as a schema separator, so dotted names are
+        // schema-qualified even when strict name validation is off.
+        isValidName(trimmedName) && (allowSchema || !trimmedName.includes("."));
 
     if (!isValid) {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
 
+    // With a schema we know the columns, so select them explicitly instead of
+    // SELECT * — this keeps result shapes stable and avoids leaking columns the
+    // schema does not model.
+    const schemaColumns = schema ? Object.keys(schema.shape) : undefined;
+
     // Use unknown cast through Row to avoid explicit any in the internal implementation
     const table = new Table<Row, ["*"], Row>(this.sql, trimmedName, {
       strictNames,
       allowSchema,
+      allowedColumns,
+      maxTake,
+      uniqueKeys,
+      defaultTake,
+      columns: tableColumns,
+      selectedFields: schemaColumns?.length
+        ? (schemaColumns as unknown as SelectKeys<Row>)
+        : undefined,
     });
 
     if (schema) {
+      const relations = resolvedOptions?.relations;
+
       // table is typed as Table<Row> internally (impl signature); cast to align with ZodTable's expected generic
       // biome-ignore lint/suspicious/noExplicitAny: necessary to bridge internal Row type and ZodTable's generic
-      return new ZodTable(table as unknown as Table<any, ["*"], any>, schema) as ZodTable<S>;
+      const zodTable = new ZodTable(table as unknown as Table<any, ["*"], any>, schema, relations);
+
+      return zodTable as unknown as ZodTable<S>;
     }
 
     return table as Table<T, ["*"], I>;
@@ -159,7 +381,7 @@ export class PgBuddyClient {
 
   tableWithInsert<T extends Row, AutoKeys extends keyof T>(
     tableName: string,
-    options?: { strictNames?: boolean; allowSchema?: boolean }
+    options?: PgBuddyClientOptions
   ): Table<T, ["*"], Insertable<T, AutoKeys>> {
     return this.table<T, Insertable<T, AutoKeys>>(tableName, options);
   }

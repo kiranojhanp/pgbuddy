@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import { z } from "zod";
-import { Errors, PgBuddyClient, QueryError } from "../../src";
+import { and, Errors, eq, not, or, PgBuddyClient, QueryError, sqlExpr } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 describe("ZodTable", () => {
@@ -232,5 +232,389 @@ describe("ZodTable", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe(50);
+  });
+
+  describe("projection and sorting validation", () => {
+    test("select rejects columns outside the schema", () => {
+      const users = db.table("users", UserSchema);
+      const invalid = ["password_hash"] as unknown as Array<keyof z.infer<typeof UserSchema>>;
+
+      expect(() => users.select(invalid)).toThrow(Errors.SELECT.INVALID_COLUMNS("password_hash"));
+    });
+
+    test("select allows '*' and schema columns", async () => {
+      const users = db.table("users", UserSchema);
+      await users.create({
+        id: 50,
+        email: "projection@example.com",
+        status: "active",
+        last_login: null,
+      });
+
+      const all = await users.select(["*"]).where({ id: 50 }).findMany();
+      expect(all[0]?.email).toBe("projection@example.com");
+
+      const projected = await users.select(["email"]).where({ id: 50 }).findMany();
+      expect(projected[0]?.email).toBe("projection@example.com");
+      expect("id" in (projected[0] ?? {})).toBe(false);
+    });
+
+    test("orderBy rejects columns outside the schema", () => {
+      const users = db.table("users", UserSchema);
+      const invalid = [{ column: "password_hash", direction: "ASC" }] as unknown as Array<{
+        column: keyof z.infer<typeof UserSchema>;
+        direction: "ASC" | "DESC";
+      }>;
+
+      expect(() => users.orderBy(invalid)).toThrow(Errors.SELECT.INVALID_COLUMNS("password_hash"));
+    });
+
+    test("orderBy validates direction eagerly", () => {
+      const users = db.table("users", UserSchema);
+      const invalid = [{ column: "id", direction: "UP" }] as unknown as Array<{
+        column: keyof z.infer<typeof UserSchema>;
+        direction: "ASC" | "DESC";
+      }>;
+
+      expect(() => users.orderBy(invalid)).toThrow(Errors.WHERE.INVALID_SORT);
+    });
+
+    test("select and orderBy reject non-array input", () => {
+      const users = db.table("users", UserSchema);
+
+      expect(() =>
+        users.select("email" as unknown as Array<keyof z.infer<typeof UserSchema>>)
+      ).toThrow(Errors.SELECT.INVALID_COLUMNS("email"));
+
+      expect(() => users.orderBy("email" as unknown as [])).toThrow(
+        Errors.SELECT.INVALID_SORT_SPEC
+      );
+    });
+  });
+
+  test("where rejects non-object conditions", () => {
+    const users = db.table("users", UserSchema);
+
+    expect(() => users.where(null as unknown as Partial<z.infer<typeof UserSchema>>)).toThrow(
+      Errors.WHERE.INVALID_CONDITIONS
+    );
+    expect(() => users.where(new Date() as unknown as Partial<z.infer<typeof UserSchema>>)).toThrow(
+      Errors.WHERE.INVALID_CONDITIONS
+    );
+  });
+
+  test("where rejects invalid array entries", () => {
+    const users = db.table("users", UserSchema);
+
+    expect(() =>
+      users.where([null] as unknown as Array<{ field: "id"; operator: "="; value: number }>)
+    ).toThrow(Errors.WHERE.INVALID_CONDITIONS);
+  });
+
+  test("createMany rejects non-array input", async () => {
+    const users = db.table("users", UserSchema);
+    await expect(users.createMany(null as unknown as [])).rejects.toThrow(
+      Errors.INSERT.INVALID_DATA
+    );
+  });
+
+  test("mutating validated where conditions does not change the query", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 60,
+      email: "snapshot@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const conditions: Array<{ field: "status"; operator: "="; value: string }> = [
+      { field: "status", operator: "=", value: "active" },
+    ];
+    const query = users.where(conditions);
+    conditions[0] = { field: "status", operator: "=", value: "inactive" };
+
+    await expect(query.findMany()).resolves.toHaveLength(1);
+  });
+
+  test("predicates validate fields and values against the schema", async () => {
+    const users = db.table("users", UserSchema);
+
+    expect(() => users.where(eq("missing" as "id", 1))).toThrow(
+      Errors.WHERE.INVALID_FIELD("missing")
+    );
+
+    expect(() => users.where(eq("id", "nope" as unknown as number))).toThrow(QueryError);
+  });
+
+  test("predicates compose with schema validation", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 70,
+      email: "predicate@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const rows = await users
+      .where(and(eq("status", "active"), not(eq("id", 999))))
+      .where(or(eq("id", 70), eq("id", 71)))
+      .findMany();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.email).toBe("predicate@example.com");
+  });
+
+  test("whereRaw bypasses schema validation", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 80,
+      email: "raw@example.com",
+      status: "inactive",
+      last_login: null,
+    });
+
+    const rows = await users.whereRaw(sql`status = 'inactive'`).findMany();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.email).toBe("raw@example.com");
+  });
+
+  test("upsert validates create and update data", async () => {
+    const users = db.table("users", UserSchema);
+
+    const created = await users.upsert({
+      where: { id: 90 },
+      create: { id: 90, email: "upsert@example.com", status: "active", last_login: null },
+      update: { status: "inactive" },
+    });
+    expect(created.status).toBe("active");
+
+    const updated = await users.upsert({
+      where: { id: 90 },
+      create: { id: 90, email: "upsert@example.com", status: "active", last_login: null },
+      update: { status: "inactive" },
+    });
+    expect(updated.status).toBe("inactive");
+  });
+
+  test("distinctOn and cursor validate schema columns", () => {
+    const users = db.table("users", UserSchema);
+
+    expect(() =>
+      users.distinctOn(["missing"] as unknown as Array<keyof z.infer<typeof UserSchema>>)
+    ).toThrow(Errors.SELECT.INVALID_COLUMNS("missing"));
+
+    expect(() =>
+      users.cursor({ missing: 1 } as unknown as Partial<z.infer<typeof UserSchema>>)
+    ).toThrow(Errors.SELECT.INVALID_COLUMNS("missing"));
+  });
+
+  test("distinct and cursor compose with schema validation", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 91,
+      email: "set@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const distinctRows = await users.select(["status"]).distinct().findMany();
+    expect(distinctRows.length).toBeGreaterThan(0);
+
+    const cursorRows = await users
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .cursor({ id: 0 })
+      .findMany();
+    expect(cursorRows.length).toBeGreaterThan(0);
+  });
+
+  test("ZodTable exposes exists, aggregate, and raw ordering", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 100,
+      email: "b@example.com",
+      status: "active",
+      last_login: null,
+    });
+    await users.create({
+      id: 101,
+      email: "a@example.com",
+      status: "inactive",
+      last_login: null,
+    });
+
+    await expect(users.where({ id: 100 }).exists()).resolves.toBe(true);
+    await expect(users.where({ id: 999 }).exists()).resolves.toBe(false);
+
+    const aggregate = await users.aggregate({ count: true, countDistinct: ["status"] });
+    expect(aggregate.count).toBeGreaterThanOrEqual(2);
+    expect(aggregate.countDistinct.status).toBeGreaterThanOrEqual(2);
+
+    const ordered = await users.orderByRaw(sql`lower(email) ASC`).select(["email"]).findMany();
+    const emails = ordered.map((row) => row.email);
+    expect(emails).toEqual([...emails].sort());
+  });
+
+  test("ZodTable exposes count-returning updates and deletes", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 102,
+      email: "count@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const updated = await users
+      .where({ id: 102 })
+      .update({ status: "inactive" }, { returning: false });
+    expect(updated).toBe(1);
+
+    const deleted = await users.where({ id: 102 }).delete({ returning: false });
+    expect(deleted).toBe(1);
+  });
+
+  test("ZodTable upsert supports an omitted update and conflict fragments", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 103,
+      email: "upsert-options@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const existing = await users.upsert({
+      where: { id: 103 },
+      create: {
+        id: 103,
+        email: "upsert-options@example.com",
+        status: "inactive",
+        last_login: null,
+      },
+    });
+    expect(existing.status).toBe("active");
+
+    const updated = await users.upsert({
+      where: { id: 103 },
+      create: {
+        id: 103,
+        email: "upsert-options@example.com",
+        status: "inactive",
+        last_login: null,
+      },
+      update: { status: "inactive" },
+      setWhere: sql`users.status = 'active'`,
+    });
+    expect(updated.status).toBe("inactive");
+  });
+
+  test("ZodTable createMany supports onConflict updates", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 104,
+      email: "conflict@example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const rows = await users.createMany(
+      [
+        { id: 104, email: "conflict@example.com", status: "inactive", last_login: null },
+        { id: 105, email: "new@example.com", status: "active", last_login: null },
+      ],
+      { onConflict: { target: ["id"], update: ["status"] } }
+    );
+
+    expect(rows).toHaveLength(2);
+    expect((await users.where({ id: 104 }).findFirst())?.status).toBe("inactive");
+  });
+
+  test("computed fields compose with schema validation", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 110,
+      email: "Computed@Example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const rows = await users.findMany({
+      computed: {
+        lowerEmail: sqlExpr<string>(sql`lower(email)`),
+      },
+    });
+
+    expect(rows.some((row) => row.lowerEmail === "computed@example.com")).toBe(true);
+
+    const first = await users
+      .where({ id: 110 })
+      .findFirst({ computed: { upperEmail: sqlExpr<string>(sql`upper(email)`) } });
+    expect(first?.upperEmail).toBe("COMPUTED@EXAMPLE.COM");
+  });
+
+  test("selectExpr is chainable on ZodTable", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 111,
+      email: "Chain@Example.com",
+      status: "active",
+      last_login: null,
+    });
+
+    const rows = await users
+      .selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })
+      .where({ id: 111 })
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+
+    expect(rows[0]?.lowerEmail).toBe("chain@example.com");
+  });
+
+  test("ZodTable writes can return computed fields", async () => {
+    const users = db.table("users", UserSchema);
+    const created = await users.create(
+      {
+        id: 120,
+        email: "ComputedWrite@Example.com",
+        status: "active",
+        last_login: null,
+      },
+      { computed: { lowerEmail: sqlExpr<string>(sql`lower(email)`) } }
+    );
+
+    expect(created.lowerEmail).toBe("computedwrite@example.com");
+
+    const [updated] = await users
+      .where({ id: 120 })
+      .update(
+        { status: "inactive" },
+        { computed: { upperStatus: sqlExpr<string>(sql`upper(status)`) } }
+      );
+
+    expect(updated?.upperStatus).toBe("INACTIVE");
+  });
+
+  test("ZodTable groupBy validates columns", async () => {
+    const users = db.table("users", UserSchema);
+    await users.create({
+      id: 130,
+      email: "group-a@example.com",
+      status: "active",
+      last_login: null,
+    });
+    await users.create({
+      id: 131,
+      email: "group-b@example.com",
+      status: "inactive",
+      last_login: null,
+    });
+
+    const rows = await users
+      .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
+      .orderBy([{ column: "status", direction: "ASC" }])
+      .findMany();
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => typeof row.status === "string")).toBe(true);
+    expect(rows.every((row) => typeof row.count === "number")).toBe(true);
   });
 });

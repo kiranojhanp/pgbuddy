@@ -58,11 +58,17 @@
  */
 
 // Export the new client
+import type { PgBuddyClientOptions, TransactionOptions } from "./client";
 import { PgBuddyClient } from "./client";
-import { Errors, QueryError, TableError } from "./errors";
-import { Table } from "./table";
-// Re-export types for external use
+import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
+import { GroupedQuery, JoinQuery, ProjectedQuery, Table } from "./table";
 import type {
+  AggregateOptions,
+  AggregateResult,
+  ComputedMap,
+  ComputedOptions,
+  ComputedResult,
+  CreateManyOptions,
   Insertable,
   LikePattern,
   Model,
@@ -72,15 +78,78 @@ import type {
   SelectKeys,
   SortDirection,
   SortSpec,
+  SqlExpression,
+  SqlFragment,
   SqlOperator,
   Updatable,
+  UpdateData,
+  UpsertOptions,
   WhereCondition,
 } from "./types";
-import { ZodTable } from "./zod-table";
+// Re-export types for external use
+import { sqlExpr } from "./types";
+import { ZodProjectedQuery, ZodTable } from "./zod-table";
 
 // Export the new client and related classes/types
-export { PgBuddyClient, Table, ZodTable, Errors, QueryError, TableError };
+export {
+  PgBuddyClient,
+  Table,
+  ZodTable,
+  ProjectedQuery,
+  GroupedQuery,
+  JoinQuery,
+  ZodProjectedQuery,
+  Errors,
+  QueryError,
+  TableError,
+  sqlExpr,
+};
+export type { PostgresErrorLike } from "./database-errors";
+export {
+  constraintName,
+  isCheckViolation,
+  isDeadlock,
+  isForeignKeyViolation,
+  isNotNullViolation,
+  isPostgresError,
+  isSerializationFailure,
+  isUniqueViolation,
+  PostgresErrorCodes,
+} from "./database-errors";
+export type { Predicate, WhereInput } from "./predicates";
+export {
+  and,
+  between,
+  contains,
+  endsWith,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  lt,
+  lte,
+  ne,
+  not,
+  notBetween,
+  notInArray,
+  or,
+  startsWith,
+} from "./predicates";
+export type { GroupedRow, JoinResult, JoinValue } from "./table";
 export type {
+  IncludedRelations,
+  RowFromSchema,
+  WithRelations,
+  ZodRelationConfig,
+  ZodRelations,
+} from "./zod-table";
+export type {
+  AggregateOptions,
+  AggregateResult,
   SelectFields,
   SelectKeys,
   PickFields,
@@ -90,7 +159,18 @@ export type {
   SortSpec,
   LikePattern,
   Insertable,
+  UpdateData,
   Updatable,
   Selectable,
   Model,
+  PgBuddyClientOptions,
+  TransactionOptions,
+  CreateManyOptions,
+  UpsertOptions,
+  QueryErrorCode,
+  SqlExpression,
+  SqlFragment,
+  ComputedResult,
+  ComputedOptions,
+  ComputedMap,
 };

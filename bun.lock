@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "pgbuddy",
@@ -10,12 +9,13 @@
         "@electric-sql/pglite-socket": "^0.0.20",
         "@types/bun": "latest",
         "@types/node": "^22.10.5",
+        "postgres": "^4.1.1",
         "tsup": "^8.3.5",
         "typescript": "^5.7.2",
         "zod": "^4.0.0",
       },
       "peerDependencies": {
-        "postgres": "^3.4.5",
+        "postgres": "^3.4.5 || ^4.0.0",
         "zod": ">=4.0.0",
       },
       "optionalPeers": [
@@ -240,7 +240,7 @@
 
     "postcss-load-config": ["postcss-load-config@6.0.1", "", { "dependencies": { "lilconfig": "^3.1.1" }, "peerDependencies": { "jiti": ">=1.21.0", "postcss": ">=8.0.9", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["jiti", "postcss", "tsx", "yaml"] }, "sha512-oPtTM4oerL+UXmx+93ytZVN82RrlY/wPUV8IeDxFrzIjXOLF1pN+EmKPLbubvKHT2HC20xXsCAH2Z+CKV6Oz/g=="],
 
-    "postgres": ["postgres@3.4.5", "", {}, "sha512-cDWgoah1Gez9rN3H4165peY9qfpEo+SA61oQv65O3cRUE1pOEoJWwddwcqKE8XZYjbblOJlYDlLV4h67HrEVDg=="],
+    "postgres": ["postgres@4.1.1", "", {}, "sha512-1kJDojqNZC+iTHHXh6eif0J98LUtyLAePe/qkW1GK35eh2JixlsAiIKq3FGI+xqI+SUGTNodzf7TScVeIIyUug=="],
 
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
 

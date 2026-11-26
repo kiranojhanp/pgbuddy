@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { Errors, QueryError, type SqlOperator } from "../../src";
+import { Errors, type LikePattern, QueryError, type SqlOperator } from "../../src";
 import {
   buildSelect,
   buildWhereConditions,
@@ -212,6 +212,11 @@ describe("sql-builder utilities", () => {
     expect(getLikePattern("alpha", "contains")).toBe("%alpha%");
     expect(getLikePattern("alpha", "exact")).toBe("alpha");
     expect(getLikePattern("alpha")).toBe("alpha");
+  });
+
+  test("getLikePattern ignores inherited object properties", () => {
+    expect(getLikePattern("alpha", "constructor" as unknown as LikePattern)).toBe("alpha");
+    expect(getLikePattern("alpha", "__proto__" as unknown as LikePattern)).toBe("alpha");
   });
 
   test("createSortFragment validates direction and column", () => {

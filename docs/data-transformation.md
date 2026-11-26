@@ -71,6 +71,17 @@ const data = await sql`SELECT user_id, first_name, last_name FROM user_profiles`
 console.log(data[0]); // { userId: 1, firstName: 'John', lastName: 'Doe' }
 ```
 
+## Column mapping
+
+This is also pgbuddy's column-mapping mechanism: define schema fields in the
+transformed casing, and postgres.js maps them to the database columns on the
+way in and out. The integration test suite covers inserts, filters, updates,
+ordering, projections, aggregates, and results with `postgres.camel`.
+
+Mapping is connection-wide. pgbuddy does not currently expose per-column
+`mapWith`/`$type`-style serialization; use postgres.js custom types or raw SQL
+for those cases.
+
 ## How it fits with PgBuddy
 
 Transformation runs inside postgres.js before data reaches PgBuddy. So PgBuddy's schema should use the transformed casing — camelCase if you're using `postgres.camel` — and `where` field names need to match too.
