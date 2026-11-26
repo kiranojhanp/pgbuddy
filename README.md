@@ -1003,6 +1003,7 @@ and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 - [API reference](docs/api-reference.md)
 - [Ecommerce kitchen sink](docs/kitchen-sink.md)
 - [Examples](docs/examples.md)
+- [llms.txt](llms.txt)
 
 ---
 
