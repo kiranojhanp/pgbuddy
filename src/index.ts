@@ -57,7 +57,7 @@
  */
 
 // Export the new client
-import type { PgBuddyClientOptions, TransactionOptions } from "./client";
+import type { BatchQuery, BatchResults, PgBuddyClientOptions, TransactionOptions } from "./client";
 import { PgBuddyClient } from "./client";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
 import { GroupedQuery, JoinQuery, ProjectedQuery } from "./table";
@@ -159,6 +159,8 @@ export type {
   SortSpec,
   LikePattern,
   UpdateData,
+  BatchQuery,
+  BatchResults,
   PgBuddyClientOptions,
   TransactionOptions,
   CreateManyOptions,

@@ -264,6 +264,21 @@ await db.transaction(async (tx) => {
 const rows = await db.sql`select * from users where id = ${id}`;
 ```
 
+Run several queries atomically in one transaction with ordered tuple results:
+
+```ts
+const [created, found, count] = await db.batch([
+  (tx) => tx.table("users", UserSchema).create({ name: "Alice", email }),
+  (tx) => tx.table("users", UserSchema).where({ email }).findFirst(),
+  (tx) => tx.table("users", UserSchema).count(),
+]);
+```
+
+`batch` runs sequentially inside one transaction and rolls back everything on
+failure. It is not a single protocol round-trip; use postgres.js directly for a
+driver-level batch.
+```
+
 ## Relations
 
 ```ts
@@ -594,7 +609,9 @@ a schema toolkit or a full SQL AST.
   for direct and through relations, with an optional `where` refinement.
 - [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
   related aggregate.
-- [ ] **Prepared statements, true batch, and `toSQL()`.** These all need a
+- [x] **Sequential atomic batch API.** `db.batch([...])` runs query thunks in
+  one transaction with tuple result types.
+- [ ] **Prepared statements, true protocol batch, and `toSQL()`.** These need a
   deferred query object; postgres.js already prepares automatically, so this
   is performance/tooling work rather than a correctness gap.
 

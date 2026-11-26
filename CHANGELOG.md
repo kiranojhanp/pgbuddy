@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orderByRelated` for ordering parents by correlated relation aggregates.
 - Per-field `columnCodecs` for custom encode/decode serialization across writes,
   filters, cursors, and result rows.
+- `db.batch([...])` for sequential atomic query batches with tuple result types.
 - Per-table/client `columnMap` for schema field → database column mapping
   across reads, writes, filters, ordering, aggregates, cursors, and grouping.
 - Many-to-many/through relations with junction tables, filtering, and counts.

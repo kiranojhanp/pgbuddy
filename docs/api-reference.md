@@ -59,6 +59,26 @@ await db.transaction(async (tx) => {
 });
 ```
 
+### batch(queries, options?)
+
+```typescript
+batch<Q extends readonly BatchQuery[]>(
+  queries: Q,
+  options?: TransactionOptions
+): Promise<BatchResults<Q>>
+```
+
+Runs query thunks sequentially inside one transaction and returns their results
+in order. The transaction rolls back if any thunk throws. This is atomic but not
+a single protocol round-trip.
+
+```typescript
+const [created, count] = await db.batch([
+  (tx) => tx.table("users", UserSchema).create(data),
+  (tx) => tx.table("users", UserSchema).count(),
+]);
+```
+
 ### Security: write payloads
 
 `create`, `createMany` and `update` insert or update **every key** in the

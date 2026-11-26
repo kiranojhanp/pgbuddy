@@ -115,6 +115,15 @@ function assertUniqueOption(unique: readonly (readonly string[])[] | undefined):
   }
 }
 
+export type BatchQuery = (tx: PgBuddyClient) => Promise<unknown>;
+
+export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
+  infer Head extends BatchQuery,
+  ...infer Tail extends readonly BatchQuery[],
+]
+  ? [Awaited<ReturnType<Head>>, ...BatchResults<Tail>]
+  : [];
+
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
  * This is the primary entry point for the PgBuddy library.
@@ -269,6 +278,28 @@ export class PgBuddyClient {
     return mode
       ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
       : await start.call(this.sql, (txSql) => fn(run(txSql)));
+  }
+
+  /**
+   * Run several query thunks sequentially inside one transaction. Results are
+   * returned in order. This is atomic, but it is not a single protocol
+   * round-trip; use postgres.js directly if you need a driver-level batch.
+   */
+  async batch<Q extends readonly BatchQuery[]>(
+    queries: Q,
+    options?: TransactionOptions
+  ): Promise<BatchResults<Q>> {
+    if (!Array.isArray(queries) || queries.some((query) => typeof query !== "function")) {
+      throw new TableError("batch requires an array of query functions");
+    }
+
+    return this.transaction(async (tx) => {
+      const results: unknown[] = [];
+      for (const query of queries) {
+        results.push(await query(tx));
+      }
+      return results;
+    }, options) as Promise<BatchResults<Q>>;
   }
 
   /**
