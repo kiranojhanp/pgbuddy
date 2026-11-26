@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import { z } from "zod";
-import { PgBuddyClient } from "../../src";
+import { PgBuddyClient, QueryError } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 const UserSchema = z.object({
@@ -63,5 +63,40 @@ describe("findManyAndCount", () => {
 
     expect(rows).toEqual([]);
     expect(total).toBe(5);
+  });
+
+  test("returns a next cursor and continues with keyset pagination", async () => {
+    const users = db
+      .table("users", UserSchema)
+      .orderBy([{ column: "id", direction: "ASC" }]);
+
+    const first = await users.take(2).findManyInfinite();
+    expect(first.rows.map((row) => row.id)).toEqual([1, 2]);
+    expect(first.nextCursor).toEqual({ id: 2 });
+    expect(first.hasMore).toBe(true);
+
+    const second = await users
+      .cursor(first.nextCursor as { id: number })
+      .take(2)
+      .findManyInfinite();
+    expect(second.rows.map((row) => row.id)).toEqual([3, 4]);
+    expect(second.nextCursor).toEqual({ id: 4 });
+    expect(second.hasMore).toBe(true);
+
+    const last = await users
+      .cursor(second.nextCursor as { id: number })
+      .take(2)
+      .findManyInfinite();
+    expect(last.rows.map((row) => row.id)).toEqual([5]);
+    expect(last.nextCursor).toBeNull();
+    expect(last.hasMore).toBe(false);
+  });
+
+  test("requires orderBy and take for infinite pages", async () => {
+    const users = db.table("users", UserSchema);
+    await expect(users.take(2).findManyInfinite()).rejects.toBeInstanceOf(QueryError);
+    await expect(
+      users.orderBy([{ column: "id", direction: "ASC" }]).findManyInfinite()
+    ).rejects.toBeInstanceOf(QueryError);
   });
 });
