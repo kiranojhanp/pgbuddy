@@ -11,6 +11,7 @@ import {
   type ValidatorAdapter,
   zodValidator,
 } from "./adapter";
+import { type DeferredQuery, isDeferredQuery } from "./deferred";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
 import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
@@ -144,12 +145,20 @@ export type BatchSQLResults<Q extends readonly BatchSQLStatement[]> = {
   -readonly [K in keyof Q]: Row[];
 };
 
-export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
-  infer Head extends BatchQuery,
-  ...infer Tail extends readonly BatchQuery[],
-]
-  ? [Head extends PendingQuery<infer R> ? NonNullable<Awaited<R>> : never, ...BatchResults<Tail>]
-  : [];
+export type BatchResults<Q extends readonly (BatchQuery | DeferredQuery<unknown>)[]> =
+  Q extends readonly [
+    infer Head extends BatchQuery | DeferredQuery<unknown>,
+    ...infer Tail extends readonly (BatchQuery | DeferredQuery<unknown>)[],
+  ]
+    ? [
+        Head extends DeferredQuery<infer R>
+          ? Awaited<R>
+          : Head extends PendingQuery<infer R>
+            ? NonNullable<Awaited<R>>
+            : never,
+        ...BatchResults<Tail>,
+      ]
+    : [];
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -393,6 +402,12 @@ export class PgBuddyClient {
    * round trip. Pass pending queries directly or return them from a
    * transaction-like synchronous callback.
    */
+  // biome-ignore lint/suspicious/noExplicitAny: accepts deferred queries of any row shape
+  batch<Q extends readonly DeferredQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+  // biome-ignore lint/suspicious/noExplicitAny: accepts deferred queries of any row shape
+  batch<Q extends readonly DeferredQuery<any>[]>(
+    build: (tx: PgBuddyClient) => [...Q]
+  ): Promise<BatchResults<Q>>;
   // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
   batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
   // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
@@ -407,6 +422,11 @@ export class PgBuddyClient {
       throw new TableError("batch callback must return an array of pending postgres.js queries");
     }
     if (queries.length === 0) return [];
+    if (queries.every(isDeferredQuery)) {
+      const pending = queries.map((query) => query.pending());
+      const results = await this.sql.batch(pending as never);
+      return Promise.all(queries.map((query, index) => query.resolve(results[index])));
+    }
     return this.sql.batch(queries as never);
   }
 

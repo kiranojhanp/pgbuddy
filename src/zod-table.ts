@@ -1,5 +1,6 @@
 import type { Row, Sql } from "postgres";
 import type { input as ZodInput, ZodIssue, ZodObject, output as ZodOutput, ZodRawShape } from "zod";
+import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
 import {
   getPredicateNode,
@@ -1718,17 +1719,19 @@ export class ZodTable<
     return this.table.prepare();
   }
 
-  async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+  findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
-  ): Promise<
+  ): DeferredQuery<
     Array<WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>>
   > {
     const prepared = this.prepareQuery();
-    const rows = (await prepared.table.findMany(options)) as Array<Record<string, unknown>>;
-    const enriched = await this.finalize(rows, prepared.stripKeys);
-    return enriched as unknown as Array<
-      WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
-    >;
+    return deferredQuery(
+      () => prepared.table.findMany(options).pending(),
+      async (rows) =>
+        (await this.finalize(rows as Array<Record<string, unknown>>, prepared.stripKeys)) as Array<
+          WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+        >
+    );
   }
 
   async findManyAndCount<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
@@ -1847,7 +1850,7 @@ export class ZodTable<
     return row;
   }
 
-  async count(): Promise<number> {
+  count(): DeferredQuery<number> {
     return this.table.count();
   }
 

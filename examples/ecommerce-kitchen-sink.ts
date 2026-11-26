@@ -433,9 +433,9 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
   });
 
   // --- True batch + streaming ---------------------------------------------
-  const [batchOrders, batchCount] = await db.batch((tx) => [
-    tx.sql`SELECT id, status FROM orders ORDER BY id`,
-    tx.sql`SELECT count(*)::int AS count FROM orders`,
+  const [batchOrders, batchCount] = await db.batch([
+    orders.orderBy([{ column: "id", direction: "ASC" }]).findMany(),
+    orders.count(),
   ]);
 
   const streamedUsers: User[] = [];

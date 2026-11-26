@@ -87,14 +87,14 @@ batch<Q extends readonly PendingQuery<any>[]>(
 ): Promise<BatchResults<Q>>;
 ```
 
-Runs pending postgres.js queries through `sql.batch`: one round trip and one
-implicit transaction. The callback must be synchronous and return pending
-queries.
+Runs pending postgres.js queries or deferred pgbuddy terminals through
+`sql.batch`: one round trip and one implicit transaction. The callback must be
+synchronous and return pending/deferred queries.
 
 ```typescript
-const [updated, count] = await db.batch((tx) => [
-  tx.sql`update users set status = ${status} where id = ${id}`,
-  tx.sql`select count(*)::int as count from users`,
+const [rows, count] = await db.batch([
+  users.where({ status: "active" }).findMany(),
+  users.where({ status: "active" }).count(),
 ]);
 ```
 

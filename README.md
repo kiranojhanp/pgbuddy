@@ -327,15 +327,23 @@ const prepared = await findUser([id]);
 ```
 
 `db.batch` is always one postgres.js batch: one round trip, one implicit
-transaction. Pass pending queries directly, or return them synchronously from a
-callback:
+transaction. Pass pending queries directly, typed deferred builders, or return
+them synchronously from a callback:
 
 ```ts
-const [updated, count] = await db.batch((tx) => [
+const [rows, count] = await db.batch([
+  users.where({ status: "active" }).findMany(),
+  users.where({ status: "active" }).count(),
+]);
+
+const [updated, total] = await db.batch((tx) => [
   tx.sql`update users set status = ${status} where id = ${id}`,
   tx.sql`select count(*)::int as count from users`,
 ]);
 ```
+
+`findMany()` and `count()` are lazy promises: they execute immediately when
+awaited, but `db.batch` can collect them into one round trip.
 
 Use `db.transaction(async (tx) => ...)` when you need sequential statements that
 depend on earlier results.

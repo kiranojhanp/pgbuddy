@@ -1,4 +1,5 @@
 import type { Row, Sql } from "postgres";
+import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError } from "./errors";
 import { gt, isPredicate, lt, rawPredicate, type WhereInput } from "./predicates";
 import type {
@@ -1397,12 +1398,20 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    *   .findMany();
    * ```
    */
-  async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+  findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
-  ): Promise<Array<SelectFields<T, K>[0] & ComputedResult<X>>> {
-    return this.executeSelect(options?.computed) as Promise<
-      Array<SelectFields<T, K>[0] & ComputedResult<X>>
-    >;
+  ): DeferredQuery<Array<SelectFields<T, K>[0] & ComputedResult<X>>> {
+    return deferredQuery(
+      () => {
+        const query = this.buildSelectQuery(options?.computed);
+        if (this.signalValue) query.signal(this.signalValue);
+        return query;
+      },
+      (rows) =>
+        this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+          SelectFields<T, K>[0] & ComputedResult<X>
+        >
+    );
   }
 
   /**
@@ -1784,14 +1793,16 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     };
   }
 
-  async count(): Promise<number> {
-    const result = await this.sql<[{ count: string }]>`
+  count(): DeferredQuery<number> {
+    return deferredQuery(
+      () =>
+        this.sql<[{ count: string }]>`
             SELECT COUNT(*) as count
             FROM ${this.sql(this.tableName)}
             ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
-        `;
-
-    return parseInt(result[0]?.count ?? "0", 10);
+        `,
+      (rows) => parseInt((rows as Array<{ count: string }>)[0]?.count ?? "0", 10)
+    );
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { Row } from "postgres";
 import { type ZodObject, type ZodRawShape, z } from "zod";
+import type { DeferredQuery } from "./deferred";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
 import type {
@@ -419,8 +420,8 @@ export class ValidatedTable<
     return this.wrap(this.table.cursor(value));
   }
 
-  findMany(): Promise<Array<T>> {
-    return this.table.findMany() as Promise<Array<T>>;
+  findMany(): DeferredQuery<Array<T>> {
+    return this.table.findMany() as DeferredQuery<Array<T>>;
   }
 
   async findManyAndCount(
@@ -463,7 +464,7 @@ export class ValidatedTable<
     return this.table.findUniqueOrThrow() as Promise<T>;
   }
 
-  count(): Promise<number> {
+  count(): DeferredQuery<number> {
     return this.table.count();
   }
 

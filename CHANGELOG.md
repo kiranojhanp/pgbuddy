@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expression-based grouping via `groupByExpr({ alias: sqlExpr(...) })`.
 - SELECT cancellation via `signal()` and batched streaming via `stream()`.
 - `findManyAndCount()` for page rows plus filtered total in one batch.
+- Lazy `findMany()` / `count()` terminals that `db.batch()` can combine into
+  one round trip.
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
 - Optional `maxSkip` pagination guard and `stream()` batch-size cap.
 - Runtime validation of transaction isolation modes and flags.
