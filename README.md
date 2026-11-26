@@ -509,7 +509,8 @@ a schema toolkit or a full SQL AST.
 - [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
   loader now lives in `src/relations.ts`.
 - [ ] **Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.**
-  Quick operational win; PGlite cannot catch every server-version difference.
+  The full suite has been run locally against PostgreSQL 18 on both
+  postgres.js majors; the CI service job itself is still pending.
 
 ### P1 — high value, moderate effort
 
