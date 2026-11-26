@@ -297,6 +297,18 @@ function normalizeRelationKeys(value: unknown, context: string): string[] {
   });
 }
 
+/** Junction-table configuration for a many-to-many relation. */
+export type ZodThroughConfig = {
+  /** Junction table name. */
+  table: string;
+  /** Junction column(s) that reference the parent `localKey`. */
+  parentKey: string | readonly string[];
+  /** Junction column(s) that reference the related `targetKey`. */
+  relatedKey: string | readonly string[];
+  /** Related-table column(s) being referenced. Defaults to `"id"`. */
+  targetKey?: string | readonly string[];
+};
+
 /** A relation declared in the table's `relations` option. */
 export type ZodRelationConfig = {
   /** Table name of the related records. */
@@ -304,7 +316,9 @@ export type ZodRelationConfig = {
   /** Column(s) on this table used to look up related rows. */
   localKey: string | readonly string[];
   /** Column(s) on the related table that reference `localKey`. */
-  foreignKey: string | readonly string[];
+  foreignKey?: string | readonly string[];
+  /** Many-to-many junction configuration. Mutually exclusive with `foreignKey`. */
+  through?: ZodThroughConfig;
   /** "one" returns a record or null; "many" returns an array. */
   relation: "one" | "many";
   /** Zod schema for the related rows (also determines default selected columns). */
@@ -313,10 +327,18 @@ export type ZodRelationConfig = {
 
 export type ZodRelations = Record<string, ZodRelationConfig>;
 
+type NormalizedThrough = {
+  table: string;
+  parentKeys: readonly string[];
+  relatedKeys: readonly string[];
+  targetKeys: readonly string[];
+};
+
 type NormalizedRelation = {
   config: ZodRelationConfig;
   localKeys: readonly string[];
   foreignKeys: readonly string[];
+  through?: NormalizedThrough;
 };
 
 type RelationRow<C extends ZodRelationConfig> = ZodOutput<C["schema"]>;
@@ -443,26 +465,10 @@ function normalizeRelation<S extends ZodSchema>(
   }
 
   const localKeys = normalizeRelationKeys(raw.localKey, `${context}: "localKey"`);
-  const foreignKeys = normalizeRelationKeys(raw.foreignKey, `${context}: "foreignKey"`);
-
-  if (localKeys.length !== foreignKeys.length) {
-    throw new TableError(
-      `${context}: "localKey" and "foreignKey" must have the same number of columns`
-    );
-  }
 
   if (new Set(localKeys).size !== localKeys.length) {
     throw new TableError(`${context}: "localKey" must not contain duplicate columns`);
   }
-
-  if (new Set(foreignKeys).size !== foreignKeys.length) {
-    throw new TableError(`${context}: "foreignKey" must not contain duplicate columns`);
-  }
-
-  if (!isZodSchemaLike(raw.schema)) {
-    throw new TableError(`${context}: "schema" must be a Zod object schema`);
-  }
-  const relatedSchema = raw.schema;
 
   const parentShape = getShape(parentSchema);
   for (const key of localKeys) {
@@ -473,7 +479,120 @@ function normalizeRelation<S extends ZodSchema>(
     }
   }
 
+  if (!isZodSchemaLike(raw.schema)) {
+    throw new TableError(`${context}: "schema" must be a Zod object schema`);
+  }
+  const relatedSchema = raw.schema;
   const relatedShape = relatedSchema.shape as unknown as ZodShape;
+
+  if (raw.through !== undefined) {
+    if (raw.foreignKey !== undefined) {
+      throw new TableError(`${context}: use either "through" or "foreignKey", not both`);
+    }
+    if (relation !== "many") {
+      throw new TableError(`${context}: "through" relations must use relation: "many"`);
+    }
+    if (!isPlainObject(raw.through)) {
+      throw new TableError(`${context}: "through" must be an object`);
+    }
+
+    const throughTable = raw.through.table;
+    if (!isNonEmptyString(throughTable)) {
+      throw new TableError(`${context}: "through.table" must be a non-empty string`);
+    }
+
+    const throughTableName = throughTable.trim();
+    const validThroughTable = nameOptions.strictNames
+      ? isValidIdentifier(throughTableName, { allowSchema: nameOptions.allowSchema })
+      : isValidName(throughTableName) &&
+        (nameOptions.allowSchema || !throughTableName.includes("."));
+
+    if (!validThroughTable) {
+      throw new TableError(
+        `${context}: invalid junction table name ${JSON.stringify(throughTableName)}`
+      );
+    }
+
+    const parentKeys = normalizeRelationKeys(
+      raw.through.parentKey,
+      `${context}: "through.parentKey"`
+    );
+    const relatedKeys = normalizeRelationKeys(
+      raw.through.relatedKey,
+      `${context}: "through.relatedKey"`
+    );
+    const targetKeys = normalizeRelationKeys(
+      raw.through.targetKey ?? "id",
+      `${context}: "through.targetKey"`
+    );
+
+    if (parentKeys.length !== localKeys.length) {
+      throw new TableError(
+        `${context}: "localKey" and "through.parentKey" must have the same number of columns`
+      );
+    }
+    if (relatedKeys.length !== targetKeys.length) {
+      throw new TableError(
+        `${context}: "through.relatedKey" and "through.targetKey" must have the same number of columns`
+      );
+    }
+    if (new Set(parentKeys).size !== parentKeys.length) {
+      throw new TableError(`${context}: "through.parentKey" must not contain duplicate columns`);
+    }
+    if (new Set(relatedKeys).size !== relatedKeys.length) {
+      throw new TableError(`${context}: "through.relatedKey" must not contain duplicate columns`);
+    }
+    if (new Set(targetKeys).size !== targetKeys.length) {
+      throw new TableError(`${context}: "through.targetKey" must not contain duplicate columns`);
+    }
+    for (const key of targetKeys) {
+      if (!Object.hasOwn(relatedShape, key)) {
+        throw new TableError(
+          `${context}: related schema has no column ${JSON.stringify(key)} for "through.targetKey"`
+        );
+      }
+    }
+
+    const through: NormalizedThrough = {
+      table: throughTableName,
+      parentKeys,
+      relatedKeys,
+      targetKeys,
+    };
+    const config: ZodRelationConfig = {
+      table: tableName,
+      localKey: Array.isArray(raw.localKey) ? [...localKeys] : (localKeys[0] as string),
+      relation,
+      schema: relatedSchema,
+      through: {
+        table: throughTableName,
+        parentKey: Array.isArray(raw.through.parentKey)
+          ? [...parentKeys]
+          : (parentKeys[0] as string),
+        relatedKey: Array.isArray(raw.through.relatedKey)
+          ? [...relatedKeys]
+          : (relatedKeys[0] as string),
+        targetKey: Array.isArray(raw.through.targetKey)
+          ? [...targetKeys]
+          : (targetKeys[0] as string),
+      },
+    };
+
+    return { config, localKeys, foreignKeys: [], through };
+  }
+
+  const foreignKeys = normalizeRelationKeys(raw.foreignKey, `${context}: "foreignKey"`);
+
+  if (localKeys.length !== foreignKeys.length) {
+    throw new TableError(
+      `${context}: "localKey" and "foreignKey" must have the same number of columns`
+    );
+  }
+
+  if (new Set(foreignKeys).size !== foreignKeys.length) {
+    throw new TableError(`${context}: "foreignKey" must not contain duplicate columns`);
+  }
+
   for (const key of foreignKeys) {
     if (!Object.hasOwn(relatedShape, key)) {
       throw new TableError(
@@ -692,6 +811,40 @@ export type RelationOptions<
   take?: number;
   select?: K;
 };
+
+function compareSortValues(a: unknown, b: unknown): number {
+  if (a === b) return 0;
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  if (typeof a === "string" && typeof b === "string") return a < b ? -1 : 1;
+  return String(a) < String(b) ? -1 : 1;
+}
+
+function sortRelationRows(
+  rows: Array<Record<string, unknown>>,
+  orderBy: readonly SortSpec<Row>[] | undefined
+): Array<Record<string, unknown>> {
+  if (!orderBy?.length) return rows;
+
+  return rows.sort((left, right) => {
+    for (const spec of orderBy) {
+      const a = left[spec.column as string];
+      const b = right[spec.column as string];
+
+      if (a === null || a === undefined || b === null || b === undefined) {
+        if (a === b) continue;
+        const nulls = spec.nulls ?? (spec.direction === "ASC" ? "last" : "first");
+        const aNull = a === null || a === undefined;
+        return aNull === (nulls === "first") ? -1 : 1;
+      }
+
+      const compared = compareSortValues(a, b);
+      if (compared !== 0) return spec.direction === "ASC" ? compared : -compared;
+    }
+
+    return 0;
+  });
+}
 
 function serializeKey(values: readonly unknown[]): string | null {
   const parts: string[] = [];
@@ -1023,15 +1176,22 @@ export class ZodTable<
       throw new QueryError("Relation filter must return the relation builder");
     }
 
-    return this.wrap(
-      this.table.whereRaw(this.buildEveryFragment(relation, filter.getRefinement()))
-    );
+    const refinement = filter.getRefinement();
+    if (!refinement.whereInputs?.length) {
+      return this;
+    }
+
+    return this.wrap(this.table.whereRaw(this.buildEveryFragment(relation, refinement)));
   }
 
   private buildEveryFragment(
     relation: NormalizedRelation,
     refinement: RelationRefinement
   ): SqlFragment {
+    if (relation.through) {
+      return this.buildThroughExists(relation, refinement, true, true);
+    }
+
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
     const link = buildKeyLink(sql, parentTable, relation);
@@ -1048,11 +1208,62 @@ export class ZodTable<
     return sql`NOT EXISTS (SELECT 1 FROM ${sql(relation.config.table)} ${where})`;
   }
 
+  private buildThroughExists(
+    relation: NormalizedRelation,
+    refinement: RelationRefinement | undefined,
+    negate: boolean,
+    negateRefinement: boolean
+  ): SqlFragment {
+    const through = relation.through;
+    if (!through) throw new QueryError("Invalid relation configuration");
+
+    const sql = this.table.getSql();
+    const parentTable = getParentTableName(this.table);
+    const junction = sql("__pgbuddy_through");
+
+    const link = relation.localKeys.reduce((acc, localKey, index) => {
+      const junctionKey = through.parentKeys[index];
+      if (!junctionKey) throw new QueryError("Invalid relation configuration");
+
+      const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${junction}.${sql(junctionKey)}`;
+      return index === 0 ? condition : sql`${acc} AND ${condition}`;
+    }, sql``);
+
+    const tuple = (keys: readonly string[], qualifier?: string): SqlFragment => {
+      const columns = keys.map((key) =>
+        qualifier ? sql`${sql(qualifier)}.${sql(key)}` : sql`${sql(key)}`
+      );
+      if (columns.length === 1) return columns[0] as SqlFragment;
+      return sql`(${columns.reduce((acc, column, index) => (index === 0 ? column : sql`${acc}, ${column}`), sql``)})`;
+    };
+
+    const targetWhere = buildWhereExpression(
+      sql,
+      (refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]
+    );
+    const targetFilter = targetWhere
+      ? sql`WHERE ${negateRefinement ? sql`NOT (${targetWhere})` : targetWhere}`
+      : sql``;
+    const targetQuery = sql`SELECT ${tuple(through.targetKeys)} FROM ${sql(relation.config.table)} ${targetFilter}`;
+    const junctionTarget = tuple(through.relatedKeys, "__pgbuddy_through");
+
+    const exists = sql`EXISTS (
+      SELECT 1 FROM ${sql(through.table)} AS ${junction}
+      WHERE ${link} AND ${junctionTarget} IN (${targetQuery})
+    )`;
+
+    return negate ? sql`NOT ${exists}` : exists;
+  }
+
   private buildExistsFragment(
     relation: NormalizedRelation,
     refinement: RelationRefinement | undefined,
     negate: boolean
   ): SqlFragment {
+    if (relation.through) {
+      return this.buildThroughExists(relation, refinement, negate, false);
+    }
+
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
     const link = buildKeyLink(sql, parentTable, relation);
@@ -1166,23 +1377,42 @@ export class ZodTable<
         continue;
       }
 
-      const children = await this.fetchRelated(
-        relation,
-        include.refinement,
-        [...uniqueKeys.values()],
-        requested.queryFields
-      );
-
       const buckets = new Map<string, Array<Record<string, unknown>>>();
-      for (const child of children) {
-        const serialized = serializeKey(relation.foreignKeys.map((key) => child[key]));
-        if (!serialized) continue;
 
-        const bucket = buckets.get(serialized);
-        if (bucket) {
-          bucket.push(child);
-        } else {
-          buckets.set(serialized, [child]);
+      if (relation.through) {
+        const entries = await this.fetchThroughRelated(
+          relation,
+          include.refinement,
+          [...uniqueKeys.values()],
+          requested.queryFields
+        );
+
+        for (const entry of entries) {
+          const bucket = buckets.get(entry.parentSerialized);
+          if (bucket) {
+            bucket.push(entry.child);
+          } else {
+            buckets.set(entry.parentSerialized, [entry.child]);
+          }
+        }
+      } else {
+        const children = await this.fetchRelated(
+          relation,
+          include.refinement,
+          [...uniqueKeys.values()],
+          requested.queryFields
+        );
+
+        for (const child of children) {
+          const serialized = serializeKey(relation.foreignKeys.map((key) => child[key]));
+          if (!serialized) continue;
+
+          const bucket = buckets.get(serialized);
+          if (bucket) {
+            bucket.push(child);
+          } else {
+            buckets.set(serialized, [child]);
+          }
         }
       }
 
@@ -1243,6 +1473,81 @@ export class ZodTable<
 
       return { serialized: serializeKey(values), values };
     });
+  }
+
+  private async fetchThroughRelated(
+    relation: NormalizedRelation,
+    refinement: RelationRefinement | undefined,
+    keys: readonly (readonly unknown[])[],
+    queryFields: readonly string[]
+  ): Promise<Array<{ parentSerialized: string; child: Record<string, unknown> }>> {
+    const through = relation.through;
+    if (!through) return [];
+
+    const sql = this.table.getSql();
+    const parentFilter = buildKeyFilter(sql, through.parentKeys, keys);
+    const junctionFields = [...through.parentKeys, ...through.relatedKeys];
+
+    const junctionRows = await sql<Record<string, unknown>[]>`
+      SELECT ${sql(junctionFields)}
+      FROM ${sql(through.table)}
+      ${buildWhereInputs(sql, [rawPredicate<Row>(parentFilter)])}
+    `;
+
+    if (junctionRows.length === 0) return [];
+
+    const relatedKeys = new Map<string, readonly unknown[]>();
+    for (const row of junctionRows) {
+      const values = through.relatedKeys.map((key) => row[key]);
+      const serialized = serializeKey(values);
+      if (serialized && !relatedKeys.has(serialized)) {
+        relatedKeys.set(serialized, values);
+      }
+    }
+
+    if (relatedKeys.size === 0) return [];
+
+    const fields = [...new Set([...queryFields, ...through.targetKeys])];
+    const relatedRows = await sql<Record<string, unknown>[]>`
+      SELECT ${sql(fields)}
+      FROM ${sql(relation.config.table)}
+      ${buildWhereInputs(sql, [
+        rawPredicate<Row>(buildKeyFilter(sql, through.targetKeys, [...relatedKeys.values()])),
+        ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
+      ])}
+    `;
+
+    const children = new Map<string, Record<string, unknown>>();
+    for (const row of relatedRows) {
+      const serialized = serializeKey(through.targetKeys.map((key) => row[key]));
+      if (serialized) children.set(serialized, row);
+    }
+
+    const perParent = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of junctionRows) {
+      const parentSerialized = serializeKey(through.parentKeys.map((key) => row[key]));
+      const relatedSerialized = serializeKey(through.relatedKeys.map((key) => row[key]));
+      if (!parentSerialized || !relatedSerialized) continue;
+
+      const child = children.get(relatedSerialized);
+      if (!child) continue;
+
+      const bucket = perParent.get(parentSerialized);
+      if (bucket) {
+        bucket.push(child);
+      } else {
+        perParent.set(parentSerialized, [child]);
+      }
+    }
+
+    const entries: Array<{ parentSerialized: string; child: Record<string, unknown> }> = [];
+    for (const [parentSerialized, bucket] of perParent) {
+      const sorted = sortRelationRows(bucket, refinement?.orderBy);
+      const limited = refinement?.take !== undefined ? sorted.slice(0, refinement.take) : sorted;
+      for (const child of limited) entries.push({ parentSerialized, child });
+    }
+
+    return entries;
   }
 
   private async fetchRelated(
@@ -1316,6 +1621,22 @@ export class ZodTable<
     keys: readonly (readonly unknown[])[],
     refinement?: readonly WhereInput<Row>[]
   ): Promise<Map<string, number>> {
+    if (relation.through) {
+      const entries = await this.fetchThroughRelated(
+        relation,
+        { whereInputs: refinement },
+        keys,
+        relation.through.targetKeys
+      );
+      const counts = new Map<string, number>();
+
+      for (const entry of entries) {
+        counts.set(entry.parentSerialized, (counts.get(entry.parentSerialized) ?? 0) + 1);
+      }
+
+      return counts;
+    }
+
     const sql = this.table.getSql();
 
     for (const foreignKey of relation.foreignKeys) {

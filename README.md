@@ -298,8 +298,34 @@ const rows = await users
 Includes are read-only and supported on `find*` methods. Refinements can be
 declarative (`{ where, orderBy, take, select }`) or a callback.
 `withCount` accepts the same refinement, and `whereRelated` / `whereMissing` /
-`whereEvery` filter parents by related rows. Use `db.sql` for nested includes,
-many-to-many relations, and relation writes.
+`whereEvery` filter parents by related rows.
+
+Many-to-many relations use a junction table:
+
+```ts
+const posts = db.table("posts", PostSchema, {
+  relations: {
+    tags: {
+      table: "tags",
+      schema: TagSchema,
+      localKey: "id",
+      relation: "many",
+      through: {
+        table: "post_tags",
+        parentKey: "post_id",
+        relatedKey: "tag_id",
+        targetKey: "id",
+      },
+    },
+  },
+});
+
+const tagged = await posts.include("tags").withCount("tags").findMany();
+```
+
+Through relations support the same `include` refinement, `withCount`, and
+`whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
+Use `db.sql` for nested includes and relation writes.
 
 ## Counts and aggregates
 
@@ -445,9 +471,10 @@ a schema toolkit or a full SQL AST.
 
 - [x] **Join v2: multiple joins, aliases, and self-joins.** Implemented with
   chained narrow joins and schema-aware `ZodJoinQuery`.
-- [ ] **Relation graph: many-to-many/through tables and nested includes.**
-  The relation API is still one-hop. These two should be designed together
-  because both need recursive relation metadata and tree-shaped results.
+- [x] **Many-to-many/through relations.** Junction tables are declared with
+  `through` and support includes, counts, and relation filters.
+- [ ] **Nested includes** (`posts.comments`). This still needs recursive
+  relation metadata and tree-shaped result types.
 - [ ] **Split the relation runtime out of `src/zod-table.ts`.** Do this with the
   relation-graph work; that file is already ~1,700 lines and carries seven
   generics.
@@ -486,11 +513,10 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Many-to-many + nested includes** — closes the relation ceiling.
-2. **Per-column mapping** — unblocks production schemas with mixed naming or
+1. **Nested includes** — the remaining relation-graph feature.
+2. **Split the relation runtime** while touching the relation loader.
+3. **Per-column mapping** — unblocks production schemas with mixed naming or
    custom types.
-3. **Relation ordering and per-relation aggregates** — rounds out the relation
-   API before moving to lifecycle work.
 
 ## Compatibility
 

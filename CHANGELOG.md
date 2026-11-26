@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryError.code = "NO_ROWS"`.
 
 ### Added
+- Many-to-many/through relations with junction tables, filtering, and counts.
 - Chained narrow joins with table aliases and self-joins; schema-aware
   `ZodJoinQuery` supports multiple `innerJoin`/`leftJoin` calls and nested
   right-side rows.

@@ -154,6 +154,9 @@ const rows = await users
   `NOT EXISTS (... WHERE NOT (refinement))`. `whereEvery("posts")` without a
   refinement is a no-op (vacuously true).
 - `localKey`/`foreignKey` accept arrays for composite keys.
+- Many-to-many relations use `through: { table, parentKey, relatedKey, targetKey? }`
+  instead of `foreignKey`. Through relations support includes, counts, and
+  `whereRelated`/`whereMissing`/`whereEvery`.
 - The parent key is selected automatically and stripped if it was not
   requested.
 - Relation table names are validated with the table's `strictNames` /
