@@ -206,8 +206,9 @@ Output/input types are inferred from the schema.
 
 Adapter tables support core CRUD, joins, aggregates, grouped queries, computed
 projections, `omit`, and `prepare`. `options.adapterRelations` declares
-field-list relations; child rows are typed `Record<string, unknown>`. Relations
-and schema-derived projections remain Zod-only.
+field-list relations; child-row keys are inferred from `fields` (use `as const`)
+with `unknown` values. Relations and schema-derived projections remain
+Zod-only.
 
 ---
 

@@ -406,7 +406,7 @@ export class PgBuddyClient {
   private buildAdapterTable<
     T extends Row,
     I extends Row = T,
-    AR extends AdapterRelations = Record<string, never>,
+    const AR extends AdapterRelations = Record<string, never>,
   >(
     tableName: string,
     adapter: ValidationAdapter<T, I>,
@@ -505,7 +505,7 @@ export class PgBuddyClient {
     schema: S,
     options?: PgBuddyClientOptions
   ): ZodTable<S>;
-  table<S, AR extends AdapterRelations = Record<string, never>>(
+  table<S, const AR extends AdapterRelations = Record<string, never>>(
     tableName: string,
     schema: S,
     options?: PgBuddyClientOptions & { adapterRelations?: AR }

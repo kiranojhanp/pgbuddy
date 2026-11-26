@@ -111,16 +111,16 @@ Adapter tables support core CRUD and query chaining, including
 `where`/`orderBy`/`select`/`cursor`, writes, counts, `toSQL`, joins, aggregates,
 grouped queries, computed projections, and `omit`.
 
-Adapter tables can also declare relations with field lists. Child rows are
-typed as `Record<string, unknown>` because adapters expose field names, not
-schemas:
+Adapter tables can also declare relations with field lists. Child-row keys are
+inferred from the field list; declare it `as const` for literal keys. Values are
+`unknown` because adapters expose field names, not schemas:
 
 ```ts
 const users = db.table("users", UserSchema, {
   adapterRelations: {
     posts: {
       table: "posts",
-      fields: ["id", "user_id", "title"],
+      fields: ["id", "user_id", "title"] as const,
       localKey: "id",
       foreignKey: "user_id",
       relation: "many",
@@ -132,8 +132,8 @@ const rows = await users.include("posts").withCount("posts").findMany();
 ```
 
 Nested and through configs use the same shape as Zod relations; `columnMap` and
-`columnCodecs` are honored. Schema-derived projections and Zod's typed relation
-selection remain Zod-only.
+`columnCodecs` are honored. Schema-derived projections and Zod's value-level
+relation types remain Zod-only.
 
 ## Filtering
 
@@ -752,13 +752,11 @@ a schema toolkit or a full SQL AST.
 - Relation writes (`connect`/`create`/`update` graphs).
 - Multi-dialect support (Postgres-only by design).
 
-### Recommended next three
+### Recommended next
 
-1. **Adapter relation typing** — adapter relations are runtime-supported but
-   child rows are untyped.
-2. **Through adapter relation coverage** — nested adapter relations are tested;
-   through configs use the same runtime but need explicit coverage.
-3. **Query cancellation and streaming** — currently raw postgres.js only.
+P2 is complete. Remaining work is P3/out of scope: CTEs, set operations, typed
+window functions, schema metadata, migrations/introspection, relation writes,
+and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 
 ## Compatibility
 

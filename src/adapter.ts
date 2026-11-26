@@ -142,9 +142,9 @@ function parseOrThrow<T>(result: ValidationResult<T>, context: string): T {
   return result.data;
 }
 
-export type AdapterRelationConfig = {
+export type AdapterRelationConfig<F extends readonly string[] = readonly string[]> = {
   table: string;
-  fields: readonly string[];
+  fields: F;
   localKey: string | readonly string[];
   foreignKey?: string | readonly string[];
   relation: "one" | "many";
@@ -161,9 +161,14 @@ export type AdapterRelationConfig = {
 
 export type AdapterRelations = Record<string, AdapterRelationConfig>;
 
+export type AdapterRelationRow<C extends AdapterRelationConfig> =
+  C extends AdapterRelationConfig<infer F>
+    ? { [K in F[number]]: unknown }
+    : Record<string, unknown>;
+
 export type AdapterRelationValue<C extends AdapterRelationConfig> = C["relation"] extends "one"
-  ? Record<string, unknown> | null
-  : Array<Record<string, unknown>>;
+  ? AdapterRelationRow<C> | null
+  : Array<AdapterRelationRow<C>>;
 
 export type AdapterRelationFields<R extends AdapterRelations, Inc extends keyof R> = {
   [N in Inc]: AdapterRelationValue<R[N]>;

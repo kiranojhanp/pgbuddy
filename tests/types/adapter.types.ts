@@ -33,7 +33,7 @@ async function check() {
     adapterRelations: {
       posts: {
         table: "posts",
-        fields: ["id", "user_id"],
+        fields: ["id", "user_id"] as const,
         localKey: "id",
         foreignKey: "user_id",
         relation: "many",
@@ -42,10 +42,11 @@ async function check() {
   });
 
   const included = await withPosts.include("posts").withCount("posts").findMany();
-  const _posts: Array<Record<string, unknown>> = included[0]?.posts ?? [];
+  const _posts = included[0]?.posts ?? [];
+  const _postId: unknown = _posts[0]?.id;
   const _postCount: number | undefined = included[0]?.posts_count;
 
-  return [_rows, _created, _updated, _posts, _postCount, adapter];
+  return [_rows, _created, _updated, _posts, _postCount, _postId, adapter];
 }
 
 export { check };
