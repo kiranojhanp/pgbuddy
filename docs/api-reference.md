@@ -78,6 +78,24 @@ await findUser([1]);
 The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
 prepared plans are not supported yet.
 
+### transaction(callback, options?)
+
+Transaction options include isolation level, read-only, deferrable, and opt-in
+retry:
+
+```typescript
+await db.transaction(fn, {
+  retry: {
+    max: 3,
+    delayMs: 25,
+    backoff: "exponential",
+    on: ["40001", "40P01"],
+  },
+});
+```
+
+The callback is rerun from the beginning on retryable SQLSTATE errors.
+
 ### batch(queries | callback)
 
 ```typescript
@@ -87,14 +105,14 @@ batch<Q extends readonly PendingQuery<any>[]>(
 ): Promise<BatchResults<Q>>;
 ```
 
-Runs pending postgres.js queries through `sql.batch`: one round trip and one
-implicit transaction. The callback must be synchronous and return pending
-queries.
+Runs pending postgres.js queries or deferred pgbuddy terminals through
+`sql.batch`: one round trip and one implicit transaction. The callback must be
+synchronous and return pending/deferred queries.
 
 ```typescript
-const [updated, count] = await db.batch((tx) => [
-  tx.sql`update users set status = ${status} where id = ${id}`,
-  tx.sql`select count(*)::int as count from users`,
+const [rows, count] = await db.batch([
+  users.where({ status: "active" }).findMany(),
+  users.where({ status: "active" }).count(),
 ]);
 ```
 
@@ -211,6 +229,17 @@ with `unknown` values. Relations and schema-derived projections remain
 Zod-only.
 
 ---
+
+## Predicates
+
+Composable predicate helpers include comparison, null, `in`, LIKE, string
+pattern, between, and JSONB/array operators:
+
+- `arrayContains`, `arrayContainedBy`, `arrayOverlaps`
+- `jsonContains`, `jsonHasKey`, `jsonHasAnyKey`, `jsonHasAllKeys`
+
+JSON/array predicates participate in normal `where` composition and column
+mapping.
 
 ## ZodTable\<S\>
 
@@ -496,6 +525,51 @@ Returns the first matching record, or throws `QueryError` (`No record found`).
 
 Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
 
+#### findManyInfinite()
+
+```typescript
+findManyInfinite(options?: ComputedOptions): Promise<{
+  rows: Array<T>;
+  nextCursor: Partial<T> | null;
+  hasMore: boolean;
+}>
+```
+
+Fetches a keyset page and returns the cursor for the next page. Requires an
+explicit `orderBy` of schema columns and a `take()` limit. `nextCursor` is
+derived from the order columns of the last returned row. Pass
+`{ direction: "backward" }` to page toward older rows; results stay in the
+original order. The helper fetches one
+extra row to determine `hasMore`; it does not return a total.
+
+#### findManyAndCount()
+
+```typescript
+findManyAndCount(options?: ComputedOptions): Promise<{
+  rows: Array<T>;
+  total: number;
+}>
+```
+
+Fetches the current page and the filtered total in one postgres.js batch.
+`total` ignores `skip`/`take` and counts all rows matching the current filters.
+Use `db.transaction` when the page and count must share a transaction with
+other work.
+
+#### filtered(expression, condition)
+
+Wraps an aggregate expression with `FILTER (WHERE condition)`. Available on
+`PgBuddyClient` and exported as `filteredExpr(sql, expression, condition)`.
+
+#### whereExpr(expression)
+
+Filters by a typed SQL boolean expression. Equivalent to `whereRaw` for the
+expression's fragment, with expression typing at the call site.
+
+#### orderByExpr(expression, options?)
+
+Orders by a typed SQL expression with optional `direction` and `nulls`.
+
 #### toSQL()
 
 ```typescript
@@ -506,6 +580,19 @@ Inspects the current SELECT without executing it. Identifiers are quoted and
 values are returned separately in `parameters`. Covers computed projections on
 `selectExpr(...)`.
 
+#### explain(options?)
+
+```typescript
+explain(options?: {
+  analyze?: boolean;
+  verbose?: boolean;
+  format?: "text" | "json";
+}): Promise<unknown[]>
+```
+
+Runs `EXPLAIN` on the current SELECT and returns raw plan rows. `analyze: true`
+executes the query.
+
 #### signal(signal)
 
 Attaches an `AbortSignal` to SELECT execution.
@@ -514,6 +601,16 @@ Attaches an `AbortSignal` to SELECT execution.
 
 Streams the base SELECT as batches of rows. Relation includes are not applied to
 streamed rows.
+
+#### prepareParams()
+
+```typescript
+prepareParams<P extends Record<string, unknown>>(): (values: P) => Promise<Array<T>>
+```
+
+Builds a parameterized prepared SELECT. Use `db.param<T>(name)` as a value
+placeholder and pass `{ [name]: value }` on execution. SELECT-only; relation
+includes are not applied.
 
 #### prepare()
 

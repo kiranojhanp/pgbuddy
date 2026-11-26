@@ -86,4 +86,14 @@ describe("client batch", () => {
     expect(one).toEqual([{ value: 1 }]);
     expect(two).toEqual([{ value: 2 }]);
   });
+
+  test("batches typed findMany and count builders", async () => {
+    const [rows, count] = await db.batch([
+      users().where({ status: "active" }).findMany(),
+      users().where({ status: "active" }).count(),
+    ]);
+
+    expect(rows).toEqual([]);
+    expect(count).toBe(0);
+  });
 });

@@ -1,5 +1,6 @@
 import type { Row } from "postgres";
 import { type ZodObject, type ZodRawShape, z } from "zod";
+import type { DeferredQuery } from "./deferred";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
 import type {
@@ -16,6 +17,7 @@ import type {
   ColumnCodecs,
   ColumnMap,
   ComputedMap,
+  ComputedOptions,
   CreateManyOptions,
   SelectKeys,
   SortSpec,
@@ -378,6 +380,17 @@ export class ValidatedTable<
     return this.wrap(this.table.where(conditions));
   }
 
+  whereExpr(expression: SqlExpression<boolean>): ValidatedTable<T, K, I, R> {
+    return this.wrap(this.table.whereExpr(expression));
+  }
+
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): ValidatedTable<T, K, I, R> {
+    return this.wrap(this.table.orderByExpr(expression, options));
+  }
+
   whereRaw(fragment: SqlFragment): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.whereRaw(fragment));
   }
@@ -418,8 +431,32 @@ export class ValidatedTable<
     return this.wrap(this.table.cursor(value));
   }
 
-  findMany(): Promise<Array<T>> {
-    return this.table.findMany() as Promise<Array<T>>;
+  findMany(): DeferredQuery<Array<T>> {
+    return this.table.findMany() as DeferredQuery<Array<T>>;
+  }
+
+  async findManyAndCount(
+    options?: ComputedOptions<Record<string, SqlExpression<unknown>>>
+  ): Promise<{
+    rows: Array<T>;
+    total: number;
+  }> {
+    const { rows, total } = await this.table.findManyAndCount(options);
+    return { rows: rows as Array<T>, total };
+  }
+
+  async findManyInfinite(
+    options?: ComputedOptions<Record<string, SqlExpression<unknown>>>
+  ): Promise<{
+    rows: Array<T>;
+    nextCursor: Partial<T> | null;
+    hasMore: boolean;
+  }> {
+    return this.table.findManyInfinite(options) as Promise<{
+      rows: Array<T>;
+      nextCursor: Partial<T> | null;
+      hasMore: boolean;
+    }>;
   }
 
   findFirst(): Promise<T | null> {
@@ -438,7 +475,7 @@ export class ValidatedTable<
     return this.table.findUniqueOrThrow() as Promise<T>;
   }
 
-  count(): Promise<number> {
+  count(): DeferredQuery<number> {
     return this.table.count();
   }
 
@@ -450,12 +487,26 @@ export class ValidatedTable<
     return this.table.toSQL();
   }
 
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    return this.table.explain(options);
+  }
+
   signal(signal: AbortSignal): ValidatedTable<T, K, I, R> {
     return new ValidatedTable(this.table.signal(signal), this.adapter, this.adapterRelations);
   }
 
   stream(batchSize = 1): AsyncIterable<Array<T>> {
     return this.table.stream(batchSize) as AsyncIterable<Array<T>>;
+  }
+
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<T>> {
+    return this.table.prepareParams<P>() as (values: P) => Promise<Array<T>>;
   }
 
   prepare(): () => Promise<Array<T>> {

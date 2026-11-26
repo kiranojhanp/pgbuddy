@@ -1,6 +1,8 @@
 import type { Row, Sql } from "postgres";
 import type { input as ZodInput, ZodIssue, ZodObject, output as ZodOutput, ZodRawShape } from "zod";
+import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
+import { isSqlParam } from "./params";
 import {
   getPredicateNode,
   isPredicate,
@@ -116,6 +118,7 @@ function validateWhereObject<S extends ZodSchema>(
       throw new QueryError(Errors.WHERE.INVALID_FIELD(key), { code: "INVALID_WHERE" });
     }
     ensureFieldExists(shape, key);
+    if (isSqlParam(value)) continue;
     const fieldSchema = shape[key];
     if (fieldSchema) {
       validateValue(key, fieldSchema, value, "where value");
@@ -158,7 +161,9 @@ function validatePredicate<S extends ZodSchema>(
       const fieldSchema = shape[node.field];
       if (fieldSchema) {
         for (const value of node.values) {
-          validateValue(node.field, fieldSchema, value, "where IN value");
+          if (!isSqlParam(value)) {
+            validateValue(node.field, fieldSchema, value, "where IN value");
+          }
         }
       }
       return;
@@ -177,8 +182,12 @@ function validatePredicate<S extends ZodSchema>(
       ensureFieldExists(shape, node.field);
       const fieldSchema = shape[node.field];
       if (fieldSchema) {
-        validateValue(node.field, fieldSchema, node.low, "where value");
-        validateValue(node.field, fieldSchema, node.high, "where value");
+        if (!isSqlParam(node.low)) {
+          validateValue(node.field, fieldSchema, node.low, "where value");
+        }
+        if (!isSqlParam(node.high)) {
+          validateValue(node.field, fieldSchema, node.high, "where value");
+        }
       }
       return;
     }
@@ -186,9 +195,14 @@ function validatePredicate<S extends ZodSchema>(
     case "comparison": {
       ensureFieldExists(shape, node.field);
       const fieldSchema = shape[node.field];
-      if (fieldSchema) {
+      if (fieldSchema && !isSqlParam(node.value)) {
         validateValue(node.field, fieldSchema, node.value, "where value");
       }
+      return;
+    }
+
+    case "operator": {
+      ensureFieldExists(shape, node.field);
       return;
     }
   }
@@ -220,7 +234,7 @@ function validateWhereAdvanced<S extends ZodSchema>(
       }
       for (const entry of condition.value) {
         const fieldSchema = shape[field];
-        if (fieldSchema) {
+        if (fieldSchema && !isSqlParam(entry)) {
           validateValue(field, fieldSchema, entry, "where IN value");
         }
       }
@@ -235,7 +249,7 @@ function validateWhereAdvanced<S extends ZodSchema>(
     }
 
     const fieldSchema = shape[field];
-    if (fieldSchema) {
+    if (fieldSchema && !isSqlParam(condition.value)) {
       validateValue(field, fieldSchema, condition.value, "where value");
     }
   }
@@ -1604,6 +1618,17 @@ export class ZodTable<
    * Add a raw postgres.js fragment to the WHERE clause. This bypasses schema
    * validation; only pass trusted SQL.
    */
+  whereExpr(expression: SqlExpression<boolean>): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.whereExpr(expression));
+  }
+
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.orderByExpr(expression, options));
+  }
+
   whereRaw(fragment: SqlFragment): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
     return this.wrap(this.table.whereRaw(fragment));
   }
@@ -1706,6 +1731,14 @@ export class ZodTable<
    * Build a reusable prepared executor for the base SELECT. Relation includes
    * are not applied by prepared execution.
    */
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    return this.table.explain(options);
+  }
+
   signal(signal: AbortSignal): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
     return this.wrap(this.table.signal(signal));
   }
@@ -1714,21 +1747,75 @@ export class ZodTable<
     return this.table.stream(batchSize);
   }
 
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.prepareParams<P>();
+  }
+
   prepare(): () => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
     return this.table.prepare();
   }
 
-  async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+  findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
-  ): Promise<
+  ): DeferredQuery<
     Array<WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>>
   > {
     const prepared = this.prepareQuery();
-    const rows = (await prepared.table.findMany(options)) as Array<Record<string, unknown>>;
-    const enriched = await this.finalize(rows, prepared.stripKeys);
-    return enriched as unknown as Array<
+    return deferredQuery(
+      () => prepared.table.findMany(options).pending(),
+      async (rows) =>
+        (await this.finalize(rows as Array<Record<string, unknown>>, prepared.stripKeys)) as Array<
+          WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+        >
+    );
+  }
+
+  async findManyAndCount<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<{
+    rows: Array<
       WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
     >;
+    total: number;
+  }> {
+    const prepared = this.prepareQuery();
+    const { rows, total } = await prepared.table.findManyAndCount(options);
+    const enriched = await this.finalize(
+      rows as Array<Record<string, unknown>>,
+      prepared.stripKeys
+    );
+    return {
+      rows: enriched as unknown as Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+      >,
+      total,
+    };
+  }
+
+  async findManyInfinite<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+    options?: ComputedOptions<X> & { direction?: "forward" | "backward" }
+  ): Promise<{
+    rows: Array<
+      WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+    >;
+    nextCursor: Partial<RowFromSchema<S>> | null;
+    hasMore: boolean;
+  }> {
+    const prepared = this.prepareQuery();
+    const page = await prepared.table.findManyInfinite(options);
+    const enriched = await this.finalize(
+      page.rows as Array<Record<string, unknown>>,
+      prepared.stripKeys
+    );
+    return {
+      rows: enriched as unknown as Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+      >,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
   }
 
   async findFirst<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
@@ -1801,7 +1888,7 @@ export class ZodTable<
     return row;
   }
 
-  async count(): Promise<number> {
+  count(): DeferredQuery<number> {
     return this.table.count();
   }
 

@@ -1,5 +1,6 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "../errors";
+import { isSqlParam } from "../params";
 import { getPredicateNode, isPredicate, type Predicate, type WhereInput } from "../predicates";
 import type {
   ColumnCodecs,
@@ -20,6 +21,7 @@ type NameOptions = {
 };
 
 function encodeValue(field: string, value: unknown, options?: NameOptions): unknown {
+  if (isSqlParam(value)) return value;
   const encode = options?.columnCodecs?.[field]?.encode;
   return encode ? encode(value) : value;
 }
@@ -231,6 +233,12 @@ function buildPredicate<T extends Row>(
       const escaped = escapeLikeValue(encoded);
       const pattern = getLikePattern(escaped, node.pattern);
       return sql`${sql(field)} LIKE ${pattern}`;
+    }
+
+    case "operator": {
+      const field = normalizeIdentifier(node.field, options, "where");
+      const value = encodeValue(node.field, node.value, options);
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${value}`;
     }
 
     case "between": {

@@ -1,5 +1,7 @@
 import type { Row, Sql } from "postgres";
+import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError } from "./errors";
+import { isSqlParam } from "./params";
 import { gt, isPredicate, lt, rawPredicate, type WhereInput } from "./predicates";
 import type {
   AggregateOptions,
@@ -39,6 +41,12 @@ import {
 /**
  * Result of `selectExpr`: a terminal query with typed computed fields.
  */
+export type InfinitePage<T extends Row, R extends Row = T> = {
+  rows: Array<R>;
+  nextCursor: Partial<T> | null;
+  hasMore: boolean;
+};
+
 export class ProjectedQuery<
   T extends Row,
   K extends SelectKeys<T>,
@@ -692,6 +700,7 @@ type TableState<T extends Row> = {
   columnMap?: ColumnMap;
   columnCodecs?: ColumnCodecs;
   maxTake?: number;
+  maxSkip?: number;
   uniqueKeys?: readonly (readonly string[])[];
   uniqueWhere?: boolean;
   defaultTake?: number;
@@ -790,6 +799,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private columnMap?: ColumnMap;
   private columnCodecs?: ColumnCodecs;
   private maxTake: number;
+  private maxSkip?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private uniqueWhere: boolean;
   private defaultTake?: number;
@@ -818,6 +828,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.columnMap = state?.columnMap ? { ...state.columnMap } : undefined;
     this.columnCodecs = state?.columnCodecs ? { ...state.columnCodecs } : undefined;
     this.maxTake = state?.maxTake ?? DEFAULT_MAX_TAKE;
+    this.maxSkip = state?.maxSkip;
     this.uniqueKeys = state?.uniqueKeys?.map((columns) => [...columns]);
     this.uniqueWhere = Boolean(state?.uniqueWhere);
     this.defaultTake = state?.defaultTake;
@@ -854,6 +865,11 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         code: "INVALID_COLUMNS",
       });
     }
+    if (batchSize > this.maxTake) {
+      throw new QueryError(Errors.SELECT.TAKE_EXCEEDS_MAX(this.maxTake), {
+        code: "INVALID_TAKE",
+      });
+    }
     const query = this.buildSelectQuery();
     if (this.signalValue) query.signal(this.signalValue);
     for await (const rows of query.cursor(batchSize)) {
@@ -866,6 +882,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   private encodeValue(field: string, value: unknown): unknown {
+    if (isSqlParam(value)) return value;
     if (
       typeof value === "function" ||
       (typeof value === "object" &&
@@ -958,6 +975,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       columnMap: this.columnMap,
       columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
       defaultTake: this.defaultTake,
@@ -1022,6 +1040,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       columnMap: this.columnMap,
       columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
       defaultTake: this.defaultTake,
@@ -1107,6 +1126,30 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * Add a raw postgres.js fragment to the WHERE clause. This is an escape
    * hatch: identifiers and values are not validated, so only pass trusted SQL.
    */
+  /** Filter by a typed SQL boolean expression. */
+  whereExpr(expression: SqlExpression<boolean>): Table<T, K, I> {
+    return this.whereRaw(expression.fragment);
+  }
+
+  /** Order by a typed SQL expression. */
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): Table<T, K, I> {
+    const direction = options?.direction ?? "ASC";
+    if (direction !== "ASC" && direction !== "DESC") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    const nulls = options?.nulls;
+    if (nulls !== undefined && nulls !== "first" && nulls !== "last") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    const fragment = this.sql`${expression.fragment} ${this.sql.unsafe(direction)}${
+      nulls ? this.sql` NULLS ${this.sql.unsafe(nulls.toUpperCase())}` : this.sql``
+    }`;
+    return this.orderByRaw(fragment);
+  }
+
   whereRaw(fragment: SqlFragment): Table<T, K, I> {
     return this.clone({ whereInputs: [...this.whereInputs, rawPredicate<T>(fragment)] });
   }
@@ -1129,6 +1172,11 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    */
   skip(count: number): Table<T, K, I> {
     validatePagination(count, undefined);
+    if (this.maxSkip !== undefined && count > this.maxSkip) {
+      throw new QueryError(Errors.SELECT.SKIP_EXCEEDS_MAX(this.maxSkip), {
+        code: "INVALID_SKIP",
+      });
+    }
     return this.clone({ skipValue: count });
   }
 
@@ -1376,12 +1424,20 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    *   .findMany();
    * ```
    */
-  async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+  findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
-  ): Promise<Array<SelectFields<T, K>[0] & ComputedResult<X>>> {
-    return this.executeSelect(options?.computed) as Promise<
-      Array<SelectFields<T, K>[0] & ComputedResult<X>>
-    >;
+  ): DeferredQuery<Array<SelectFields<T, K>[0] & ComputedResult<X>>> {
+    return deferredQuery(
+      () => {
+        const query = this.buildSelectQuery(options?.computed);
+        if (this.signalValue) query.signal(this.signalValue);
+        return query;
+      },
+      (rows) =>
+        this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+          SelectFields<T, K>[0] & ComputedResult<X>
+        >
+    );
   }
 
   /**
@@ -1734,14 +1790,97 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    *   .count();
    * ```
    */
-  async count(): Promise<number> {
-    const result = await this.sql<[{ count: string }]>`
+  /**
+   * Fetch the current page and the total number of matching rows in one
+   * postgres.js batch. `total` ignores skip/take and cursor values.
+   */
+  async findManyAndCount<X extends ComputedMap = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<{ rows: Array<SelectFields<T, K>[0] & ComputedResult<X>>; total: number }> {
+    const selectQuery = this.buildSelectQuery(options?.computed);
+    const countQuery = this.sql<Array<{ count: number }>>`
+      SELECT COUNT(*)::int AS count
+      FROM ${this.sql(this.tableName)}
+      ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
+    `;
+    if (this.signalValue) {
+      selectQuery.signal(this.signalValue);
+      countQuery.signal(this.signalValue);
+    }
+
+    const [rawRows, countRows] = (await this.sql.batch([selectQuery, countQuery])) as [
+      Array<Record<string, unknown>>,
+      Array<{ count: number }>,
+    ];
+
+    return {
+      rows: this.decodeRows(rawRows) as Array<SelectFields<T, K>[0] & ComputedResult<X>>,
+      total: Number(countRows[0]?.count ?? 0),
+    };
+  }
+
+  count(): DeferredQuery<number> {
+    return deferredQuery(
+      () =>
+        this.sql<[{ count: string }]>`
             SELECT COUNT(*) as count
             FROM ${this.sql(this.tableName)}
             ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
-        `;
+        `,
+      (rows) => parseInt((rows as Array<{ count: string }>)[0]?.count ?? "0", 10)
+    );
+  }
 
-    return parseInt(result[0]?.count ?? "0", 10);
+  /**
+   * Fetch a keyset page and the cursor for the next page. Requires an explicit
+   * `orderBy` of schema columns and a `take()` limit.
+   */
+  async findManyInfinite<X extends ComputedMap = Record<never, never>>(
+    options?: ComputedOptions<X> & { direction?: "forward" | "backward" }
+  ): Promise<InfinitePage<T, SelectFields<T, K>[0] & ComputedResult<X>>> {
+    if (this.orderByRawValue || !this.orderByValue?.length) {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+
+    const take = this.takeValue ?? this.defaultTake;
+    if (!take) {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+
+    const direction = options?.direction ?? "forward";
+    if (direction !== "forward" && direction !== "backward") {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+    const order =
+      direction === "backward"
+        ? this.orderByValue.map((spec) => ({
+            ...spec,
+            direction: (spec.direction === "ASC" ? "DESC" : "ASC") as "ASC" | "DESC",
+          }))
+        : this.orderByValue;
+
+    const rows = (await this.clone({ takeValue: take + 1, orderByValue: order }).findMany(
+      options
+    )) as Array<SelectFields<T, K>[0] & ComputedResult<X>>;
+    const pageRows = rows.slice(0, take);
+    const hasMore = rows.length > take;
+    if (direction === "backward") pageRows.reverse();
+    const cursorRow = direction === "backward" ? pageRows[0] : pageRows.at(-1);
+
+    if (!hasMore || !cursorRow) {
+      return { rows: pageRows, nextCursor: null, hasMore: false };
+    }
+
+    const nextCursor: Partial<T> = {};
+    for (const spec of order) {
+      const value = cursorRow[spec.column];
+      if (value === undefined || value === null) {
+        throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+      }
+      nextCursor[spec.column] = value;
+    }
+
+    return { rows: pageRows, nextCursor, hasMore: true };
   }
 
   /**
@@ -2656,6 +2795,30 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   /**
+   * Run EXPLAIN on the current SELECT. `analyze: true` executes the query.
+   */
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    const format = options?.format ?? "json";
+    if (format !== "text" && format !== "json") {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS("format"), {
+        code: "INVALID_COLUMNS",
+      });
+    }
+    const parts = [`FORMAT ${format.toUpperCase()}`];
+    if (options?.analyze) parts.push("ANALYZE");
+    if (options?.verbose) parts.push("VERBOSE");
+
+    const select = this.buildSelectQuery();
+    const query = this.sql`EXPLAIN (${this.sql.unsafe(parts.join(", "))}) ${select}`;
+    if (this.signalValue) query.signal(this.signalValue);
+    return (await query) as unknown[];
+  }
+
+  /**
    * Inspect the current SELECT query without executing it. Identifiers are
    * already quoted; values are returned separately in `parameters`.
    */
@@ -2668,6 +2831,31 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * fixed to the current builder state; create another prepared builder to
    * execute the same plan with different values.
    */
+  /**
+   * Build a parameterized prepared SELECT. Use `db.param(name)` placeholders
+   * in the builder values and pass their values on each execution.
+   */
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<SelectFields<T, K>[0]>> {
+    const { text, parameters } = describeQuery(this.buildSelectQuery());
+    return async (values: P) => {
+      const resolved = parameters.map((parameter) => {
+        if (!isSqlParam(parameter)) return parameter;
+        if (!(parameter.name in values)) {
+          throw new QueryError(`Missing prepared parameter: ${parameter.name}`, {
+            code: "INVALID_DATA",
+          });
+        }
+        return values[parameter.name];
+      });
+      const rows = await this.sql.unsafe<Array<SelectFields<T, K>[0]>>(text, resolved as never);
+      return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+        SelectFields<T, K>[0]
+      >;
+    };
+  }
+
   prepare(): () => Promise<Array<SelectFields<T, K>[0]>> {
     const { text, parameters } = this.toSQL();
     return async () =>

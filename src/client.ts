@@ -11,9 +11,13 @@ import {
   type ValidatorAdapter,
   zodValidator,
 } from "./adapter";
+import { PostgresErrorCodes } from "./database-errors";
+import { type DeferredQuery, isDeferredQuery } from "./deferred";
 import { Errors, QueryError, TableError } from "./errors";
+import { SqlParam } from "./params";
 import { Table } from "./table";
-import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
+import type { ColumnCodecs, ColumnMap, SelectKeys, SqlExpression, SqlFragment } from "./types";
+import { filteredExpr } from "./types";
 import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
 import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
 
@@ -39,6 +43,8 @@ export type PgBuddyClientOptions = {
   allowSchema?: boolean;
   allowedColumns?: readonly string[];
   maxTake?: number;
+  /** Optional upper bound for `skip()` offsets. */
+  maxSkip?: number;
   unique?: readonly (readonly string[])[];
   defaultTake?: number;
   /** Schema field name → database column name. */
@@ -54,10 +60,23 @@ export type PgBuddyClientOptions = {
 /**
  * Options for `db.transaction`.
  */
+export type TransactionRetryOptions = {
+  /** Retries after the first attempt. Defaults to 3 when `retry` is set. */
+  max?: number;
+  /** Base delay between attempts in milliseconds. Defaults to 0. */
+  delayMs?: number;
+  /** Defaults to exponential backoff. */
+  backoff?: "fixed" | "exponential";
+  /** SQLSTATE codes to retry. Defaults to serialization failure and deadlock. */
+  on?: readonly string[];
+};
+
 export type TransactionOptions = {
   isolationLevel?: "read uncommitted" | "read committed" | "repeatable read" | "serializable";
   readOnly?: boolean;
   deferrable?: boolean;
+  /** Retry serialization failures/deadlocks by rerunning the callback. */
+  retry?: TransactionRetryOptions;
 };
 
 function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
@@ -142,12 +161,20 @@ export type BatchSQLResults<Q extends readonly BatchSQLStatement[]> = {
   -readonly [K in keyof Q]: Row[];
 };
 
-export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
-  infer Head extends BatchQuery,
-  ...infer Tail extends readonly BatchQuery[],
-]
-  ? [Head extends PendingQuery<infer R> ? NonNullable<Awaited<R>> : never, ...BatchResults<Tail>]
-  : [];
+export type BatchResults<Q extends readonly (BatchQuery | DeferredQuery<unknown>)[]> =
+  Q extends readonly [
+    infer Head extends BatchQuery | DeferredQuery<unknown>,
+    ...infer Tail extends readonly (BatchQuery | DeferredQuery<unknown>)[],
+  ]
+    ? [
+        Head extends DeferredQuery<infer R>
+          ? Awaited<R>
+          : Head extends PendingQuery<infer R>
+            ? NonNullable<Awaited<R>>
+            : never,
+        ...BatchResults<Tail>,
+      ]
+    : [];
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -187,6 +214,7 @@ export class PgBuddyClient {
   private allowSchema: boolean;
   private allowedColumns?: readonly string[];
   private maxTake?: number;
+  private maxSkip?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private defaultTake?: number;
   private columnMap?: ColumnMap;
@@ -224,6 +252,12 @@ export class PgBuddyClient {
     ) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
     }
+    if (
+      options?.maxSkip !== undefined &&
+      (!Number.isInteger(options.maxSkip) || options.maxSkip < 0)
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
+    }
 
     assertColumnMap(options?.columnMap);
     assertColumnCodecs(options?.columnCodecs);
@@ -237,6 +271,7 @@ export class PgBuddyClient {
     this.allowSchema = Boolean(options?.allowSchema);
     this.allowedColumns = options?.allowedColumns ? [...options.allowedColumns] : undefined;
     this.maxTake = options?.maxTake;
+    this.maxSkip = options?.maxSkip;
     this.uniqueKeys = options?.unique?.map((list) => [...list]);
     this.defaultTake = options?.defaultTake;
     this.columnMap = options?.columnMap ? { ...options.columnMap } : undefined;
@@ -266,8 +301,12 @@ export class PgBuddyClient {
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       unique: this.uniqueKeys,
       defaultTake: this.defaultTake,
+      columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
+      adapter: this.adapter,
     };
 
     // postgres.js v4 exposes nested `begin`;
@@ -288,6 +327,31 @@ export class PgBuddyClient {
       throw new QueryError("Transactions are not supported by this postgres.js instance");
     }
 
+    const isolationLevels = [
+      "read uncommitted",
+      "read committed",
+      "repeatable read",
+      "serializable",
+    ] as const;
+    if (
+      transactionOptions?.isolationLevel !== undefined &&
+      !isolationLevels.includes(transactionOptions.isolationLevel)
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
+    }
+    if (
+      transactionOptions?.readOnly !== undefined &&
+      typeof transactionOptions.readOnly !== "boolean"
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
+    }
+    if (
+      transactionOptions?.deferrable !== undefined &&
+      typeof transactionOptions.deferrable !== "boolean"
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
+    }
+
     const parts: string[] = [];
     if (transactionOptions?.isolationLevel) {
       parts.push(`isolation level ${transactionOptions.isolationLevel}`);
@@ -301,10 +365,84 @@ export class PgBuddyClient {
     }
 
     const run = (txSql: Sql<Record<string, unknown>>) => new PgBuddyClient(txSql, options);
+    const runOnce = async (): Promise<T> =>
+      mode
+        ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
+        : await start.call(this.sql, (txSql) => fn(run(txSql)));
 
-    return mode
-      ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
-      : await start.call(this.sql, (txSql) => fn(run(txSql)));
+    const retry = transactionOptions?.retry;
+    if (retry !== undefined) {
+      if (retry.max !== undefined && (!Number.isInteger(retry.max) || retry.max < 0)) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (retry.delayMs !== undefined && (!Number.isInteger(retry.delayMs) || retry.delayMs < 0)) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (
+        retry.backoff !== undefined &&
+        retry.backoff !== "fixed" &&
+        retry.backoff !== "exponential"
+      ) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (
+        retry.on !== undefined &&
+        (!Array.isArray(retry.on) ||
+          retry.on.some((code) => typeof code !== "string" || !/^[0-9A-Z]{5}$/.test(code)))
+      ) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+    }
+
+    const maxRetries = retry ? (retry.max ?? 3) : 0;
+    const retryCodes = new Set(
+      retry?.on ?? [PostgresErrorCodes.serializationFailure, PostgresErrorCodes.deadlockDetected]
+    );
+    let attempt = 0;
+
+    while (true) {
+      try {
+        return await runOnce();
+      } catch (error) {
+        attempt += 1;
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? String((error as { code: unknown }).code)
+            : undefined;
+        if (attempt > maxRetries || !code || !retryCodes.has(code)) throw error;
+
+        const baseDelay = retry?.delayMs ?? 0;
+        const multiplier = retry?.backoff === "fixed" ? 1 : 2 ** (attempt - 1);
+        const delay = Math.min(baseDelay * multiplier, 30_000);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+  }
+
+  /**
+   * Create a named placeholder for `prepareParams()`.
+   * The generic is a type assertion; the runtime value is a placeholder.
+   */
+  param<T = unknown>(name: string): T {
+    if (typeof name !== "string" || !name.trim()) {
+      throw new TableError("param name must be a non-empty string");
+    }
+    return new SqlParam(name) as unknown as T;
+  }
+
+  /** Add a FILTER (WHERE ...) clause to an aggregate expression. */
+  filtered<T>(expression: SqlExpression<T>, condition: SqlFragment): SqlExpression<T> {
+    return filteredExpr(this.sql, expression, condition);
   }
 
   /**
@@ -357,6 +495,12 @@ export class PgBuddyClient {
    * round trip. Pass pending queries directly or return them from a
    * transaction-like synchronous callback.
    */
+  // biome-ignore lint/suspicious/noExplicitAny: accepts deferred queries of any row shape
+  batch<Q extends readonly DeferredQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+  // biome-ignore lint/suspicious/noExplicitAny: accepts deferred queries of any row shape
+  batch<Q extends readonly DeferredQuery<any>[]>(
+    build: (tx: PgBuddyClient) => [...Q]
+  ): Promise<BatchResults<Q>>;
   // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
   batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
   // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
@@ -371,6 +515,11 @@ export class PgBuddyClient {
       throw new TableError("batch callback must return an array of pending postgres.js queries");
     }
     if (queries.length === 0) return [];
+    if (queries.every(isDeferredQuery)) {
+      const pending = queries.map((query) => query.pending());
+      const results = await this.sql.batch(pending as never);
+      return Promise.all(queries.map((query, index) => query.resolve(results[index])));
+    }
     return this.sql.batch(queries as never);
   }
 
@@ -427,6 +576,7 @@ export class PgBuddyClient {
     const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
     const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
     const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const maxSkip = options?.maxSkip ?? this.maxSkip;
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
     const columnMap = options?.columnMap ?? this.columnMap;
@@ -444,6 +594,9 @@ export class PgBuddyClient {
     }
     if (!Number.isInteger(maxTake) || maxTake <= 0) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    if (maxSkip !== undefined && (!Number.isInteger(maxSkip) || maxSkip < 0)) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
     }
     assertUniqueOption(uniqueKeys);
     assertDefaultTake(defaultTake);
@@ -481,6 +634,7 @@ export class PgBuddyClient {
       allowSchema,
       allowedColumns,
       maxTake,
+      maxSkip,
       uniqueKeys,
       defaultTake,
       columnMap,
@@ -536,6 +690,7 @@ export class PgBuddyClient {
     const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
     const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
     const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const maxSkip = options?.maxSkip ?? this.maxSkip;
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
     const columnMap = options?.columnMap ?? this.columnMap;
@@ -555,6 +710,9 @@ export class PgBuddyClient {
 
     if (!Number.isInteger(maxTake) || maxTake <= 0) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    if (maxSkip !== undefined && (!Number.isInteger(maxSkip) || maxSkip < 0)) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
     }
 
     assertUniqueOption(uniqueKeys);
@@ -607,6 +765,7 @@ export class PgBuddyClient {
       allowSchema,
       allowedColumns,
       maxTake,
+      maxSkip,
       uniqueKeys,
       defaultTake,
       columnMap,

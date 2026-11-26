@@ -3,7 +3,8 @@
  *
  * Runs the full pgbuddy surface against a real PostgreSQL database:
  * schemas, relations, joins, aggregates, grouped expressions, computed fields,
- * true batch, streaming, locking, writes, predicates, cursors, and error helpers.
+ * true batch, streaming, prepared parameters, locking, writes, predicates,
+ * JSON/array filters, cursors, and error helpers.
  *
  * Usage:
  *   DATABASE_URL=postgres://postgres:postgres@localhost:5432/pgbuddy \
@@ -17,6 +18,7 @@ import postgres from "postgres";
 import { z } from "zod";
 import {
   and,
+  arrayContains,
   between,
   constraintName,
   contains,
@@ -36,6 +38,8 @@ import {
   isPostgresError,
   isSerializationFailure,
   isUniqueViolation,
+  jsonContains,
+  jsonHasKey,
   like,
   lt,
   lte,
@@ -115,9 +119,23 @@ const InventorySchema = z.object({
   quantity: z.number().int(),
 });
 
+const UserTableQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(2),
+  sort: z.enum(["id", "full_name", "created_at"]).default("id"),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  status: z.enum(["active", "inactive", "banned"]).optional(),
+});
+
 const PriceOverrideSchema = z.object({
   product_id: z.number().int(),
   price_cents: z.number().int(),
+});
+
+const AssetSchema = z.object({
+  id: z.number().int(),
+  tags: z.array(z.string()),
+  metadata: z.record(z.string(), z.unknown()),
 });
 
 const AuditLogSchema = z.object({
@@ -134,7 +152,7 @@ const AuditLogSchema = z.object({
 async function createSchema(sql: Sql<Record<string, unknown>>): Promise<void> {
   await sql`
     DROP TABLE IF EXISTS
-      price_overrides, audit_log, order_items, reviews, inventory, orders, products, categories, users
+      assets, price_overrides, audit_log, order_items, reviews, inventory, orders, products, categories, users
     CASCADE
   `;
 
@@ -209,6 +227,14 @@ async function createSchema(sql: Sql<Record<string, unknown>>): Promise<void> {
   `;
 
   await sql`
+    CREATE TABLE assets (
+      id INTEGER PRIMARY KEY,
+      tags TEXT[] NOT NULL,
+      metadata JSONB NOT NULL
+    )
+  `;
+
+  await sql`
     CREATE TABLE price_overrides (
       product_id INTEGER PRIMARY KEY REFERENCES products(id),
       price_cents INTEGER NOT NULL CHECK (price_cents >= 0)
@@ -270,6 +296,13 @@ async function createSchema(sql: Sql<Record<string, unknown>>): Promise<void> {
   await sql`
     INSERT INTO inventory (product_id, quantity) VALUES
       (1, 5), (2, 20), (3, 0)
+  `;
+
+  await sql`
+    INSERT INTO assets (id, tags, metadata) VALUES
+      (1, ARRAY['typescript','db'], '{"tier":"premium"}'::jsonb),
+      (2, ARRAY['javascript'], '{"tier":"free"}'::jsonb),
+      (3, ARRAY['typescript'], '{"tier":"premium","region":"eu"}'::jsonb)
   `;
 }
 
@@ -367,6 +400,7 @@ function createTables(db: PgBuddyClient) {
   const auditLog = db.table("audit_log", AuditLogSchema);
 
   const priceOverrides = db.table("price_overrides", PriceOverrideSchema);
+  const assets = db.table("assets", AssetSchema);
 
   return {
     users,
@@ -378,6 +412,7 @@ function createTables(db: PgBuddyClient) {
     inventory,
     auditLog,
     priceOverrides,
+    assets,
   };
 }
 
@@ -398,6 +433,7 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     inventory,
     auditLog,
     priceOverrides,
+    assets,
   } = createTables(db);
 
   // --- Basic reads ---------------------------------------------------------
@@ -425,9 +461,9 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
   });
 
   // --- True batch + streaming ---------------------------------------------
-  const [batchOrders, batchCount] = await db.batch((tx) => [
-    tx.sql`SELECT id, status FROM orders ORDER BY id`,
-    tx.sql`SELECT count(*)::int AS count FROM orders`,
+  const [batchOrders, batchCount] = await db.batch([
+    orders.orderBy([{ column: "id", direction: "ASC" }]).findMany(),
+    orders.count(),
   ]);
 
   const streamedUsers: User[] = [];
@@ -435,7 +471,70 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     streamedUsers.push(...batch);
   }
 
-  console.log("batch", { batchOrders, batchCount, streamedUsers });
+  // App-level paginated table helper: validates query params, maps only
+  // allowed sort/filter fields, and fetches rows + total in one batch.
+  const query = UserTableQuerySchema.parse({
+    page: "2",
+    pageSize: "1",
+    sort: "full_name",
+    direction: "asc",
+    status: "active",
+  });
+  const sortColumns = {
+    id: "id",
+    full_name: "full_name",
+    created_at: "created_at",
+  } as const;
+  const direction = query.direction === "asc" ? "ASC" : "DESC";
+  const pageResult = await users
+    .where(query.status ? { status: query.status } : {})
+    .orderBy([{ column: sortColumns[query.sort], direction }])
+    .skip((query.page - 1) * query.pageSize)
+    .take(query.pageSize)
+    .findManyAndCount();
+
+  console.log("pagination", {
+    page: query.page,
+    pageSize: query.pageSize,
+    pageCount: Math.ceil(pageResult.total / query.pageSize),
+    total: pageResult.total,
+    rows: pageResult.rows,
+  });
+
+  let infiniteCursor: Partial<User> | null = null;
+  const infinitePages: User[] = [];
+  for (let page = 0; page < 2; page += 1) {
+    let infiniteQuery = users.orderBy([{ column: "id", direction: "ASC" }]).take(2);
+    if (infiniteCursor) infiniteQuery = infiniteQuery.cursor(infiniteCursor);
+    const result = await infiniteQuery.findManyInfinite();
+    infinitePages.push(...result.rows);
+    infiniteCursor = result.nextCursor;
+    if (!result.hasMore) break;
+  }
+
+  const backwardInfinite = await users
+    .orderBy([{ column: "id", direction: "ASC" }])
+    .cursor({ id: 2 })
+    .take(2)
+    .findManyInfinite({ direction: "backward" });
+
+  console.log("infinite", {
+    pages: infinitePages,
+    nextCursor: infiniteCursor,
+    backward: backwardInfinite,
+  });
+
+  const findOrder = orders.where({ id: db.param<number>("id") }).prepareParams<{ id: number }>();
+  const preparedOrder = await findOrder({ id: 1 });
+  const orderPlan = await orders.where({ status: "paid" }).explain();
+
+  console.log("batch", {
+    batchOrders,
+    batchCount,
+    streamedUsers,
+    preparedOrder,
+    orderPlan,
+  });
 
   // --- Filtering -----------------------------------------------------------
   const conditions: WhereCondition<User>[] = [
@@ -477,7 +576,26 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     .where(and(or(eq("id", 1), eq("id", 2)), not(eq("status", "banned"))))
     .findMany();
 
-  console.log("filters", { operatorRows, predicateRows, rawFiltered, nestedPredicate });
+  const expressionRows = await users
+    .whereExpr(sqlExpr<boolean>(sql`lower(email) = ${"ada@example.com"}`))
+    .orderByExpr(sqlExpr<string>(sql`lower(full_name)`), { direction: "ASC" })
+    .findMany();
+  const taggedAssets = await assets.where(arrayContains("tags", ["typescript"])).findMany();
+  const premiumAssets = await assets
+    .where(jsonContains("metadata", { tier: "premium" }))
+    .findMany();
+  const regionAssets = await assets.where(jsonHasKey("metadata", "region")).findMany();
+
+  console.log("filters", {
+    operatorRows,
+    predicateRows,
+    rawFiltered,
+    nestedPredicate,
+    expressionRows,
+    taggedAssets,
+    premiumAssets,
+    regionAssets,
+  });
 
   // --- Projection, sorting, pagination ------------------------------------
   const emails = await users.select(["id", "email"]).findMany();
@@ -745,7 +863,21 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     .orderByRaw(sql`lower(status) ASC`)
     .findMany();
 
-  console.log("grouped", { grouped, groupedFirst, groupedOrThrow, groupedPage, groupedExpr });
+  const filteredGroup = await orders
+    .groupBy(["status"], {
+      paidCount: db.filtered(sqlExpr<number>(sql`count(*)`), sql`status = ${"paid"}`),
+    })
+    .orderBy([{ column: "status", direction: "ASC" }])
+    .findMany();
+
+  console.log("grouped", {
+    grouped,
+    groupedFirst,
+    groupedOrThrow,
+    groupedPage,
+    groupedExpr,
+    filteredGroup,
+  });
 
   // --- Aggregate helpers ---------------------------------------------------
   const aggregate = await orders.aggregate({
@@ -764,6 +896,7 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     isolationLevel: "serializable",
     readOnly: true,
     deferrable: true,
+    retry: { max: 2, delayMs: 0 },
   });
 
   const locked = await db.transaction(

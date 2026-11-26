@@ -29,6 +29,7 @@ The scenario has the usual ecommerce tables:
 - `order_items`
 - `reviews`
 - `inventory`
+- `assets` (array/JSONB predicate examples)
 - `price_overrides` (used by the SQL write helpers)
 - `audit_log` (auto-generated id)
 
@@ -46,16 +47,21 @@ It declares one-hop relations in both directions:
 | --- | --- |
 | Reads | `findMany`, `findFirst`, `findUnique`, `findUniqueOrThrow`, `findFirstOrThrow`, `count`, `exists` |
 | Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in the README |
-| Batch | `db.batch` with synchronous pending-query callback |
+| Prepared params | `db.param()` + `prepareParams()` |
+| Plans | `explain()` |
+| Batch | `db.batch` with deferred builders and synchronous pending-query callback |
+| Pagination | `findManyAndCount` via a validated app-level table query helper |
 | Filtering | object conditions, typed `WhereCondition[]`, all predicate helpers, nested `and`/`or`/`not`, `whereRaw` |
 | Projection | `select`, `omit`, `distinct`, `distinctOn`, `distinctOnExpr`, `selectExpr`, `computed` |
 | Pagination | `skip`, `take`, `orderBy` with `NULLS`, `orderByRaw`, single and composite `cursor` |
 | Relations | callback and declarative `include`, `withCount` with refinement, `whereRelated`, `whereMissing`, `whereEvery` |
 | Joins | `innerJoin`, `leftJoin`, nested right rows, `JoinQuery` filtering/order/projection/first |
-| Grouping | `groupBy`, `groupByExpr`, aggregate aliases, typed/raw `having`, grouped `orderBy`/`skip`/`take`/`findFirstOrThrow` |
+| Grouping | `groupBy`, `groupByExpr`, aggregate aliases, typed/raw `having`, conditional `db.filtered`, grouped `orderBy`/`skip`/`take`/`findFirstOrThrow` |
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max` |
 | Transactions | isolation level, read-only/deferrable, nested-capable `transaction`, row locking |
 | Writes | `create`, `createMany`, `upsert`, `update`, `delete`; `insertFrom`, `updateFrom`, `deleteUsing`; conflict handling; computed `RETURNING`; count mode |
+| Expressions | `whereExpr`, `orderByExpr` |
+| JSON/arrays | `arrayContains`, `arrayOverlaps`, `jsonContains`, `jsonHasKey` |
 | Zod schemas | `table` for inventory/audit, `omit`, `whereUnique`, `groupBy` |
 | Errors | `QueryError.code`, `TableError`, all PostgreSQL error helpers |
 | Computed writes | `create`/`update`/`delete`/`upsert` with `computed` |
@@ -163,6 +169,8 @@ await db.transaction(async (tx) => {
 
 - `having` accepts typed aggregate conditions or a raw SQL fragment; join `on`
   clauses remain raw SQL fragments.
+- Transaction retry is demonstrated on the read-only serializable total.
+- Infinite pagination includes both forward and backward pages.
 - Use qualified column names in `whereRaw`/`orderByRaw` for joins.
 - `count(*)` is cast to `int` in the example because postgres.js otherwise
   returns a string for `bigint`.

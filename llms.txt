@@ -1,0 +1,38 @@
+# PgBuddy
+
+> PgBuddy is a lightweight, type-safe PostgreSQL query helper for postgres.js v4. It provides Zod-first table schemas, relations and nested includes, joins, column mapping/codecs, typed filters, batching, pagination, prepared queries, streaming, and connection-level Valibot/Yup adapters — while keeping raw SQL and the postgres.js instance available.
+
+## Start here
+
+- [README](https://github.com/kiranojhanp/pgbuddy/blob/master/README.md): Installation, quick start, schema-first usage, and the main API overview.
+- [Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md): Product philosophy, validation model, and basic querying.
+- [API reference](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md): PgBuddyClient, table builders, filters, writes, relations, batches, and adapters.
+- [Advanced execution](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md): Batching, prepared plans, transactions/retry, streaming, EXPLAIN, expressions, and SQL write helpers.
+- [Examples index](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/examples.md): Pointers to runnable examples.
+
+## Guides
+
+- [CRUD operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/crud-operations.md): Create, read, update, delete, upserts, and conflict handling.
+- [Select operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/select-operations.md): Projection, filtering, sorting, pagination, and computed fields.
+- [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md): How query state and chaining work.
+- [Data transformation](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/data-transformation.md): Column mapping, codecs, and serialization.
+- [Ecommerce kitchen sink](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/kitchen-sink.md): Walkthrough of the full API against a real ecommerce schema.
+- [Roadmap](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/roadmap.md): Completed features and intentional out-of-scope items.
+
+## Recipes
+
+- [Paginated tables](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/paginated-tables.md): Offset pages, filtered totals, keyset/infinite pages, and app-level query helpers.
+- [Soft deletes](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/soft-deletes.md): Explicit soft-delete scopes, partial unique indexes, and restore flows.
+- [Tenant scoping and RLS](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/tenant-scoping.md): App-level tenant filters, PostgreSQL RLS, and transaction-local settings.
+
+## Code and package
+
+- [npm registry metadata](https://registry.npmjs.org/pgbuddy): Package versions and install metadata.
+- [GitHub repository](https://github.com/kiranojhanp/pgbuddy): Source, issues, and pull requests.
+- [Kitchen sink source](https://github.com/kiranojhanp/pgbuddy/blob/master/examples/ecommerce-kitchen-sink.ts): Runnable end-to-end example.
+- [Changelog](https://github.com/kiranojhanp/pgbuddy/blob/master/CHANGELOG.md): Release notes and breaking changes.
+- [License](https://github.com/kiranojhanp/pgbuddy/blob/master/LICENSE): MIT.
+
+## Optional
+
+- [PostgreSQL 16 CI run](https://github.com/kiranojhanp/pgbuddy/actions): Build and test workflow status.

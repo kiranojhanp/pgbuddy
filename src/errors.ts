@@ -22,12 +22,14 @@ export const Errors = {
     INVALID_COLUMNS: "columns must be a non-empty array of column names",
     INVALID_ALLOWED_COLUMNS: "allowedColumns must be an array of column names",
     INVALID_MAX_TAKE: "maxTake must be a positive integer",
+    INVALID_MAX_SKIP: "maxSkip must be a non-negative integer",
     INVALID_DEFAULT_TAKE: "defaultTake must be a positive integer and <= maxTake",
     INVALID_UNIQUE: "unique must be an array of non-empty column lists",
     INVALID_COLUMN_MAP: "columnMap must map schema fields to unique database columns",
     INVALID_COLUMN_CODECS: "columnCodecs must contain encode/decode functions for schema fields",
   },
   QUERY: {
+    INVALID_TRANSACTION: "Invalid transaction options",
     NOT_UNIQUE: "Expected at most one record but found multiple",
     NO_ROWS: "No record found",
     INSERT_RETURNED_EMPTY: "Insert returned no rows",
@@ -54,6 +56,7 @@ export const Errors = {
     INVALID_TAKE: "Take must be > 0",
     INVALID_SKIP: "Skip must be ≥ 0",
     TAKE_EXCEEDS_MAX: (max: number) => `Take must be ≤ ${max}`,
+    SKIP_EXCEEDS_MAX: (max: number) => `Skip must be ≤ ${max}`,
     INVALID_SORT_SPEC: "Sort must be an array of { column, direction }",
     INVALID_CURSOR: "Cursor must be a non-empty object of non-null column values",
     CANNOT_OMIT_STAR: "omit requires explicit columns or a `columns` option",
@@ -118,6 +121,7 @@ export type QueryErrorCode =
   | "INVALID_SKIP"
   | "INVALID_CURSOR"
   | "INVALID_SORT"
+  | "INVALID_TRANSACTION"
   | "INVALID_COLUMNS"
   | "INVALID_WHERE"
   | "INVALID_RELATION"

@@ -222,6 +222,18 @@ export function sqlExpr<T>(fragment: SqlFragment): SqlExpression<T> {
   return { fragment };
 }
 
+/** Add a SQL `FILTER (WHERE ...)` clause to an aggregate expression. */
+export function filteredExpr<T>(
+  sql: Sql<Record<string, unknown>>,
+  expression: SqlExpression<T>,
+  condition: SqlFragment
+): SqlExpression<T> {
+  return {
+    fragment: sql`${expression.fragment} FILTER (WHERE ${condition})`,
+    result: expression.result,
+  } as SqlExpression<T>;
+}
+
 /** Maps a record of expressions to the types they produce. */
 export type ComputedResult<X extends Record<string, SqlExpression<unknown>>> = {
   [K in keyof X]: X[K] extends SqlExpression<infer V> ? V : never;

@@ -94,7 +94,7 @@ import type {
   WhereCondition,
 } from "./types";
 // Re-export types for external use
-import { sqlExpr } from "./types";
+import { filteredExpr, sqlExpr } from "./types";
 import { ZodAggregatedQuery, ZodJoinQuery, ZodProjectedQuery, ZodTable } from "./zod-table";
 
 // Export the new client and related classes/types
@@ -113,6 +113,7 @@ export {
   QueryError,
   TableError,
   sqlExpr,
+  filteredExpr,
 };
 export type {
   ValidatedInput,
@@ -137,6 +138,9 @@ export {
 export type { Predicate, WhereInput } from "./predicates";
 export {
   and,
+  arrayContainedBy,
+  arrayContains,
+  arrayOverlaps,
   between,
   contains,
   endsWith,
@@ -147,6 +151,10 @@ export {
   inArray,
   isNotNull,
   isNull,
+  jsonContains,
+  jsonHasAllKeys,
+  jsonHasAnyKey,
+  jsonHasKey,
   like,
   lt,
   lte,
@@ -162,6 +170,7 @@ export type {
   GroupedRow,
   HavingInput,
   HavingValue,
+  InfinitePage,
   JoinOptions,
   JoinResult,
   JoinValue,

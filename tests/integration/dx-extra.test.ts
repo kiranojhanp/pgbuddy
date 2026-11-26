@@ -291,4 +291,76 @@ describe("limits, counts, and transactions", () => {
 
     expect(filtered).toEqual([]);
   });
+
+  test("transaction retry reruns serialization failures", async () => {
+    let attempts = 0;
+    const value = await db.transaction(
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw Object.assign(new Error("retry"), { code: "40001" });
+        }
+        return "ok";
+      },
+      { retry: { max: 3, delayMs: 0 } }
+    );
+
+    expect(value).toBe("ok");
+    expect(attempts).toBe(3);
+  });
+
+  test("transaction retry does not retry other errors", async () => {
+    let attempts = 0;
+    await expect(
+      db.transaction(
+        async () => {
+          attempts += 1;
+          throw Object.assign(new Error("no retry"), { code: "23505" });
+        },
+        { retry: { max: 3 } }
+      )
+    ).rejects.toThrow("no retry");
+
+    expect(attempts).toBe(1);
+  });
+
+  test("transaction retry options are validated", async () => {
+    await expect(
+      db.transaction(async () => undefined, { retry: { max: -1 } })
+    ).rejects.toBeInstanceOf(QueryError);
+    await expect(
+      db.transaction(async () => undefined, { retry: { on: ["bad"] } })
+    ).rejects.toBeInstanceOf(QueryError);
+  });
+
+  test("transaction clients inherit column mapping and adapters", async () => {
+    const mapped = new PgBuddyClient(sql, {
+      columnMap: { email: "email", status: "status" },
+    });
+
+    await mapped.transaction(async (tx) => {
+      const row = await tx.table("users", UserSchema).where({ id: 1 }).findFirst();
+      expect(row?.email).toBe("a@example.com");
+    });
+  });
+
+  test("explain returns a query plan without executing by default", async () => {
+    const users = db.table("users", UserSchema);
+    const plan = await users.where({ status: "active" }).explain();
+    expect(plan.length).toBeGreaterThan(0);
+
+    const analyzed = await users.where({ status: "active" }).explain({ analyze: true });
+    expect(analyzed.length).toBeGreaterThan(0);
+  });
+
+  test("whereExpr and orderByExpr use typed SQL expressions", async () => {
+    const users = db.table("users", UserSchema);
+    const rows = await users
+      .whereExpr(sqlExpr<boolean>(sql`lower(email) LIKE ${"%@example.com"}`))
+      .orderByExpr(sqlExpr<string>(sql`lower(email)`), { direction: "DESC" })
+      .findMany();
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]?.email).toBe("d@example.com");
+  });
 });
