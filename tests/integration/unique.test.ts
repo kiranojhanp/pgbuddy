@@ -3,14 +3,6 @@ import { z } from "zod";
 import { Errors, PgBuddyClient, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
-interface Member {
-  id: number;
-  tenant_id: string;
-  slug: string;
-  email: string;
-  status: "active" | "inactive";
-}
-
 const MemberSchema = z.object({
   id: z.number(),
   tenant_id: z.string(),
@@ -53,7 +45,8 @@ describe("unique metadata", () => {
     await sql`TRUNCATE members;`;
   });
 
-  const members = () => db.table<Member>("members", { unique: [["email"], ["tenant_id", "slug"]] });
+  const members = () =>
+    db.table("members", MemberSchema, { unique: [["email"], ["tenant_id", "slug"]] });
 
   test("whereUnique matches a configured unique key", async () => {
     await members().create({
@@ -82,13 +75,13 @@ describe("unique metadata", () => {
   });
 
   test("whereUnique requires unique metadata", () => {
-    expect(() => db.table<Member>("members").whereUnique({ email: "a@example.com" })).toThrow(
+    expect(() => db.table("members", MemberSchema).whereUnique({ email: "a@example.com" })).toThrow(
       Errors.WHERE.INVALID_UNIQUE("email")
     );
   });
 
   test("invalid unique option is rejected", () => {
-    expect(() => db.table<Member>("members", { unique: [[]] })).toThrow(TableError);
+    expect(() => db.table("members", MemberSchema, { unique: [[]] })).toThrow(TableError);
   });
 
   test("ZodTable validates unique columns against the schema", () => {

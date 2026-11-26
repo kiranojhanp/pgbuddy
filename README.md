@@ -17,7 +17,7 @@ A no-nonsense, type-safe, tiny query builder wrapping [postgres.js](https://gith
 npm install pgbuddy postgres zod
 ```
 
-Zod is optional if you use the plain `Table` API.
+Zod is the default. Configure one `ValidatorAdapter` on the connection to use Valibot, Yup, or a custom validation library for every table.
 
 ---
 
@@ -57,9 +57,83 @@ await users.where({ email: "alice@example.com" }).update({ name: "Alice Smith" }
 await users.where({ email: "alice@example.com" }).delete();
 ```
 
-`db.table()` returns a `ZodTable` when given a schema, and a plain `Table` otherwise.
+Every table is created from a Zod object schema. The schema drives projections,
+validates writes, and types results. Use `.optional()` for database defaults or
+auto-generated ids and `.nullable()` for nullable columns. There is no
+unvalidated table builder; use `db.sql` when you need raw SQL.
 
-Tip: Use [Kanel](https://kristiandupont.github.io/kanel/) to generate TypeScript types directly from your database schema.
+Tip: Use [Kanel](https://kristiandupont.github.io/kanel/) or another
+introspection tool to generate TypeScript types, then define matching Zod
+schemas for validation.
+
+## Schema-first
+
+Validation is required, and Zod is the default:
+
+- `create`, `createMany`, `update`, and `upsert` validate their payloads before
+  executing SQL.
+- `select(["*"])` expands to the schema's columns, never `SELECT *`.
+- `ZodTable` validates `where`, `orderBy`, `omit`, and relation refinements
+  against the schema.
+- `z.object` strips unknown keys; use `z.strictObject` to reject them.
+- Configure a connection-level `ValidatorAdapter` for Valibot, Yup, or another
+  library.
+
+For raw queries or features the typed API does not model, use `db.sql`.
+
+### Validation adapters
+
+Configure one adapter on the client; every table on that connection uses it.
+Zod is the default, so no adapter is needed for Zod schemas.
+
+```ts
+import { PgBuddyClient } from "pgbuddy";
+import { valibotValidator } from "pgbuddy/adapters/valibot";
+
+const db = new PgBuddyClient(sql, { adapter: valibotValidator });
+const users = db.table("users", ValibotUserSchema);
+```
+
+Built-in adapters are available for Zod, Valibot, and Yup:
+
+```ts
+import { zodValidator } from "pgbuddy";
+import { valibotValidator } from "pgbuddy/adapters/valibot";
+import { yupValidator } from "pgbuddy/adapters/yup";
+```
+
+Valibot and Yup are optional peer dependencies; install only the one you use.
+A custom `ValidatorAdapter` only needs `fields(schema)`, `parse(schema, value)`,
+and `parsePartial(schema, value)`. Output and input types are inferred from the
+schema.
+
+Adapter tables support core CRUD and query chaining, including
+`where`/`orderBy`/`select`/`cursor`, writes, counts, `toSQL`, joins, aggregates,
+grouped queries, computed projections, and `omit`.
+
+Adapter tables can also declare relations with field lists. Child-row keys are
+inferred from the field list; declare it `as const` for literal keys. Values are
+`unknown` because adapters expose field names, not schemas:
+
+```ts
+const users = db.table("users", UserSchema, {
+  adapterRelations: {
+    posts: {
+      table: "posts",
+      fields: ["id", "user_id", "title"] as const,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+    },
+  },
+});
+
+const rows = await users.include("posts").withCount("posts").findMany();
+```
+
+Nested and through configs use the same shape as Zod relations; `columnMap` and
+`columnCodecs` are honored. Schema-derived projections and Zod's value-level
+relation types remain Zod-only.
 
 ## Filtering
 
@@ -244,6 +318,35 @@ await db.transaction(async (tx) => {
 
 // The postgres.js instance is always available for raw SQL.
 const rows = await db.sql`select * from users where id = ${id}`;
+
+// Raw prepared statement, reusing postgres.js named preparation.
+const findUser = db.prepare<{ id: number; email: string }>(
+  "select id, email from users where id = $1"
+);
+const prepared = await findUser([id]);
+```
+
+`db.batch` is always one postgres.js batch: one round trip, one implicit
+transaction. Pass pending queries directly, or return them synchronously from a
+callback:
+
+```ts
+const [updated, count] = await db.batch((tx) => [
+  tx.sql`update users set status = ${status} where id = ${id}`,
+  tx.sql`select count(*)::int as count from users`,
+]);
+```
+
+Use `db.transaction(async (tx) => ...)` when you need sequential statements that
+depend on earlier results.
+
+`batchSQL` is the typed statement wrapper for the same true batch path:
+
+```ts
+const [updated, count] = await db.batchSQL([
+  { text: "update users set status = $1 where id = $2", parameters: ["active", id] },
+  { text: "select count(*)::int as count from users" },
+]);
 ```
 
 ## Relations
@@ -253,6 +356,8 @@ const PostSchema = z.object({
   id: z.number(),
   user_id: z.number(),
   title: z.string(),
+  published: z.boolean(),
+  created_at: z.date(),
 });
 
 const users = db.table("users", UserSchema, {
@@ -278,8 +383,106 @@ const rows = await users
 Includes are read-only and supported on `find*` methods. Refinements can be
 declarative (`{ where, orderBy, take, select }`) or a callback.
 `withCount` accepts the same refinement, and `whereRelated` / `whereMissing` /
-`whereEvery` filter parents by related rows. Use `db.sql` for nested includes,
-many-to-many relations, and relation writes.
+`whereEvery` filter parents by related rows.
+
+Many-to-many relations use a junction table:
+
+```ts
+const posts = db.table("posts", PostSchema, {
+  relations: {
+    tags: {
+      table: "tags",
+      schema: TagSchema,
+      localKey: "id",
+      relation: "many",
+      through: {
+        table: "post_tags",
+        parentKey: "post_id",
+        relatedKey: "tag_id",
+        targetKey: "id",
+      },
+    },
+  },
+});
+
+const tagged = await posts.include("tags").withCount("tags").findMany();
+```
+
+Through relations support the same `include` refinement, `withCount`, and
+`whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
+Relation configs accept `columnMap` and `columnCodecs` for the related table;
+they apply to includes, counts, and `whereRelated`/`whereMissing`/`whereEvery`
+filters.
+
+Per-relation aggregates are available with `withAggregate`:
+
+```ts
+const rows = await users
+  .withAggregate("orders", {
+    count: true,
+    sum: ["total_cents"],
+    avg: ["total_cents"],
+    min: ["total_cents"],
+    max: ["total_cents"],
+  })
+  .findMany();
+// orders_count, orders_sum_total_cents, orders_avg_total_cents, ...
+```
+
+`withAggregate` accepts the same refinement callback as `withCount`; aggregate
+refinements use only `where`. It is a terminal query, so apply `where`/`orderBy`
+before calling it.
+
+Order parent rows by a related aggregate:
+
+```ts
+const usersByPosts = await users
+  .orderByRelated("posts", { aggregate: "count", direction: "DESC" })
+  .findMany();
+
+const usersBySpend = await users
+  .orderByRelated("orders", {
+    aggregate: "sum",
+    column: "total_cents",
+    direction: "DESC",
+  })
+  .findMany();
+```
+
+`orderByRelated` supports `count`, `sum`, `avg`, `min`, and `max`, for direct
+and through relations.
+
+Nested relations are declared on the relation config and load automatically
+when the parent relation is included:
+
+```ts
+const users = db.table("users", UserSchema, {
+  relations: {
+    posts: {
+      table: "posts",
+      schema: PostSchema,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+      relations: {
+        comments: {
+          table: "comments",
+          schema: CommentSchema,
+          localKey: "id",
+          foreignKey: "post_id",
+          relation: "many",
+        },
+      },
+    },
+  },
+});
+
+const rows = await users.include("posts").findMany();
+// rows[0].posts[0].comments
+```
+
+Child relations can use either direct foreign keys or `through` junctions. Use
+`db.sql` for relation writes.
 
 ## Counts and aggregates
 
@@ -298,12 +501,57 @@ const updated = await users
   .update({ status: "active" }, { returning: false });
 ```
 
+## Query inspection
+
+Inspect the current `SELECT` builder without executing it:
+
+```ts
+const { text, parameters } = users
+  .where({ status: "active" })
+  .orderBy([{ column: "id", direction: "DESC" }])
+  .take(5)
+  .toSQL();
+
+// text: SELECT ... WHERE ... ORDER BY ... LIMIT $2
+// parameters: ["active", 5]
+```
+
+`toSQL()` covers SELECT builders, including `selectExpr`; mutations and frozen
+queries are still executed immediately at their terminal call.
+
+`prepare()` builds a reusable prepared SELECT executor from the current builder.
+Parameters are fixed to that builder state; build another executor to reuse the
+same plan with different values:
+
+```ts
+const findActive = users.where({ status: "active" }).prepare();
+const first = await findActive();
+const second = await findActive();
+```
+
+## Streaming and cancellation
+
+```ts
+const controller = new AbortController();
+
+for await (const batch of users
+  .where({ status: "active" })
+  .signal(controller.signal)
+  .stream(100)) {
+  // batch is an array of rows
+}
+```
+
+`stream(batchSize)` returns batches from the base SELECT. Relation includes are
+not hydrated on streamed rows; use `findMany()` when you need relations.
+`signal()` also applies to normal SELECT execution.
+
 ## Row locking
 
 ```ts
 await db.transaction(async (tx) => {
   const rows = await tx
-    .table<User>("users")
+    .table("users", UserSchema)
     .where({ status: "pending" })
     .for("update", { skipLocked: true })
     .take(10)
@@ -320,12 +568,23 @@ with `skipLocked` or `noWait`.
 const rows = await users
   .where({ status: "active" })
   .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
-  .having(sql`count(*) > 1`)
+  .having({ count: { gt: 1 } })
   .orderBy([{ column: "status", direction: "ASC" }])
   .findMany();
 ```
 
-`having` is raw SQL; cast aggregates such as `count(*)::int` for JS numbers.
+`having` accepts aggregate conditions (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`)
+or a raw SQL fragment. Group by expressions with `groupByExpr`:
+
+```ts
+const byDomain = await users
+  .groupByExpr(
+    { domain: sqlExpr<string>(sql`split_part(email, '@', 2)`) },
+    { count: sqlExpr<number>(sql`count(*)::int`) }
+  )
+  .having({ count: { gt: 1 } })
+  .findMany();
+```
 
 ## Errors
 
@@ -354,48 +613,126 @@ Available helpers: `isUniqueViolation`, `isForeignKeyViolation`, `isNotNullViola
 
 - Values are always sent as bound parameters and identifiers are escaped by postgres.js, so user-supplied values cannot break out of SQL.
 - `create`, `createMany` and `update` treat **every non-`undefined` key** of the payload as a column. Never pass an unvalidated request body: an attacker could set columns such as `role` or `is_admin`. Use a Zod schema (which strips unknown keys by default), a `z.strictObject` schema, or the `allowedColumns` option to enforce a write allowlist.
-- With a plain `Table`, treat column names given to `select` and `orderBy` as developer-controlled, not user input. `ZodTable` validates them against the schema at runtime.
+- `select`/`orderBy` column names are validated against the schema at runtime; still treat dynamic column names as developer-controlled input.
 - `take()` is capped at 10,000 rows by default; raise or lower it with the `maxTake` option.
 - Schema-qualified (dotted) table and column names are rejected unless `allowSchema: true` is set.
 
 ## Joins
 
-Narrow joins nest the right row:
+Narrow joins nest each right row:
 
 ```ts
-const rows = await db
-  .table<User>("users")
-  .innerJoin("posts", {
-    columns: ["id", "user_id", "title"],
-    on: sql`"posts"."user_id" = "users"."id"`,
-  })
+const rows = await users
+  .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+  .leftJoin("comments", CommentSchema, sql`"comments"."post_id" = "posts"."id"`)
   .findMany();
 
 // rows[0].posts.title
+// rows[0].comments?.body
 ```
 
-With a Zod table, pass the schema: `users.innerJoin("posts", PostSchema, on)`.
-`leftJoin` returns `posts: {...} | null`. Use `whereRaw`/`orderByRaw` with
-qualified columns when names are ambiguous. This is a single-table join;
-multiple joins and aliases are not modeled yet.
-
-## Column mapping
-
-pgbuddy passes identifiers through postgres.js, so use its `transform` for
-camelCase fields over snake_case columns:
+`leftJoin` returns `comments: {...} | null`. Joins can be chained, and each
+right-side table can have an alias:
 
 ```ts
-const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
+const managers = await users
+  .innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+    table: "users",
+    alias: "manager",
+  })
+  .findMany();
 
-const UserSchema = z.object({
-  id: z.number(),
-  fullName: z.string(),
-  createdAt: z.date(),
+// managers[0].manager.name
+```
+
+The alias defaults to the join name, and the table defaults to the join name.
+Use a distinct alias when joining the left table to itself. Right-side joins
+accept `columnMap` and `columnCodecs`:
+
+```ts
+await users.innerJoin("posts", PostSchema, on, {
+  columnMap: { headline: "title" },
+  columnCodecs: { headline: { decode: (value) => String(value) } },
 });
 ```
 
-`fullName` maps to `full_name` across inserts, filters, ordering, projections,
-aggregates, and results.
+Use `whereRaw`/`orderByRaw` with qualified columns when names are ambiguous.
+Narrow joins are supported; a general join tree is not.
+
+## Column mapping
+
+Map schema fields to database columns per table:
+
+```ts
+const users = db.table("users", UserSchema, {
+  columnMap: {
+    fullName: "full_name",
+    createdAt: "created_at",
+  },
+});
+```
+
+Result keys stay in schema form (`fullName`, `createdAt`). The map applies to
+projections, inserts, updates, upserts, filters, ordering, distinct, cursors,
+aggregates, and grouped queries. The client-level `columnMap` sets a default
+for every table.
+
+For a whole connection with consistent camelCase/snake_case naming, postgres.js
+transforms remain an alternative:
+
+```ts
+const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
+```
+
+Add per-field encode/decode hooks for custom database representations:
+
+```ts
+const products = db.table("products", ProductSchema, {
+  columnMap: { price: "price_cents" },
+  columnCodecs: {
+    price: {
+      encode: (value) => Math.round(Number(value) * 100),
+      decode: (value) => Number(value) / 100,
+    },
+    metadata: {
+      encode: (value) => JSON.stringify(value),
+      decode: (value) => JSON.parse(String(value)),
+    },
+  },
+});
+```
+
+Codecs apply to write payloads, filter values, cursors, and decoded result rows.
+SQL-fragment values bypass encoding. Relation configs and right-side join options
+accept their own `columnCodecs`; relation-loaded child rows use them.
+
+`columnMap` and `columnCodecs` are independent; use one or both.
+
+## SQL write helpers
+
+Use these when the source or join is SQL rather than a JS payload:
+
+```ts
+// INSERT ... SELECT
+await users.insertFrom(
+  sql`SELECT id, email, full_name, status, deleted_at, created_at FROM staging_users`,
+  { columns: ["id", "email", "full_name", "status", "deleted_at", "created_at"] }
+);
+
+// UPDATE ... FROM
+await products
+  .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+  .updateFrom({ price_cents: sql`"price_overrides"."price_cents"` }, sql`price_overrides`);
+
+// DELETE ... USING
+await priceOverrides
+  .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+  .deleteUsing(sql`products`);
+```
+
+`updateFrom` and `deleteUsing` require existing where conditions. The SELECT,
+FROM, and USING fragments are raw SQL; identifiers are still escaped by
+postgres.js.
 
 ## Kitchen sink
 
@@ -405,44 +742,81 @@ See [docs/kitchen-sink.md](docs/kitchen-sink.md) for the walkthrough.
 
 ## Remaining TODOs
 
-### Query surface
+This is a priority order, not a release commitment. The guiding rule is to
+remove the most common reasons to drop to raw SQL without turning pgbuddy into
+a schema toolkit or a full SQL AST.
 
-- [ ] Multiple joins, table aliases, and self-joins (single `innerJoin`/`leftJoin` exists).
-- [ ] CTEs, set operations (`UNION`/`INTERSECT`/`EXCEPT`), and typed window functions.
-- [ ] `UPDATE … FROM`, `DELETE … USING`, and `INSERT … SELECT`.
-- [ ] Expression columns in `groupBy`; typed `HAVING`.
+### P0 — do next
 
-### Relations
+- [x] **Join v2: multiple joins, aliases, and self-joins.** Implemented with
+  chained narrow joins and schema-aware `ZodJoinQuery`.
+- [x] **Many-to-many/through relations.** Junction tables are declared with
+  `through` and support includes, counts, and relation filters.
+- [x] **Nested includes** (`posts.comments`). Declared child relations load
+  recursively with deep result types. Cyclic relation configs are rejected.
+- [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
+  loader now lives in `src/relations.ts`.
+- [x] **Real-PostgreSQL CI service job.** The hosted PostgreSQL 16 matrix
+  passes on postgres.js 4.1.1
+  ([run 45742549477](https://github.com/kiranojhanp/pgbuddy/actions/runs/45742549477)).
 
-- [ ] Many-to-many / through relations.
-- [ ] Nested includes (`posts.comments`).
-- [ ] Relation ordering and per-relation aggregates beyond `withCount`.
-- [ ] Relation writes (`connect`/`create`/`update` graphs).
+### P1 — high value, moderate effort
 
-### Query lifecycle
+- [x] **Per-column name mapping.** `columnMap` maps schema fields to database
+  columns across reads, writes, filters, ordering, aggregates, and grouping.
+- [x] **Per-column custom serialization.** `columnCodecs` provides per-field
+  encode/decode hooks for writes, filters, cursors, and result rows.
+- [x] **Validator adapter.** One `ValidatorAdapter` is configured on the
+  connection; `db.table` uses it for every table, including adapter relations.
+- [x] **Per-relation aggregates.** `withAggregate` supports count/sum/avg/min/max
+  for direct and through relations, with an optional `where` refinement.
+- [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
+  related aggregate.
+- [x] **True batch callback.** `db.batch((tx) => [pending queries])` builds one
+  `sql.batch` round trip and rolls back on failure.
+- [x] **`toSQL()` inspection** for SELECT builders, including computed
+  projections.
+- [x] **Raw prepared statements.** `db.prepare(text)` returns a reusable
+  executor using postgres.js named preparation.
+- [x] **Builder-level prepared SELECT plans.** `Table.prepare()` returns a
+  reusable executor with fixed parameters.
+- [x] **True protocol batch.** `db.batch([pending queries])` and `db.batchSQL`
+  use postgres.js `sql.batch` for one round trip.
 
-- [ ] Prepared statements and placeholders.
-- [ ] True batch API and `toSQL()` inspection.
-- [ ] Query cancellation / streaming access.
+### P2 — useful, but raw SQL is acceptable
 
-### Mapping and schema
+- [x] **Expression columns in `groupBy`.** `groupByExpr({ alias: sqlExpr(...) })`
+  groups by raw SQL expressions.
+- [x] **Typed `HAVING`.** `GroupedQuery.having()` accepts aggregate conditions such
+  as `{ count: { gt: 1 } }`; raw fragments still work.
+- [x] **`INSERT … SELECT`.** `insertFrom(select, { columns, returning })`.
+- [x] **`UPDATE … FROM` / `DELETE … USING`.** `updateFrom(data, from)` and
+  `deleteUsing(using)` require existing where conditions.
+- [x] **SELECT cancellation and streaming.** `signal(abortSignal)` and
+  `stream(batchSize)` cover the base SELECT path; relation hydration is not
+  streamed.
 
-- [ ] Per-column name mapping and custom serialization (`mapWith`/`$type` equivalents).
-- [ ] Views, enums, domains, RLS, generated columns, and constraints as metadata.
-- [ ] Migrations, introspection, and code generation.
+### P3 — out of scope / use raw SQL
 
-### Structure and verification
+- CTEs, set operations (`UNION`/`INTERSECT`/`EXCEPT`), and typed window
+  functions.
+- Views, enums, domains, RLS, generated columns, and constraints as schema
+  metadata.
+- Migrations, introspection, and code generation.
+- Relation writes (`connect`/`create`/`update` graphs).
+- Multi-dialect support (Postgres-only by design).
 
-- [ ] Split the relation runtime out of `src/zod-table.ts`.
-- [ ] Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.
+### Recommended next
 
-Not planned: multi-dialect support (Postgres-only by design).
+P2 is complete. Remaining work is P3/out of scope: CTEs, set operations, typed
+window functions, schema metadata, migrations/introspection, relation writes,
+and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 
 ## Compatibility
 
-- **postgres.js v3 (>= 3.4.5) and v4** are supported. CI runs the full test suite against both `3.4.5` and `4.1.1`.
-- pgbuddy imports postgres.js **types only**, so your postgres.js major version does not affect pgbuddy's runtime or module format.
-- postgres.js v4 lets the server decide parameter types, which changes some `Date` / `bigint` / array behaviour compared with v3. See [Upgrading from v3](https://github.com/porsager/postgres#upgrading-from-v3).
+- **Zod v4 or newer is required.**
+- **postgres.js v4** is required. CI runs the full suite against `4.1.1` on PGlite and a real PostgreSQL 16 service.
+- pgbuddy imports postgres.js **types only**, so pgbuddy stays runtime-agnostic apart from the driver's query objects.
 
 ## Documentation
 

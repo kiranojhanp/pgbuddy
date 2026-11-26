@@ -2,6 +2,7 @@ import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "../errors";
 import { getPredicateNode, isPredicate, type Predicate, type WhereInput } from "../predicates";
 import type {
+  ColumnCodecs,
   LikePattern,
   SelectKeys,
   SortSpec,
@@ -11,7 +12,17 @@ import type {
 } from "../types";
 import { isValidIdentifier, isValidName } from "./validators";
 
-type NameOptions = { strictNames?: boolean; allowSchema?: boolean };
+type NameOptions = {
+  strictNames?: boolean;
+  allowSchema?: boolean;
+  columnMap?: Readonly<Record<string, string>>;
+  columnCodecs?: ColumnCodecs;
+};
+
+function encodeValue(field: string, value: unknown, options?: NameOptions): unknown {
+  const encode = options?.columnCodecs?.[field]?.encode;
+  return encode ? encode(value) : value;
+}
 type IdentifierKind = "select" | "where";
 
 function normalizeIdentifier(
@@ -43,7 +54,7 @@ function normalizeIdentifier(
     throw new QueryError(msg, { code: kind === "where" ? "INVALID_WHERE" : "INVALID_COLUMNS" });
   }
 
-  return trimmed;
+  return options?.columnMap?.[trimmed] ?? trimmed;
 }
 
 /**
@@ -185,7 +196,8 @@ function buildPredicate<T extends Row>(
         });
       }
       const field = normalizeIdentifier(node.field, options, "where");
-      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${node.value}`;
+      const value = encodeValue(node.field, node.value, options);
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${value}`;
     }
 
     case "in": {
@@ -193,9 +205,10 @@ function buildPredicate<T extends Row>(
         throw new QueryError(Errors.WHERE.INVALID_IN(node.field), { code: "INVALID_WHERE" });
       }
       const field = normalizeIdentifier(node.field, options, "where");
+      const values = node.values.map((value) => encodeValue(node.field, value, options));
       return node.negated
-        ? sql`${sql(field)} <> ALL(${node.values})`
-        : sql`${sql(field)} = ANY(${node.values})`;
+        ? sql`${sql(field)} <> ALL(${values})`
+        : sql`${sql(field)} = ANY(${values})`;
     }
 
     case "null": {
@@ -205,12 +218,17 @@ function buildPredicate<T extends Row>(
 
     case "like": {
       const field = normalizeIdentifier(node.field, options, "where");
-      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${node.value}`;
+      const value = encodeValue(node.field, node.value, options);
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${value}`;
     }
 
     case "stringPattern": {
       const field = normalizeIdentifier(node.field, options, "where");
-      const escaped = escapeLikeValue(node.value);
+      const encoded = encodeValue(node.field, node.value, options);
+      if (typeof encoded !== "string") {
+        throw new QueryError(Errors.WHERE.INVALID_LIKE(node.field), { code: "INVALID_WHERE" });
+      }
+      const escaped = escapeLikeValue(encoded);
       const pattern = getLikePattern(escaped, node.pattern);
       return sql`${sql(field)} LIKE ${pattern}`;
     }
@@ -228,7 +246,9 @@ function buildPredicate<T extends Row>(
       }
       const field = normalizeIdentifier(node.field, options, "where");
       const operator = node.negated ? sql`NOT BETWEEN` : sql`BETWEEN`;
-      return sql`${sql(field)} ${operator} ${node.low} AND ${node.high}`;
+      const low = encodeValue(node.field, node.low, options);
+      const high = encodeValue(node.field, node.high, options);
+      return sql`${sql(field)} ${operator} ${low} AND ${high}`;
     }
 
     case "and":
@@ -273,8 +293,11 @@ function simpleWhereExpression<T extends Row>(
     if (value === undefined) {
       throw new QueryError(Errors.WHERE.UNDEFINED_VALUE(key), { code: "INVALID_WHERE" });
     }
+    const encoded = value === null ? value : encodeValue(key, value, options);
     const condition =
-      value === null ? sql`${sql(normalizedKey)} IS NULL` : sql`${sql(normalizedKey)} = ${value}`;
+      encoded === null
+        ? sql`${sql(normalizedKey)} IS NULL`
+        : sql`${sql(normalizedKey)} = ${encoded}`;
 
     return index === 0 ? condition : sql`${acc} AND ${condition}`;
   }, sql``);
@@ -292,7 +315,9 @@ function advancedWhereExpression<T extends Row>(
       normalizedField,
       condition.operator,
       condition.value,
-      "pattern" in condition ? condition.pattern : undefined
+      "pattern" in condition ? condition.pattern : undefined,
+      options,
+      String(condition.field)
     );
 
     return index === 0 ? fragment : sql`${acc} AND ${fragment}`;
@@ -379,7 +404,9 @@ export function createConditionFragment(
   field: string,
   operator: SqlOperator,
   value: unknown,
-  pattern?: LikePattern
+  pattern?: LikePattern,
+  options?: NameOptions,
+  sourceField?: string
 ): SqlFragment {
   if (operator === "IS NULL") {
     return sql`${sql(field)} IS NULL`;
@@ -393,22 +420,27 @@ export function createConditionFragment(
     if (!Array.isArray(value) || !value.length) {
       throw new QueryError(Errors.WHERE.INVALID_IN(field), { code: "INVALID_WHERE" });
     }
-    return sql`${sql(field)} = ANY(${value})`;
+    const values = sourceField
+      ? value.map((entry) => encodeValue(sourceField, entry, options))
+      : value;
+    return sql`${sql(field)} = ANY(${values})`;
   }
+
+  const encoded = sourceField ? encodeValue(sourceField, value, options) : value;
 
   // LIKE operators
   if (operator === "LIKE" || operator === "ILIKE") {
-    return createLikeCondition(sql, field, operator, value, pattern);
+    return createLikeCondition(sql, field, operator, encoded, pattern);
   }
 
   // Comparison operators
   if (["=", "!=", ">", "<", ">=", "<="].includes(operator)) {
-    if (value == null) {
+    if (encoded == null) {
       throw new QueryError(Errors.WHERE.INVALID_COMPARISON(field, operator), {
         code: "INVALID_WHERE",
       });
     }
-    return sql`${sql(field)} ${sql.unsafe(operator)} ${value}`;
+    return sql`${sql(field)} ${sql.unsafe(operator)} ${encoded}`;
   }
 
   throw new QueryError(Errors.WHERE.UNSUPPORTED_OPERATOR(field, operator), {

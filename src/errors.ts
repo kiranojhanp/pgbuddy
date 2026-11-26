@@ -18,11 +18,14 @@ function safeName(value: string): string {
 export const Errors = {
   TABLE: {
     INVALID_NAME: "Invalid table name",
+    INVALID_SCHEMA: "table() requires a Zod schema",
     INVALID_COLUMNS: "columns must be a non-empty array of column names",
     INVALID_ALLOWED_COLUMNS: "allowedColumns must be an array of column names",
     INVALID_MAX_TAKE: "maxTake must be a positive integer",
     INVALID_DEFAULT_TAKE: "defaultTake must be a positive integer and <= maxTake",
     INVALID_UNIQUE: "unique must be an array of non-empty column lists",
+    INVALID_COLUMN_MAP: "columnMap must map schema fields to unique database columns",
+    INVALID_COLUMN_CODECS: "columnCodecs must contain encode/decode functions for schema fields",
   },
   QUERY: {
     NOT_UNIQUE: "Expected at most one record but found multiple",
@@ -88,7 +91,7 @@ export const Errors = {
  * @example
  * ```typescript
  * try {
- *   const users = db.table<User>("");  // Empty table name
+ *   const users = db.table("", UserSchema);  // Empty table name
  * } catch (error) {
  *   if (error instanceof TableError) {
  *     console.error("Table error:", error.message);

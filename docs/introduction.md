@@ -33,8 +33,11 @@ PgBuddy defaults to Zod: you define the shape in code, the database is expected 
 npm install pgbuddy postgres zod
 ```
 
-Zod is optional if you use the plain `Table` API. Both postgres.js v3
-(`>= 3.4.5`) and v4 are supported; the test suite runs against both majors.
+Zod is the default: schema-backed table builders are created from a Zod schema,
+so writes are validated before they reach PostgreSQL. Configure one
+`ValidatorAdapter` on the client (`new PgBuddyClient(sql, { adapter })`) to use
+Valibot, Yup, or a custom library for every table. postgres.js **v4** is
+required; the test suite runs against `4.1.1`.
 
 ### Quick start
 
@@ -56,29 +59,18 @@ const UserSchema = z.object({
 const users = db.table("users", UserSchema);
 ```
 
-### Without Zod
+### Why validation is required
 
-If you want to skip runtime validation, provide TypeScript types directly.
+pgbuddy is a validation-first helper. Plain TypeScript types disappear at
+runtime, so a table built from an interface alone cannot reject unknown columns,
+wrong value types, or malformed input. Every `db.table()` therefore requires a
+schema. Zod is the default and strips unknown keys with `z.object`; use
+`z.strictObject` to reject them.
 
-```typescript
-import postgres from "postgres";
-import { PgBuddyClient, Insertable } from "pgbuddy";
-
-const sql = postgres(process.env.DATABASE_URL);
-const db = new PgBuddyClient(sql);
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-type UserInsert = Insertable<User, "id">;
-
-const users = db.table<User, UserInsert>("users");
-```
-
-Tip: use [Kanel](https://github.com/kristiandupont/kanel) to generate TypeScript interfaces from a live database schema.
+Zod is required for Zod tables, relations, joins, and computed features. A
+connection-level `ValidatorAdapter` supports Valibot, Yup, or a custom library
+for core CRUD and adapter relations. Plain TypeScript-only tables are
+intentionally not supported.
 
 ### Using the chainable API
 

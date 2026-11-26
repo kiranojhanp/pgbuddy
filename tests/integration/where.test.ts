@@ -1,13 +1,7 @@
 import type { Sql } from "postgres";
 import { PgBuddyClient } from "../../src";
 import { startPglite } from "../helpers/pglite";
-
-interface User {
-  id: number;
-  email: string;
-  status: "active" | "inactive";
-  last_login: Date | null;
-}
+import { UserSchema } from "../helpers/schemas";
 
 describe("Table - where operators", () => {
   let sql: Sql<Record<string, unknown>>;
@@ -49,7 +43,7 @@ describe("Table - where operators", () => {
 
   test("ILIKE contains matches case-insensitively", async () => {
     const users = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where([{ field: "email", operator: "ILIKE", value: "EXAMPLE.COM", pattern: "contains" }])
       .findMany();
 
@@ -58,7 +52,7 @@ describe("Table - where operators", () => {
 
   test("IN filters by list of values", async () => {
     const users = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where([{ field: "email", operator: "IN", value: ["ada@example.com", "linus@corp.com"] }])
       .findMany();
 
@@ -67,7 +61,7 @@ describe("Table - where operators", () => {
 
   test("IS NULL matches null fields", async () => {
     const users = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where([{ field: "last_login", operator: "IS NULL" }])
       .findMany();
 
@@ -76,7 +70,7 @@ describe("Table - where operators", () => {
 
   test("IS NOT NULL matches non-null fields", async () => {
     const users = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where([{ field: "last_login", operator: "IS NOT NULL" }])
       .findMany();
 
@@ -84,7 +78,7 @@ describe("Table - where operators", () => {
   });
 
   test("simple equality filter", async () => {
-    const users = await db.table<User>("users").where({ status: "inactive" }).findMany();
+    const users = await db.table("users", UserSchema).where({ status: "inactive" }).findMany();
 
     expect(users).toHaveLength(1);
     expect(users[0].email).toBe("linus@corp.com");

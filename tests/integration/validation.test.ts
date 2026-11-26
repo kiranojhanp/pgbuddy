@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { Errors, PgBuddyClient, QueryError, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
+import { UserSchema } from "../helpers/schemas";
 
 interface User {
   id: number;
@@ -41,62 +42,62 @@ describe("Table - validation", () => {
   });
 
   test("table name validation rejects blank strings", () => {
-    expect(() => db.table<User>(" ")).toThrow(TableError);
+    expect(() => db.table(" ", UserSchema)).toThrow(TableError);
   });
 
   test("strict table name validation rejects invalid identifiers", () => {
-    expect(() => db.table<User>("users", { strictNames: true })).not.toThrow();
-    expect(() => db.table<User>("user-profiles", { strictNames: true })).toThrow(TableError);
-    expect(() => db.table<User>("public.users", { strictNames: true })).toThrow(TableError);
+    expect(() => db.table("users", UserSchema, { strictNames: true })).not.toThrow();
+    expect(() => db.table("user-profiles", UserSchema, { strictNames: true })).toThrow(TableError);
+    expect(() => db.table("public.users", UserSchema, { strictNames: true })).toThrow(TableError);
     expect(() =>
-      db.table<User>("public.users", { strictNames: true, allowSchema: true })
+      db.table("public.users", UserSchema, { strictNames: true, allowSchema: true })
     ).not.toThrow();
   });
 
   test("skip rejects negative values", () => {
-    expect(() => db.table<User>("users").skip(-1)).toThrow(QueryError);
+    expect(() => db.table("users", UserSchema).skip(-1)).toThrow(QueryError);
   });
 
   test("take rejects zero and negative values", () => {
-    expect(() => db.table<User>("users").take(0)).toThrow(QueryError);
-    expect(() => db.table<User>("users").take(-5)).toThrow(QueryError);
+    expect(() => db.table("users", UserSchema).take(0)).toThrow(QueryError);
+    expect(() => db.table("users", UserSchema).take(-5)).toThrow(QueryError);
   });
 
   test("create rejects empty data object", async () => {
-    await expect(db.table<User>("users").create({} as unknown as User)).rejects.toThrow(
-      Errors.INSERT.INVALID_DATA
+    await expect(db.table("users", UserSchema).create({} as unknown as User)).rejects.toMatchObject(
+      { code: "INVALID_DATA" }
     );
   });
 
   test("create rejects non-plain objects", async () => {
-    await expect(db.table<User>("users").create([] as unknown as User)).rejects.toThrow(
-      Errors.INSERT.INVALID_DATA
+    await expect(db.table("users", UserSchema).create([] as unknown as User)).rejects.toMatchObject(
+      { code: "INVALID_DATA" }
     );
 
-    await expect(db.table<User>("users").create(new Date() as unknown as User)).rejects.toThrow(
-      Errors.INSERT.INVALID_DATA
-    );
+    await expect(
+      db.table("users", UserSchema).create(new Date() as unknown as User)
+    ).rejects.toMatchObject({ code: "INVALID_DATA" });
   });
 
   test("createMany rejects empty array", async () => {
-    await expect(db.table<User>("users").createMany([] as User[])).rejects.toThrow(
+    await expect(db.table("users", UserSchema).createMany([] as User[])).rejects.toThrow(
       Errors.INSERT.INVALID_DATA
     );
   });
 
-  test("createMany rejects inconsistent columns", async () => {
+  test("createMany validates every record", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         .createMany([
           { id: 1001, email: "ada@example.com", status: "active", last_login: null },
           { id: 1002, email: "grace@example.com", last_login: null } as unknown as User,
         ])
-    ).rejects.toThrow(Errors.INSERT.INCONSISTENT_COLUMNS);
+    ).rejects.toMatchObject({ code: "INVALID_DATA" });
   });
 
   test("update rejects missing where clause", async () => {
-    await expect(db.table<User>("users").update({ status: "active" })).rejects.toThrow(
+    await expect(db.table("users", UserSchema).update({ status: "active" })).rejects.toThrow(
       Errors.UPDATE.NO_CONDITIONS
     );
   });
@@ -104,7 +105,7 @@ describe("Table - validation", () => {
   test("update rejects empty data object", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         .where({ email: "ada@example.com" })
         .update({} as Partial<User>)
     ).rejects.toThrow(Errors.UPDATE.INVALID_DATA);
@@ -114,18 +115,20 @@ describe("Table - validation", () => {
     // biome-ignore lint/suspicious/noExplicitAny: intentional invalid input for negative test
     const invalidWhere = [] as unknown as any;
     await expect(
-      db.table<User>("users").where(invalidWhere).update({ status: "active" })
+      db.table("users", UserSchema).where(invalidWhere).update({ status: "active" })
     ).rejects.toThrow(Errors.UPDATE.NO_CONDITIONS);
   });
 
   test("delete rejects missing where clause", async () => {
-    await expect(db.table<User>("users").delete()).rejects.toThrow(Errors.DELETE.NO_CONDITIONS);
+    await expect(db.table("users", UserSchema).delete()).rejects.toThrow(
+      Errors.DELETE.NO_CONDITIONS
+    );
   });
 
   test("delete rejects invalid where clause", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         // biome-ignore lint/suspicious/noExplicitAny: intentional invalid input for negative test
         .where([] as unknown as any)
         .delete()
@@ -135,15 +138,13 @@ describe("Table - validation", () => {
   test("select rejects invalid column names", async () => {
     await sql`INSERT INTO users (email, status, last_login) VALUES ('ada@example.com', 'active', NULL);`;
 
-    await expect(
-      db
-        .table<User>("users")
-        .select([""] as unknown as Array<keyof User>)
-        .findMany()
-    ).rejects.toThrow(Errors.SELECT.INVALID_COLUMNS(""));
+    expect(() =>
+      db.table("users", UserSchema).select([""] as unknown as Array<keyof User>)
+    ).toThrow(QueryError);
   });
 
-  test("tableWithInsert returns a usable table", () => {
-    expect(() => db.tableWithInsert<User, "id">("users")).not.toThrow();
+  test("table requires a schema and returns a usable table", () => {
+    expect(() => db.table("users", UserSchema)).not.toThrow();
+    expect(() => (db.table as unknown as (name: string) => unknown)("users")).toThrow(TableError);
   });
 });

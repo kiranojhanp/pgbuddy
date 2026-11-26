@@ -8,10 +8,21 @@ import {
   rawPredicate,
   type WhereInput,
 } from "./predicates";
-import type { GroupedQuery, JoinQuery, Table } from "./table";
+import {
+  type AggregateSpec,
+  type CountSpec,
+  type IncludeSpec,
+  type NormalizedRelation,
+  type NormalizedThrough,
+  RelationLoader,
+  type RelationRefinement,
+} from "./relations";
+import type { GroupedExprQuery, GroupedQuery, JoinQuery, Table } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnCodecs,
+  ColumnMap,
   ComputedMap,
   ComputedOptions,
   ComputedResult,
@@ -24,13 +35,13 @@ import type {
   SortSpec,
   SqlExpression,
   SqlFragment,
+  UpdateData,
   UpsertOptions,
   WhereCondition,
 } from "./types";
 import {
   buildWhereExpression,
   buildWhereInputs,
-  createSortFragment,
   isPlainObject,
   isValidIdentifier,
   isValidName,
@@ -45,10 +56,6 @@ type ZodLikeType = { safeParse: (value: unknown) => ZodParseResult };
 type ZodShape = Record<string, ZodLikeType>;
 
 /** Reserved aliases used by the batched relation queries. */
-const RELATION_ROW_NUMBER = "__pgbuddy_relation_row_number";
-const RELATION_COUNT = "__pgbuddy_relation_count";
-const RELATION_SUBQUERY = "__pgbuddy_relation";
-
 function formatIssues(issues: ZodIssue[]): string {
   return issues
     .map((issue) => {
@@ -56,6 +63,16 @@ function formatIssues(issues: ZodIssue[]): string {
       return `${path}: ${issue.message}`;
     })
     .join("; ");
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return (
+    typeof value === "function" ||
+    (typeof value === "object" &&
+      value !== null &&
+      Array.isArray((value as { strings?: unknown }).strings) &&
+      Array.isArray((value as { args?: unknown }).args))
+  );
 }
 
 function invalidDataError(context: string, issues: ZodIssue[]): QueryError {
@@ -286,6 +303,18 @@ function normalizeRelationKeys(value: unknown, context: string): string[] {
   });
 }
 
+/** Junction-table configuration for a many-to-many relation. */
+export type ZodThroughConfig = {
+  /** Junction table name. */
+  table: string;
+  /** Junction column(s) that reference the parent `localKey`. */
+  parentKey: string | readonly string[];
+  /** Junction column(s) that reference the related `targetKey`. */
+  relatedKey: string | readonly string[];
+  /** Related-table column(s) being referenced. Defaults to `"id"`. */
+  targetKey?: string | readonly string[];
+};
+
 /** A relation declared in the table's `relations` option. */
 export type ZodRelationConfig = {
   /** Table name of the related records. */
@@ -293,26 +322,30 @@ export type ZodRelationConfig = {
   /** Column(s) on this table used to look up related rows. */
   localKey: string | readonly string[];
   /** Column(s) on the related table that reference `localKey`. */
-  foreignKey: string | readonly string[];
+  foreignKey?: string | readonly string[];
+  /** Many-to-many junction configuration. Mutually exclusive with `foreignKey`. */
+  through?: ZodThroughConfig;
   /** "one" returns a record or null; "many" returns an array. */
   relation: "one" | "many";
   /** Zod schema for the related rows (also determines default selected columns). */
   schema: ZodObject<ZodRawShape>;
+  /** Nested relations loaded automatically when this relation is included. */
+  relations?: ZodRelations;
+  /** Related-table schema field → database column map. */
+  columnMap?: ColumnMap;
+  /** Related-table per-field codecs. */
+  columnCodecs?: ColumnCodecs;
 };
 
 export type ZodRelations = Record<string, ZodRelationConfig>;
 
-type NormalizedRelation = {
-  config: ZodRelationConfig;
-  localKeys: readonly string[];
-  foreignKeys: readonly string[];
-};
-
 type RelationRow<C extends ZodRelationConfig> = ZodOutput<C["schema"]>;
 
-type RelationValue<C extends ZodRelationConfig> = C extends { relation: "one" }
-  ? RelationRow<C> | null
-  : RelationRow<C>[];
+type RelationChildren<C extends ZodRelationConfig> = C extends {
+  relations: infer CR extends ZodRelations;
+}
+  ? CR
+  : Record<never, never>;
 
 type EmptySelection = Record<never, never>;
 
@@ -328,9 +361,19 @@ type SelectedRelationRow<C extends ZodRelationConfig, Fields> = Fields extends r
       : PickFields<RelationRow<C>, Extract<Fields[number], keyof RelationRow<C> & string>[]>
   : RelationRow<C>;
 
+type SelectedRelationRowDeep<C extends ZodRelationConfig, Fields> = SelectedRelationRow<C, Fields> &
+  IncludedRelations<RelationChildren<C>, keyof RelationChildren<C>>;
+
+type RelationRowDeep<C extends ZodRelationConfig> = RelationRow<C> &
+  IncludedRelations<RelationChildren<C>, keyof RelationChildren<C>>;
+
+type RelationValue<C extends ZodRelationConfig> = C extends { relation: "one" }
+  ? RelationRowDeep<C> | null
+  : RelationRowDeep<C>[];
+
 type SelectedRelationValue<C extends ZodRelationConfig, Fields> = C extends { relation: "one" }
-  ? SelectedRelationRow<C, Fields> | null
-  : SelectedRelationRow<C, Fields>[];
+  ? SelectedRelationRowDeep<C, Fields> | null
+  : SelectedRelationRowDeep<C, Fields>[];
 
 export type IncludedRelations<
   R extends ZodRelations,
@@ -356,23 +399,6 @@ type WithRelationSelection<Sel, Name extends PropertyKey, Keys> = Omit<Sel, Name
   [P in Name]: Keys;
 };
 
-type RelationRefinement = {
-  whereInputs?: readonly WhereInput<Row>[];
-  orderBy?: readonly SortSpec<Row>[];
-  take?: number;
-  select?: readonly string[];
-};
-
-type IncludeSpec = {
-  name: string;
-  refinement?: RelationRefinement;
-};
-
-type CountSpec = {
-  name: string;
-  refinement?: RelationRefinement;
-};
-
 function normalizeCounts(counts: readonly (string | CountSpec)[] | undefined): CountSpec[] {
   return (counts ?? []).map((entry) => (typeof entry === "string" ? { name: entry } : entry));
 }
@@ -394,13 +420,93 @@ function normalizeIncludes(includes: readonly unknown[] | undefined): IncludeSpe
   });
 }
 
+/** Per-relation aggregate specification accepted by `withAggregate`. */
+export type RelationAggregate<C extends ZodRelationConfig> = {
+  count?: boolean;
+  sum?: readonly (keyof RelationRow<C> & string)[];
+  avg?: readonly (keyof RelationRow<C> & string)[];
+  min?: readonly (keyof RelationRow<C> & string)[];
+  max?: readonly (keyof RelationRow<C> & string)[];
+};
+
+/** Correlated related aggregate ordering accepted by `orderByRelated`. */
+export type RelatedOrder<C extends ZodRelationConfig> = {
+  aggregate: "count" | "sum" | "avg" | "min" | "max";
+  column?: keyof RelationRow<C> & string;
+  direction: "ASC" | "DESC";
+  nulls?: "first" | "last";
+};
+
+type AggregateColumnValue<C extends ZodRelationConfig, K> = K extends keyof RelationRow<C>
+  ? RelationRow<C>[K]
+  : never;
+
+type AggregateFields<
+  Name extends string,
+  C extends ZodRelationConfig,
+  Spec extends RelationAggregate<C>,
+> = (Spec["count"] extends true ? { [P in `${Name}_count`]: number } : Record<never, never>) &
+  (Spec["sum"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_sum_${K}`]: number | null }
+    : Record<never, never>) &
+  (Spec["avg"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_avg_${K}`]: number | null }
+    : Record<never, never>) &
+  (Spec["min"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_min_${K}`]: AggregateColumnValue<C, K> | null }
+    : Record<never, never>) &
+  (Spec["max"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_max_${K}`]: AggregateColumnValue<C, K> | null }
+    : Record<never, never>);
+
+function normalizeAggregate<C extends ZodRelationConfig>(
+  config: C,
+  raw: RelationAggregate<C>
+): AggregateSpec["aggregate"] {
+  if (!isPlainObject(raw)) {
+    throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+  }
+
+  const shape = config.schema.shape as unknown as ZodShape;
+  const normalized: AggregateSpec["aggregate"] = {};
+
+  if (raw.count !== undefined) {
+    if (typeof raw.count !== "boolean") {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+    if (raw.count) normalized.count = true;
+  }
+
+  for (const kind of ["sum", "avg", "min", "max"] as const) {
+    const columns = raw[kind];
+    if (columns === undefined) continue;
+    if (!Array.isArray(columns) || columns.some((column) => !Object.hasOwn(shape, column))) {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+    normalized[kind] = [...columns];
+  }
+
+  if (
+    !normalized.count &&
+    !normalized.sum?.length &&
+    !normalized.avg?.length &&
+    !normalized.min?.length &&
+    !normalized.max?.length
+  ) {
+    throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+  }
+
+  return normalized;
+}
+
 type NameOptions = { strictNames: boolean; allowSchema: boolean };
 
 function normalizeRelation<S extends ZodSchema>(
   name: string,
   raw: unknown,
   parentSchema: S,
-  nameOptions: NameOptions
+  nameOptions: NameOptions,
+  path: WeakSet<object>
 ): NormalizedRelation {
   const context = `Invalid relation ${JSON.stringify(name)}`;
 
@@ -411,6 +517,11 @@ function normalizeRelation<S extends ZodSchema>(
   if (!isPlainObject(raw)) {
     throw new TableError(`${context}: expected a relation configuration object`);
   }
+
+  if (path.has(raw)) {
+    throw new TableError(`${context}: cyclic relation configuration`);
+  }
+  path.add(raw);
 
   const table = raw.table;
   if (!isNonEmptyString(table)) {
@@ -432,26 +543,10 @@ function normalizeRelation<S extends ZodSchema>(
   }
 
   const localKeys = normalizeRelationKeys(raw.localKey, `${context}: "localKey"`);
-  const foreignKeys = normalizeRelationKeys(raw.foreignKey, `${context}: "foreignKey"`);
-
-  if (localKeys.length !== foreignKeys.length) {
-    throw new TableError(
-      `${context}: "localKey" and "foreignKey" must have the same number of columns`
-    );
-  }
 
   if (new Set(localKeys).size !== localKeys.length) {
     throw new TableError(`${context}: "localKey" must not contain duplicate columns`);
   }
-
-  if (new Set(foreignKeys).size !== foreignKeys.length) {
-    throw new TableError(`${context}: "foreignKey" must not contain duplicate columns`);
-  }
-
-  if (!isZodSchemaLike(raw.schema)) {
-    throw new TableError(`${context}: "schema" must be a Zod object schema`);
-  }
-  const relatedSchema = raw.schema;
 
   const parentShape = getShape(parentSchema);
   for (const key of localKeys) {
@@ -462,7 +557,162 @@ function normalizeRelation<S extends ZodSchema>(
     }
   }
 
+  if (!isZodSchemaLike(raw.schema)) {
+    throw new TableError(`${context}: "schema" must be a Zod object schema`);
+  }
+  const relatedSchema = raw.schema;
   const relatedShape = relatedSchema.shape as unknown as ZodShape;
+
+  if (raw.columnMap !== undefined) {
+    if (!isPlainObject(raw.columnMap)) {
+      throw new TableError(`${context}: "columnMap" must be an object`);
+    }
+    for (const [field, column] of Object.entries(raw.columnMap)) {
+      if (!Object.hasOwn(relatedShape, field) || typeof column !== "string" || !column.trim()) {
+        throw new TableError(`${context}: invalid "columnMap" entry`);
+      }
+    }
+  }
+  if (raw.columnCodecs !== undefined) {
+    if (!isPlainObject(raw.columnCodecs)) {
+      throw new TableError(`${context}: "columnCodecs" must be an object`);
+    }
+    for (const [field, codec] of Object.entries(raw.columnCodecs)) {
+      if (
+        !Object.hasOwn(relatedShape, field) ||
+        !isPlainObject(codec) ||
+        (codec.encode !== undefined && typeof codec.encode !== "function") ||
+        (codec.decode !== undefined && typeof codec.decode !== "function")
+      ) {
+        throw new TableError(`${context}: invalid "columnCodecs" entry`);
+      }
+    }
+  }
+
+  let childRelations: {
+    relations: ZodRelations;
+    info: Map<string, NormalizedRelation>;
+  };
+  try {
+    childRelations =
+      raw.relations === undefined
+        ? { relations: {} as ZodRelations, info: new Map<string, NormalizedRelation>() }
+        : normalizeRelations(raw.relations, relatedSchema, nameOptions, path);
+  } finally {
+    path.delete(raw);
+  }
+
+  if (raw.through !== undefined) {
+    if (raw.foreignKey !== undefined) {
+      throw new TableError(`${context}: use either "through" or "foreignKey", not both`);
+    }
+    if (relation !== "many") {
+      throw new TableError(`${context}: "through" relations must use relation: "many"`);
+    }
+    if (!isPlainObject(raw.through)) {
+      throw new TableError(`${context}: "through" must be an object`);
+    }
+
+    const throughTable = raw.through.table;
+    if (!isNonEmptyString(throughTable)) {
+      throw new TableError(`${context}: "through.table" must be a non-empty string`);
+    }
+
+    const throughTableName = throughTable.trim();
+    const validThroughTable = nameOptions.strictNames
+      ? isValidIdentifier(throughTableName, { allowSchema: nameOptions.allowSchema })
+      : isValidName(throughTableName) &&
+        (nameOptions.allowSchema || !throughTableName.includes("."));
+
+    if (!validThroughTable) {
+      throw new TableError(
+        `${context}: invalid junction table name ${JSON.stringify(throughTableName)}`
+      );
+    }
+
+    const parentKeys = normalizeRelationKeys(
+      raw.through.parentKey,
+      `${context}: "through.parentKey"`
+    );
+    const relatedKeys = normalizeRelationKeys(
+      raw.through.relatedKey,
+      `${context}: "through.relatedKey"`
+    );
+    const targetKeys = normalizeRelationKeys(
+      raw.through.targetKey ?? "id",
+      `${context}: "through.targetKey"`
+    );
+
+    if (parentKeys.length !== localKeys.length) {
+      throw new TableError(
+        `${context}: "localKey" and "through.parentKey" must have the same number of columns`
+      );
+    }
+    if (relatedKeys.length !== targetKeys.length) {
+      throw new TableError(
+        `${context}: "through.relatedKey" and "through.targetKey" must have the same number of columns`
+      );
+    }
+    if (new Set(parentKeys).size !== parentKeys.length) {
+      throw new TableError(`${context}: "through.parentKey" must not contain duplicate columns`);
+    }
+    if (new Set(relatedKeys).size !== relatedKeys.length) {
+      throw new TableError(`${context}: "through.relatedKey" must not contain duplicate columns`);
+    }
+    if (new Set(targetKeys).size !== targetKeys.length) {
+      throw new TableError(`${context}: "through.targetKey" must not contain duplicate columns`);
+    }
+    for (const key of targetKeys) {
+      if (!Object.hasOwn(relatedShape, key)) {
+        throw new TableError(
+          `${context}: related schema has no column ${JSON.stringify(key)} for "through.targetKey"`
+        );
+      }
+    }
+
+    const through: NormalizedThrough = {
+      table: throughTableName,
+      parentKeys,
+      relatedKeys,
+      targetKeys,
+    };
+    const config: ZodRelationConfig = {
+      table: tableName,
+      localKey: Array.isArray(raw.localKey) ? [...localKeys] : (localKeys[0] as string),
+      relation,
+      schema: relatedSchema,
+      relations: childRelations.relations,
+      columnMap: raw.columnMap as ColumnMap | undefined,
+      columnCodecs: raw.columnCodecs as ColumnCodecs | undefined,
+      through: {
+        table: throughTableName,
+        parentKey: Array.isArray(raw.through.parentKey)
+          ? [...parentKeys]
+          : (parentKeys[0] as string),
+        relatedKey: Array.isArray(raw.through.relatedKey)
+          ? [...relatedKeys]
+          : (relatedKeys[0] as string),
+        targetKey: Array.isArray(raw.through.targetKey)
+          ? [...targetKeys]
+          : (targetKeys[0] as string),
+      },
+    };
+
+    return { config, localKeys, foreignKeys: [], through, children: childRelations.info };
+  }
+
+  const foreignKeys = normalizeRelationKeys(raw.foreignKey, `${context}: "foreignKey"`);
+
+  if (localKeys.length !== foreignKeys.length) {
+    throw new TableError(
+      `${context}: "localKey" and "foreignKey" must have the same number of columns`
+    );
+  }
+
+  if (new Set(foreignKeys).size !== foreignKeys.length) {
+    throw new TableError(`${context}: "foreignKey" must not contain duplicate columns`);
+  }
+
   for (const key of foreignKeys) {
     if (!Object.hasOwn(relatedShape, key)) {
       throw new TableError(
@@ -477,15 +727,19 @@ function normalizeRelation<S extends ZodSchema>(
     foreignKey: Array.isArray(raw.foreignKey) ? [...foreignKeys] : (foreignKeys[0] as string),
     relation,
     schema: relatedSchema,
+    relations: childRelations.relations,
+    columnMap: raw.columnMap as ColumnMap | undefined,
+    columnCodecs: raw.columnCodecs as ColumnCodecs | undefined,
   };
 
-  return { config, localKeys, foreignKeys };
+  return { config, localKeys, foreignKeys, children: childRelations.info };
 }
 
 function normalizeRelations<S extends ZodSchema, R extends ZodRelations>(
   relations: unknown,
   schema: S,
-  nameOptions: NameOptions
+  nameOptions: NameOptions,
+  path: WeakSet<object> = new WeakSet()
 ): { relations: R; info: Map<string, NormalizedRelation> } {
   if (relations === undefined) {
     return { relations: {} as R, info: new Map() };
@@ -499,7 +753,7 @@ function normalizeRelations<S extends ZodSchema, R extends ZodRelations>(
   const info = new Map<string, NormalizedRelation>();
 
   for (const [name, raw] of Object.entries(relations)) {
-    const relation = normalizeRelation(name, raw, schema, nameOptions);
+    const relation = normalizeRelation(name, raw, schema, nameOptions, path);
     // defineProperty avoids the `__proto__` setter for hostile relation names.
     Object.defineProperty(normalized, name, {
       configurable: true,
@@ -682,52 +936,11 @@ export type RelationOptions<
   select?: K;
 };
 
-function serializeKey(values: readonly unknown[]): string | null {
-  const parts: string[] = [];
-
-  for (const value of values) {
-    if (value === null || value === undefined) return null;
-
-    if (value instanceof Date) {
-      parts.push(`date:${value.getTime()}`);
-    } else if (typeof value === "object") {
-      parts.push(`json:${JSON.stringify(value)}`);
-    } else {
-      parts.push(`${typeof value}:${String(value)}`);
-    }
-  }
-
-  return parts.join("\u0000");
-}
-
-function buildKeyFilter(
-  sql: Sql<Record<string, unknown>>,
-  foreignKeys: readonly string[],
-  keys: readonly (readonly unknown[])[]
-): SqlFragment {
-  if (foreignKeys.length === 1) {
-    const column = foreignKeys[0];
-    if (!column) throw new QueryError("Invalid relation configuration");
-    return sql`${sql(column)} = ANY(${keys.map((key) => key[0])})`;
-  }
-
-  let tuples = sql``;
-  keys.forEach((key, index) => {
-    let tuple = sql``;
-    key.forEach((value, valueIndex) => {
-      tuple = valueIndex === 0 ? sql`${value}` : sql`${tuple}, ${value}`;
-    });
-    const fragment = sql`(${tuple})`;
-    tuples = index === 0 ? fragment : sql`${tuples}, ${fragment}`;
-  });
-
-  return sql`(${sql(foreignKeys as string[])}) IN (${tuples})`;
-}
-
 function buildKeyLink(
   sql: Sql<Record<string, unknown>>,
   parentTable: string,
-  relation: NormalizedRelation
+  relation: NormalizedRelation,
+  parentColumnMap?: Readonly<Record<string, string>>
 ): SqlFragment {
   let link = sql``;
 
@@ -735,7 +948,9 @@ function buildKeyLink(
     const foreignKey = relation.foreignKeys[index];
     if (!foreignKey) throw new QueryError("Invalid relation configuration");
 
-    const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${sql(relation.config.table)}.${sql(foreignKey)}`;
+    const parentColumn = parentColumnMap?.[localKey] ?? localKey;
+    const foreignColumn = relation.config.columnMap?.[foreignKey] ?? foreignKey;
+    const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${sql(relation.config.table)}.${sql(foreignColumn)}`;
     link = index === 0 ? condition : sql`${link} AND ${condition}`;
   });
 
@@ -751,43 +966,6 @@ function getParentTableName(table: { getTableName(): string }): string {
     });
   }
   return candidate;
-}
-
-function setRowValue(row: Record<string, unknown>, key: string, value: unknown): void {
-  // defineProperty avoids the `__proto__` setter for hostile column/relation names.
-  Object.defineProperty(row, key, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true,
-  });
-}
-
-function pickFields(
-  row: Record<string, unknown>,
-  fields: readonly string[]
-): Record<string, unknown> {
-  const picked: Record<string, unknown> = {};
-  for (const field of fields) {
-    setRowValue(picked, field, row[field]);
-  }
-  return picked;
-}
-
-function resolveRelationFields(
-  relation: NormalizedRelation,
-  refinement: RelationRefinement | undefined
-): { requested: string[]; queryFields: string[] } {
-  const requested = refinement?.select
-    ? [...refinement.select]
-    : relationSchemaColumns(relation.config);
-  const queryFields = [...requested];
-
-  for (const foreignKey of relation.foreignKeys) {
-    if (!queryFields.includes(foreignKey)) queryFields.push(foreignKey);
-  }
-
-  return { requested, queryFields };
 }
 
 export class ZodTable<
@@ -955,6 +1133,134 @@ export class ZodTable<
   }
 
   /**
+   * Add per-relation aggregate fields. Aggregates are computed over the
+   * related rows, optionally filtered by a relation refinement.
+   */
+  withAggregate<Name extends keyof R, Spec extends RelationAggregate<R[Name]>>(
+    name: Name,
+    aggregate: Spec,
+    refine?: (relation: RelationBuilder<R[Name]>) => RelationBuilder<R[Name]>
+  ): ZodAggregatedQuery<S, K, I, R, Inc, Sel, Cnt, Name, Spec> {
+    const relation = this.getRelation(name);
+    const normalized = normalizeAggregate(relation.config as R[Name], aggregate);
+    const refinement = refine
+      ? this.buildRefinement(relation.config as R[Name], refine)
+      : undefined;
+
+    const spec: AggregateSpec = {
+      name: String(name),
+      aggregate: normalized,
+      refinement,
+    };
+
+    return new ZodAggregatedQuery<S, K, I, R, Inc, Sel, Cnt, Name, Spec>(this, [spec]);
+  }
+
+  /** @internal Terminal query used by `withAggregate`. */
+  async findManyWithAggregates(
+    specs: readonly AggregateSpec[]
+  ): Promise<Array<Record<string, unknown>>> {
+    const keys = specs.flatMap((spec) => this.getRelation(spec.name).localKeys);
+    const prepared = this.prepareQuery(keys);
+    const rows = (await prepared.table.findMany()) as Array<Record<string, unknown>>;
+    return this.finalize(rows, prepared.stripKeys, specs);
+  }
+
+  /**
+   * Order parent rows by a correlated aggregate over a relation.
+   */
+  orderByRelated<Name extends keyof R>(
+    name: Name,
+    spec: RelatedOrder<R[Name]>
+  ): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    const relation = this.getRelation(name);
+    return this.wrap(this.table.orderByRaw(this.buildRelatedOrder(relation, spec)));
+  }
+
+  private relationNameOptions(relation: NormalizedRelation): {
+    columnMap?: ColumnMap;
+    columnCodecs?: ColumnCodecs;
+  } {
+    return {
+      columnMap: relation.config.columnMap,
+      columnCodecs: relation.config.columnCodecs,
+    };
+  }
+
+  private buildRelatedOrder(
+    relation: NormalizedRelation,
+    spec: RelatedOrder<ZodRelationConfig>
+  ): SqlFragment {
+    const sql = this.table.getSql();
+    const aggregate = spec.aggregate;
+    const direction = spec.direction;
+    const nulls = spec.nulls;
+
+    if (direction !== "ASC" && direction !== "DESC") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    if (nulls !== undefined && nulls !== "first" && nulls !== "last") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+
+    const shape = getShape(relation.config.schema as unknown as ZodSchema);
+    if (aggregate === "count") {
+      if (spec.column !== undefined) {
+        throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+      }
+    } else if (typeof spec.column !== "string" || !Object.hasOwn(shape, spec.column)) {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+
+    const parentTable = getParentTableName(this.table);
+    const functionName = sql.unsafe(aggregate.toUpperCase());
+    const through = relation.through;
+
+    let from: SqlFragment;
+    let link: SqlFragment;
+    let aggregateColumn: SqlFragment;
+
+    if (through) {
+      const junction = sql("__pgbuddy_order_through");
+      const related = sql("__pgbuddy_order_related");
+      const join = through.targetKeys.reduce((acc, targetKey, index) => {
+        const relatedKey = through.relatedKeys[index];
+        if (!relatedKey) throw new QueryError("Invalid relation configuration");
+        const mappedTarget = relation.config.columnMap?.[targetKey] ?? targetKey;
+        const condition = sql`${related}.${sql(mappedTarget)} = ${junction}.${sql(relatedKey)}`;
+        return index === 0 ? condition : sql`${acc} AND ${condition}`;
+      }, sql``);
+      from = sql`FROM ${sql(through.table)} AS ${junction} JOIN ${sql(relation.config.table)} AS ${related} ON ${join}`;
+      link = relation.localKeys.reduce((acc, localKey, index) => {
+        const junctionKey = through.parentKeys[index];
+        if (!junctionKey) throw new QueryError("Invalid relation configuration");
+        const parentColumn = this.table.getNameOptions().columnMap?.[localKey] ?? localKey;
+        const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${junction}.${sql(junctionKey)}`;
+        return index === 0 ? condition : sql`${acc} AND ${condition}`;
+      }, sql``);
+      aggregateColumn =
+        aggregate === "count"
+          ? sql`COUNT(*)::int`
+          : sql`${functionName}(${related}.${sql(
+              relation.config.columnMap?.[spec.column as string] ?? (spec.column as string)
+            )})`;
+    } else {
+      from = sql`FROM ${sql(relation.config.table)}`;
+      link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
+      aggregateColumn =
+        aggregate === "count"
+          ? sql`COUNT(*)::int`
+          : sql`${functionName}(${sql(relation.config.table)}.${sql(
+              relation.config.columnMap?.[spec.column as string] ?? (spec.column as string)
+            )})`;
+    }
+
+    return sql`(SELECT ${aggregateColumn} ${from} WHERE ${link}) ${sql.unsafe(direction)}${
+      nulls ? sql` NULLS ${sql.unsafe(nulls.toUpperCase())}` : sql``
+    }`;
+  }
+
+  /**
    * Filter parent rows to those with at least one related row matching the
    * optional relation filter. Compiles to a parameterized `EXISTS` subquery
    * and composes with other `where` inputs.
@@ -1012,22 +1318,30 @@ export class ZodTable<
       throw new QueryError("Relation filter must return the relation builder");
     }
 
-    return this.wrap(
-      this.table.whereRaw(this.buildEveryFragment(relation, filter.getRefinement()))
-    );
+    const refinement = filter.getRefinement();
+    if (!refinement.whereInputs?.length) {
+      return this;
+    }
+
+    return this.wrap(this.table.whereRaw(this.buildEveryFragment(relation, refinement)));
   }
 
   private buildEveryFragment(
     relation: NormalizedRelation,
     refinement: RelationRefinement
   ): SqlFragment {
+    if (relation.through) {
+      return this.buildThroughExists(relation, refinement, true, true);
+    }
+
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
-    const link = buildKeyLink(sql, parentTable, relation);
+    const link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
     const linkExpression = buildWhereExpression(sql, [rawPredicate<Row>(link)]);
     const refinementExpression = buildWhereExpression(
       sql,
-      (refinement.whereInputs ?? []) as readonly WhereInput<Row>[]
+      (refinement.whereInputs ?? []) as readonly WhereInput<Row>[],
+      this.relationNameOptions(relation)
     );
 
     const where = refinementExpression
@@ -1037,19 +1351,75 @@ export class ZodTable<
     return sql`NOT EXISTS (SELECT 1 FROM ${sql(relation.config.table)} ${where})`;
   }
 
+  private buildThroughExists(
+    relation: NormalizedRelation,
+    refinement: RelationRefinement | undefined,
+    negate: boolean,
+    negateRefinement: boolean
+  ): SqlFragment {
+    const through = relation.through;
+    if (!through) throw new QueryError("Invalid relation configuration");
+
+    const sql = this.table.getSql();
+    const parentTable = getParentTableName(this.table);
+    const junction = sql("__pgbuddy_through");
+
+    const link = relation.localKeys.reduce((acc, localKey, index) => {
+      const junctionKey = through.parentKeys[index];
+      if (!junctionKey) throw new QueryError("Invalid relation configuration");
+
+      const parentColumn = this.table.getNameOptions().columnMap?.[localKey] ?? localKey;
+      const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${junction}.${sql(junctionKey)}`;
+      return index === 0 ? condition : sql`${acc} AND ${condition}`;
+    }, sql``);
+
+    const tuple = (keys: readonly string[], qualifier?: string): SqlFragment => {
+      const columns = keys.map((key) =>
+        qualifier ? sql`${sql(qualifier)}.${sql(key)}` : sql`${sql(key)}`
+      );
+      if (columns.length === 1) return columns[0] as SqlFragment;
+      return sql`(${columns.reduce((acc, column, index) => (index === 0 ? column : sql`${acc}, ${column}`), sql``)})`;
+    };
+
+    const targetWhere = buildWhereExpression(
+      sql,
+      (refinement?.whereInputs ?? []) as readonly WhereInput<Row>[],
+      this.relationNameOptions(relation)
+    );
+    const targetFilter = targetWhere
+      ? sql`WHERE ${negateRefinement ? sql`NOT (${targetWhere})` : targetWhere}`
+      : sql``;
+    const mappedTargetKeys = through.targetKeys.map(
+      (key) => relation.config.columnMap?.[key] ?? key
+    );
+    const targetQuery = sql`SELECT ${tuple(mappedTargetKeys)} FROM ${sql(relation.config.table)} ${targetFilter}`;
+    const junctionTarget = tuple(through.relatedKeys, "__pgbuddy_through");
+
+    const exists = sql`EXISTS (
+      SELECT 1 FROM ${sql(through.table)} AS ${junction}
+      WHERE ${link} AND ${junctionTarget} IN (${targetQuery})
+    )`;
+
+    return negate ? sql`NOT ${exists}` : exists;
+  }
+
   private buildExistsFragment(
     relation: NormalizedRelation,
     refinement: RelationRefinement | undefined,
     negate: boolean
   ): SqlFragment {
+    if (relation.through) {
+      return this.buildThroughExists(relation, refinement, negate, false);
+    }
+
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
-    const link = buildKeyLink(sql, parentTable, relation);
+    const link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
     const inputs: WhereInput<Row>[] = [
       ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
       rawPredicate<Row>(link),
     ];
-    const where = buildWhereInputs(sql, inputs);
+    const where = buildWhereInputs(sql, inputs, this.relationNameOptions(relation));
     const exists = sql`EXISTS (SELECT 1 FROM ${sql(relation.config.table)} ${where})`;
 
     return negate ? sql`NOT ${exists}` : exists;
@@ -1063,8 +1433,8 @@ export class ZodTable<
     return [...selected];
   }
 
-  private requiredLocalKeys(): string[] {
-    const keys = new Set<string>();
+  private requiredLocalKeys(extra: readonly string[] = []): string[] {
+    const keys = new Set<string>(extra);
 
     for (const include of this.includes) {
       const relation = this.getRelation(include.name);
@@ -1079,7 +1449,7 @@ export class ZodTable<
     return [...keys];
   }
 
-  private prepareQuery(): {
+  private prepareQuery(extraKeys: readonly string[] = []): {
     table: Table<RowFromSchema<S>, SelectKeys<RowFromSchema<S>>, I>;
     stripKeys: readonly string[];
   } {
@@ -1094,7 +1464,7 @@ export class ZodTable<
     }
 
     const projection = this.projectedFields();
-    const missing = this.requiredLocalKeys().filter((key) => !projection.includes(key));
+    const missing = this.requiredLocalKeys(extraKeys).filter((key) => !projection.includes(key));
     if (missing.length === 0) {
       return { table: prepared, stripKeys: [] };
     }
@@ -1112,10 +1482,16 @@ export class ZodTable<
 
   private async finalize(
     rows: Array<Record<string, unknown>>,
-    stripKeys: readonly string[]
+    stripKeys: readonly string[],
+    aggregateSpecs: readonly AggregateSpec[] = []
   ): Promise<Array<Record<string, unknown>>> {
     const result = rows.map((row) => ({ ...row }));
     await this.loadRelations(result);
+
+    if (aggregateSpecs.length > 0) {
+      const loader = new RelationLoader(this.table.getSql());
+      await loader.aggregate(result, this.relationInfo, aggregateSpecs);
+    }
 
     if (stripKeys.length > 0) {
       const protectedKeys = new Set<string>([
@@ -1134,208 +1510,8 @@ export class ZodTable<
   }
 
   private async loadRelations(rows: Array<Record<string, unknown>>): Promise<void> {
-    if (rows.length === 0) return;
-
-    for (const include of this.includes) {
-      const relation = this.getRelation(include.name);
-      const requested = resolveRelationFields(relation, include.refinement);
-      const parentKeys = this.collectParentKeys(rows, relation, include.name);
-      const uniqueKeys = new Map<string, readonly unknown[]>();
-
-      for (const key of parentKeys) {
-        if (key.serialized && !uniqueKeys.has(key.serialized)) {
-          uniqueKeys.set(key.serialized, key.values);
-        }
-      }
-
-      if (uniqueKeys.size === 0) {
-        for (const row of rows) {
-          setRowValue(row, include.name, relation.config.relation === "one" ? null : []);
-        }
-        continue;
-      }
-
-      const children = await this.fetchRelated(
-        relation,
-        include.refinement,
-        [...uniqueKeys.values()],
-        requested.queryFields
-      );
-
-      const buckets = new Map<string, Array<Record<string, unknown>>>();
-      for (const child of children) {
-        const serialized = serializeKey(relation.foreignKeys.map((key) => child[key]));
-        if (!serialized) continue;
-
-        const bucket = buckets.get(serialized);
-        if (bucket) {
-          bucket.push(child);
-        } else {
-          buckets.set(serialized, [child]);
-        }
-      }
-
-      rows.forEach((row, index) => {
-        const serialized = parentKeys[index]?.serialized ?? null;
-        const bucket = serialized ? (buckets.get(serialized) ?? []) : [];
-        const projected = bucket.map((child) => pickFields(child, requested.requested));
-
-        setRowValue(
-          row,
-          include.name,
-          relation.config.relation === "one" ? (projected[0] ?? null) : projected
-        );
-      });
-    }
-
-    for (const spec of this.counts) {
-      const relation = this.getRelation(spec.name);
-      const parentKeys = this.collectParentKeys(rows, relation, spec.name);
-      const uniqueKeys = new Map<string, readonly unknown[]>();
-
-      for (const key of parentKeys) {
-        if (key.serialized && !uniqueKeys.has(key.serialized)) {
-          uniqueKeys.set(key.serialized, key.values);
-        }
-      }
-
-      const counts =
-        uniqueKeys.size === 0
-          ? new Map<string, number>()
-          : await this.fetchCounts(
-              relation,
-              [...uniqueKeys.values()],
-              spec.refinement?.whereInputs
-            );
-
-      rows.forEach((row, index) => {
-        const serialized = parentKeys[index]?.serialized ?? null;
-        setRowValue(row, `${spec.name}_count`, serialized ? (counts.get(serialized) ?? 0) : 0);
-      });
-    }
-  }
-
-  private collectParentKeys(
-    rows: Array<Record<string, unknown>>,
-    relation: NormalizedRelation,
-    name: string
-  ): Array<{ serialized: string | null; values: readonly unknown[] }> {
-    return rows.map((row) => {
-      const values = relation.localKeys.map((key) => row[key]);
-
-      if (values.some((value) => value === undefined)) {
-        throw new QueryError(Errors.SELECT.MISSING_RELATION_KEY(name));
-      }
-      if (values.some((value) => value === null)) {
-        return { serialized: null, values: [] };
-      }
-
-      return { serialized: serializeKey(values), values };
-    });
-  }
-
-  private async fetchRelated(
-    relation: NormalizedRelation,
-    refinement: RelationRefinement | undefined,
-    keys: readonly (readonly unknown[])[],
-    queryFields: readonly string[]
-  ): Promise<Array<Record<string, unknown>>> {
-    const sql = this.table.getSql();
-    const keyFilter = rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys));
-    const inputs: WhereInput<Row>[] = [
-      ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
-      keyFilter,
-    ];
-    const where = buildWhereInputs(sql, inputs);
-    const orderBy = refinement?.orderBy as SortSpec<Row>[] | undefined;
-    const take = refinement?.take;
-
-    if (take !== undefined) {
-      return this.fetchRelatedLimited(relation, queryFields, where, orderBy, take);
-    }
-
-    return await sql<Record<string, unknown>[]>`
-      SELECT ${sql(queryFields as string[])}
-      FROM ${sql(relation.config.table)}
-      ${where}
-      ${createSortFragment(sql, orderBy)}
-    `;
-  }
-
-  private async fetchRelatedLimited(
-    relation: NormalizedRelation,
-    queryFields: readonly string[],
-    where: SqlFragment,
-    orderBy: SortSpec<Row>[] | undefined,
-    take: number
-  ): Promise<Array<Record<string, unknown>>> {
-    const sql = this.table.getSql();
-
-    if (queryFields.includes(RELATION_ROW_NUMBER)) {
-      throw new QueryError(
-        `Relation on ${relation.config.table} cannot select reserved column ${RELATION_ROW_NUMBER}`
-      );
-    }
-
-    const partition = sql`PARTITION BY ${sql(relation.foreignKeys as string[])}`;
-    const order = createSortFragment(sql, orderBy);
-    const windowOrder = order ? sql` ${order}` : sql``;
-
-    let foreignKeyOrder = sql``;
-    relation.foreignKeys.forEach((key, index) => {
-      const fragment = sql`${sql(key)} ASC`;
-      foreignKeyOrder = index === 0 ? fragment : sql`${foreignKeyOrder}, ${fragment}`;
-    });
-
-    return await sql<Record<string, unknown>[]>`
-      SELECT ${sql(queryFields as string[])}
-      FROM (
-        SELECT ${sql(queryFields as string[])},
-          row_number() OVER (${partition}${windowOrder}) AS ${sql(RELATION_ROW_NUMBER)}
-        FROM ${sql(relation.config.table)}
-        ${where}
-      ) AS ${sql(RELATION_SUBQUERY)}
-      WHERE ${sql(RELATION_ROW_NUMBER)} <= ${take}
-      ORDER BY ${foreignKeyOrder}, ${sql(RELATION_ROW_NUMBER)} ASC
-    `;
-  }
-
-  private async fetchCounts(
-    relation: NormalizedRelation,
-    keys: readonly (readonly unknown[])[],
-    refinement?: readonly WhereInput<Row>[]
-  ): Promise<Map<string, number>> {
-    const sql = this.table.getSql();
-
-    for (const foreignKey of relation.foreignKeys) {
-      if (foreignKey === RELATION_COUNT) {
-        throw new QueryError(
-          `Relation on ${relation.config.table} cannot use reserved column ${RELATION_COUNT}`
-        );
-      }
-    }
-
-    const where = buildWhereInputs(sql, [
-      ...(refinement ?? []),
-      rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys)),
-    ]);
-
-    const rows = await sql<Record<string, unknown>[]>`
-      SELECT ${sql(relation.foreignKeys as string[])}, COUNT(*) AS ${sql(RELATION_COUNT)}
-      FROM ${sql(relation.config.table)}
-      ${where}
-      GROUP BY ${sql(relation.foreignKeys as string[])}
-    `;
-
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      const serialized = serializeKey(relation.foreignKeys.map((key) => row[key]));
-      if (serialized) {
-        counts.set(serialized, Number(row[RELATION_COUNT] ?? 0));
-      }
-    }
-
-    return counts;
+    const loader = new RelationLoader(this.table.getSql());
+    await loader.load(rows, this.relationInfo, this.includes, this.counts);
   }
 
   omit<K2 extends readonly (keyof RowFromSchema<S> & string)[]>(
@@ -1521,6 +1697,27 @@ export class ZodTable<
     return this.wrap(this.table.take(count));
   }
 
+  /** Inspect the current SELECT query without executing it. */
+  toSQL(computed?: ComputedMap): { text: string; parameters: readonly unknown[] } {
+    return this.table.toSQL(computed);
+  }
+
+  /**
+   * Build a reusable prepared executor for the base SELECT. Relation includes
+   * are not applied by prepared execution.
+   */
+  signal(signal: AbortSignal): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.signal(signal));
+  }
+
+  stream(batchSize = 1): AsyncIterable<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.stream(batchSize);
+  }
+
+  prepare(): () => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.prepare();
+  }
+
   async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
   ): Promise<
@@ -1587,7 +1784,7 @@ export class ZodTable<
   > {
     const row = await this.findFirst(options);
     if (!row) {
-      throw new QueryError(Errors.QUERY.NO_ROWS);
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     }
     return row;
   }
@@ -1599,7 +1796,7 @@ export class ZodTable<
   > {
     const row = await this.findUnique(options);
     if (!row) {
-      throw new QueryError(Errors.QUERY.NO_ROWS);
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     }
     return row;
   }
@@ -1616,34 +1813,54 @@ export class ZodTable<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string }
-  ): JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "inner"> {
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
+  ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
     }
 
-    return this.table.innerJoin<Name, RowFromSchema<S2>>(name, {
-      table: options?.table ?? name,
-      columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
-      on,
-    }) as JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "inner">;
+    return new ZodJoinQuery(
+      this.table.innerJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
+      }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }>
+    );
   }
 
   leftJoin<Name extends string, S2 extends ZodSchema>(
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string }
-  ): JoinQuery<RowFromSchema<S>, SelectKeys<RowFromSchema<S>>, I, Name, RowFromSchema<S2>, "left"> {
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
+  ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
     }
 
-    return this.table.leftJoin<Name, RowFromSchema<S2>>(name, {
-      table: options?.table ?? name,
-      columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
-      on,
-    }) as JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "left">;
+    return new ZodJoinQuery(
+      this.table.leftJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
+      }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }>
+    );
   }
 
   groupBy<
@@ -1666,6 +1883,13 @@ export class ZodTable<
       G,
       X
     >;
+  }
+
+  groupByExpr<
+    G extends Record<string, SqlExpression<unknown>>,
+    X extends ComputedMap = Record<never, never>,
+  >(expressions: G, aggregates?: X): GroupedExprQuery<RowFromSchema<S>, K, I, G, X> {
+    return this.table.groupByExpr(expressions, aggregates);
   }
 
   async aggregate(options: AggregateOptions<RowFromSchema<S>>): Promise<AggregateResult> {
@@ -1760,21 +1984,60 @@ export class ZodTable<
     >;
   }
 
-  async update<X extends ComputedMap = Record<never, never>>(
-    data: Partial<InsertFromSchema<S>>,
-    options?: { returning?: true; computed?: X }
-  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>>>;
-  async update(data: Partial<InsertFromSchema<S>>, options: { returning: false }): Promise<number>;
-  async update<X extends ComputedMap = Record<never, never>>(
-    data: Partial<InsertFromSchema<S>>,
+  async updateFrom<X extends ComputedMap = Record<never, never>>(
+    data: UpdateData<RowFromSchema<S>>,
+    from: SqlFragment,
     options?: { returning?: boolean; computed?: X }
   ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    return this.table.updateFrom(data, from, options);
+  }
+
+  async deleteUsing(
+    using: SqlFragment,
+    options?: { returning?: boolean }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0]> | number> {
+    return this.table.deleteUsing(using, options);
+  }
+
+  async insertFrom<X extends ComputedMap = Record<never, never>>(
+    select: SqlFragment,
+    options?: {
+      columns?: readonly (keyof RowFromSchema<S> & string)[];
+      returning?: boolean;
+      computed?: X;
+    }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    return this.table.insertFrom(select, options);
+  }
+
+  async update<X extends ComputedMap = Record<never, never>>(
+    data: UpdateData<RowFromSchema<S>>,
+    options?: { returning?: true; computed?: X }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>>>;
+  async update(data: UpdateData<RowFromSchema<S>>, options: { returning: false }): Promise<number>;
+  async update<X extends ComputedMap = Record<never, never>>(
+    data: UpdateData<RowFromSchema<S>>,
+    options?: { returning?: boolean; computed?: X }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    const shape = getShape(this.schema);
+    const plain: Record<string, unknown> = {};
+    const fragments: Record<string, SqlFragment> = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (isSqlFragment(value)) {
+        ensureFieldExists(shape, key, Errors.WHERE.INVALID_FIELD, "INVALID_WHERE");
+        fragments[key] = value;
+      } else {
+        plain[key] = value;
+      }
+    }
+
     const partialSchema = this.schema.partial();
-    const result = partialSchema.safeParse(data);
+    const result = partialSchema.safeParse(plain);
     if (!result.success) {
       throw invalidDataError("update data", getIssues(result));
     }
-    const parsed = result.data as Partial<RowFromSchema<S>>;
+    const parsed = { ...result.data, ...fragments } as UpdateData<RowFromSchema<S>>;
 
     return (
       options?.returning === false
@@ -1801,6 +2064,200 @@ export class ZodTable<
 }
 
 /**
+ * Terminal query returned by `withAggregate`. Aggregate fields are added on
+ * top of the normal relation selection.
+ */
+export class ZodAggregatedQuery<
+  S extends ZodSchema,
+  K extends SelectKeys<RowFromSchema<S>>,
+  I extends Row,
+  R extends ZodRelations,
+  Inc extends keyof R,
+  Sel extends RelationSelection<R>,
+  Cnt extends keyof R,
+  Name extends keyof R,
+  Spec extends RelationAggregate<R[Name]>,
+> {
+  private readonly table: ZodTable<S, K, I, R, Inc, Sel, Cnt>;
+  private readonly specs: readonly AggregateSpec[];
+
+  constructor(table: ZodTable<S, K, I, R, Inc, Sel, Cnt>, specs: readonly AggregateSpec[]) {
+    this.table = table;
+    this.specs = specs;
+  }
+
+  findMany(): Promise<
+    Array<
+      WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+        AggregateFields<Name & string, R[Name], Spec>
+    >
+  > {
+    return this.table.findManyWithAggregates(this.specs) as Promise<
+      Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+          AggregateFields<Name & string, R[Name], Spec>
+      >
+    >;
+  }
+
+  async findFirst(): Promise<
+    | (WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+        AggregateFields<Name & string, R[Name], Spec>)
+    | null
+  > {
+    const rows = await this.table.take(1).findManyWithAggregates(this.specs);
+    return (
+      (rows[0] as
+        | (WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+            AggregateFields<Name & string, R[Name], Spec>)
+        | undefined) ?? null
+    );
+  }
+
+  async findFirstOrThrow(): Promise<
+    WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+      AggregateFields<Name & string, R[Name], Spec>
+  > {
+    const row = await this.findFirst();
+    if (!row) {
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
+    }
+    return row;
+  }
+
+  count(): Promise<number> {
+    return this.table.count();
+  }
+
+  exists(): Promise<boolean> {
+    return this.table.exists();
+  }
+}
+
+/**
+ * Schema-aware narrow join query. Use it to add further joins with a schema
+ * instead of a column list.
+ */
+export class ZodJoinQuery<
+  T extends Row,
+  K extends SelectKeys<T>,
+  I extends Row,
+  Joined extends Record<string, unknown>,
+> {
+  private readonly join: JoinQuery<T, K, I, Joined>;
+
+  constructor(join: JoinQuery<T, K, I, Joined>) {
+    this.join = join;
+  }
+
+  innerJoin<Name extends string, S2 extends ZodSchema>(
+    name: Name,
+    schema: S2,
+    on: SqlFragment,
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
+  ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }> {
+    if (!isZodSchemaLike(schema)) {
+      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+    }
+
+    return new ZodJoinQuery(
+      this.join.innerJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
+      }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }>
+    );
+  }
+
+  leftJoin<Name extends string, S2 extends ZodSchema>(
+    name: Name,
+    schema: S2,
+    on: SqlFragment,
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
+  ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }> {
+    if (!isZodSchemaLike(schema)) {
+      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+    }
+
+    return new ZodJoinQuery(
+      this.join.leftJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
+      }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }>
+    );
+  }
+
+  where(conditions: WhereInput<T>): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.where(conditions));
+  }
+
+  whereRaw(fragment: SqlFragment): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.whereRaw(fragment));
+  }
+
+  orderBy(spec: SortSpec<T>[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.orderBy(spec));
+  }
+
+  orderByRaw(fragment: SqlFragment): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.orderByRaw(fragment));
+  }
+
+  skip(count: number): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.skip(count));
+  }
+
+  take(count: number): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.take(count));
+  }
+
+  distinct(): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinct());
+  }
+
+  distinctOn(columns: readonly (keyof T & string)[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinctOn(columns));
+  }
+
+  distinctOnExpr(expressions: readonly SqlFragment[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinctOnExpr(expressions));
+  }
+
+  select<K2 extends SelectKeys<T>>(fields: K2): ZodJoinQuery<T, K2, I, Joined> {
+    return new ZodJoinQuery(this.join.select(fields));
+  }
+
+  findMany(): Promise<Array<SelectFields<T, K>[0] & Joined>> {
+    return this.join.findMany();
+  }
+
+  findFirst(): Promise<(SelectFields<T, K>[0] & Joined) | null> {
+    return this.join.findFirst();
+  }
+
+  findFirstOrThrow(): Promise<SelectFields<T, K>[0] & Joined> {
+    return this.join.findFirstOrThrow();
+  }
+}
+
+/**
  * Result of `ZodTable.selectExpr`: a terminal query with typed computed fields
  * and relation selections.
  */
@@ -1820,6 +2277,11 @@ export class ZodProjectedQuery<
   constructor(table: ZodTable<S, K, I, R, Inc, Sel, Cnt>, computed: X) {
     this.table = table;
     this.computed = computed;
+  }
+
+  /** Inspect the current SELECT query without executing it. */
+  toSQL(): { text: string; parameters: readonly unknown[] } {
+    return this.table.toSQL(this.computed);
   }
 
   findMany(): Promise<

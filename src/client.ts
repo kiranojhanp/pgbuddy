@@ -1,8 +1,19 @@
-import type { Row, Sql } from "postgres";
+import type { PendingQuery, Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
+import {
+  type AdapterRelations,
+  bindValidator,
+  isValidationAdapter,
+  type ValidatedInput,
+  type ValidatedRow,
+  ValidatedTable,
+  type ValidationAdapter,
+  type ValidatorAdapter,
+  zodValidator,
+} from "./adapter";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
-import type { Insertable, SelectKeys } from "./types";
+import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
 import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
 import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
 
@@ -20,8 +31,8 @@ import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
  * - `unique` — unique column sets used by `whereUnique` (for example
  *   `[["email"], ["tenant_id", "slug"]]`).
  * - `defaultTake` — default row limit for `findMany` when no `take()` is set.
- * - `columns` — explicit column list for a plain `Table` (enables `omit` and
- *   avoids `SELECT *`).
+ * - `columnMap` — map schema field names to database column names.
+ * - `columnCodecs` — per-field encode/decode hooks for custom database types.
  */
 export type PgBuddyClientOptions = {
   strictNames?: boolean;
@@ -30,9 +41,14 @@ export type PgBuddyClientOptions = {
   maxTake?: number;
   unique?: readonly (readonly string[])[];
   defaultTake?: number;
-  columns?: readonly string[];
+  /** Schema field name → database column name. */
+  columnMap?: ColumnMap;
+  /** Per-field encode/decode hooks. */
+  columnCodecs?: ColumnCodecs;
   /** Relations available to `ZodTable.include`. */
   relations?: ZodRelations;
+  /** Validation library adapter for all tables on this connection. */
+  adapter?: ValidatorAdapter;
 };
 
 /**
@@ -62,6 +78,40 @@ function assertDefaultTake(defaultTake: number | undefined): void {
   }
 }
 
+function assertColumnMap(columnMap: ColumnMap | undefined): void {
+  if (columnMap === undefined) return;
+
+  if (typeof columnMap !== "object" || columnMap === null || Array.isArray(columnMap)) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+
+  const values = Object.values(columnMap);
+  if (values.some((value) => typeof value !== "string" || !value.trim())) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+  if (new Set(values).size !== values.length) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+}
+
+function assertColumnCodecs(codecs: ColumnCodecs | undefined): void {
+  if (codecs === undefined) return;
+  if (typeof codecs !== "object" || codecs === null || Array.isArray(codecs)) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+  }
+
+  for (const codec of Object.values(codecs)) {
+    if (
+      typeof codec !== "object" ||
+      codec === null ||
+      (codec.encode !== undefined && typeof codec.encode !== "function") ||
+      (codec.decode !== undefined && typeof codec.decode !== "function")
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+    }
+  }
+}
+
 function assertUniqueOption(unique: readonly (readonly string[])[] | undefined): void {
   if (unique === undefined) return;
 
@@ -77,6 +127,27 @@ function assertUniqueOption(unique: readonly (readonly string[])[] | undefined):
     throw new TableError(Errors.TABLE.INVALID_UNIQUE);
   }
 }
+
+// biome-ignore lint/suspicious/noExplicitAny: postgres.js PendingQuery is invariant per result shape
+export type BatchQuery = PendingQuery<any>;
+
+export type PreparedQuery<T extends Row = Row> = (parameters?: readonly unknown[]) => Promise<T[]>;
+
+export type BatchSQLStatement = {
+  text: string;
+  parameters?: readonly unknown[];
+};
+
+export type BatchSQLResults<Q extends readonly BatchSQLStatement[]> = {
+  -readonly [K in keyof Q]: Row[];
+};
+
+export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
+  infer Head extends BatchQuery,
+  ...infer Tail extends readonly BatchQuery[],
+]
+  ? [Head extends PendingQuery<infer R> ? NonNullable<Awaited<R>> : never, ...BatchResults<Tail>]
+  : [];
 
 /**
  * Main client for PostgreSQL database operations with a chainable interface.
@@ -95,16 +166,14 @@ function assertUniqueOption(unique: readonly (readonly string[])[] | undefined):
  * // Create PgBuddyClient instance
  * const db = new PgBuddyClient(sql);
  *
- * // Define your table type
- * interface User {
- *   id: number;
- *   name: string;
- *   email: string;
- *   created_at: Date;
- * }
- *
- * // Define table
- * const users = db.table<User>("users");
+ * // Define the table with a Zod schema
+ * const UserSchema = z.object({
+ *   id: z.number().int(),
+ *   name: z.string(),
+ *   email: z.string(),
+ *   created_at: z.date(),
+ * });
+ * const users = db.table("users", UserSchema);
  * ```
  */
 export class PgBuddyClient {
@@ -120,6 +189,9 @@ export class PgBuddyClient {
   private maxTake?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private defaultTake?: number;
+  private columnMap?: ColumnMap;
+  private columnCodecs?: ColumnCodecs;
+  private adapter: ValidatorAdapter;
 
   /**
    * Creates a new PgBuddyClient instance.
@@ -153,16 +225,22 @@ export class PgBuddyClient {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
     }
 
+    assertColumnMap(options?.columnMap);
+    assertColumnCodecs(options?.columnCodecs);
+
     assertUniqueOption(options?.unique);
     assertDefaultTake(options?.defaultTake);
 
     this.sql = sql;
+    this.adapter = options?.adapter ?? zodValidator;
     this.strictNames = Boolean(options?.strictNames);
     this.allowSchema = Boolean(options?.allowSchema);
     this.allowedColumns = options?.allowedColumns ? [...options.allowedColumns] : undefined;
     this.maxTake = options?.maxTake;
     this.uniqueKeys = options?.unique?.map((list) => [...list]);
     this.defaultTake = options?.defaultTake;
+    this.columnMap = options?.columnMap ? { ...options.columnMap } : undefined;
+    this.columnCodecs = options?.columnCodecs ? { ...options.columnCodecs } : undefined;
   }
 
   /**
@@ -173,8 +251,8 @@ export class PgBuddyClient {
    * @example
    * ```typescript
    * await db.transaction(async (tx) => {
-   *   const users = tx.table<User>("users");
-   *   const orders = tx.table<Order>("orders");
+   *   const users = tx.table("users", UserSchema);
+   *   const orders = tx.table("orders", OrderSchema);
    *   await orders.create({ user_id: (await users.create({ ... })).id });
    * });
    * ```
@@ -192,7 +270,7 @@ export class PgBuddyClient {
       defaultTake: this.defaultTake,
     };
 
-    // postgres.js v4 exposes nested `begin`; v3 exposes `savepoint` on the
+    // postgres.js v4 exposes nested `begin`;
     // transaction-scoped sql. Support both.
     const runner = this.sql as unknown as {
       begin?: (
@@ -230,6 +308,73 @@ export class PgBuddyClient {
   }
 
   /**
+   * Create a reusable prepared statement from trusted SQL. Uses postgres.js
+   * named preparation (`prepare: true`); parameters are bound on every call.
+   */
+  prepare<T extends Row = Row>(text: string): PreparedQuery<T> {
+    if (typeof text !== "string" || !text.trim()) {
+      throw new TableError("prepare requires a non-empty SQL string");
+    }
+
+    return async (parameters: readonly unknown[] = []) => {
+      if (!Array.isArray(parameters)) {
+        throw new TableError("prepare parameters must be an array");
+      }
+      return this.sql.unsafe<T[]>(text, parameters as never, { prepare: true });
+    };
+  }
+
+  /**
+   * Run raw SQL statements as one postgres.js batch (one round trip, one
+   * implicit transaction).
+   */
+  async batchSQL<Q extends readonly BatchSQLStatement[]>(
+    statements: Q
+  ): Promise<BatchSQLResults<Q>> {
+    if (!Array.isArray(statements) || statements.length === 0) {
+      throw new TableError("batchSQL requires a non-empty array of statements");
+    }
+    for (const statement of statements) {
+      if (
+        !statement ||
+        typeof statement.text !== "string" ||
+        !statement.text.trim() ||
+        (statement.parameters !== undefined && !Array.isArray(statement.parameters))
+      ) {
+        throw new TableError("batchSQL received an invalid statement");
+      }
+    }
+
+    const queries = statements.map((statement) =>
+      this.sql.unsafe(statement.text, (statement.parameters ?? []) as never)
+    );
+
+    return (await this.sql.batch(queries)) as BatchSQLResults<Q>;
+  }
+
+  /**
+   * True postgres.js batch: one SQL batch, one implicit transaction, one
+   * round trip. Pass pending queries directly or return them from a
+   * transaction-like synchronous callback.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
+  batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+  // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
+  batch<Q extends readonly PendingQuery<any>[]>(
+    build: (tx: PgBuddyClient) => [...Q]
+  ): Promise<BatchResults<Q>>;
+  async batch(input: unknown): Promise<unknown> {
+    const queries =
+      typeof input === "function" ? (input as (tx: PgBuddyClient) => unknown)(this) : input;
+
+    if (!Array.isArray(queries)) {
+      throw new TableError("batch callback must return an array of pending postgres.js queries");
+    }
+    if (queries.length === 0) return [];
+    return this.sql.batch(queries as never);
+  }
+
+  /**
    * Creates a table query builder with chainable interface.
    *
    * @param tableName - The name of the database table to operate on.
@@ -248,7 +393,7 @@ export class PgBuddyClient {
    * }
    *
    * // Create a table builder
-   * const users = db.table<User>("users");
+   * const users = db.table("users", UserSchema);
    *
    * // Use the builder with chainable methods
    * const activeUsers = await users
@@ -258,10 +403,98 @@ export class PgBuddyClient {
    *   .findMany();
    * ```
    */
-  table<T extends Row, I extends Row = T>(
+  private buildAdapterTable<
+    T extends Row,
+    I extends Row = T,
+    const AR extends AdapterRelations = Record<string, never>,
+  >(
     tableName: string,
-    options?: PgBuddyClientOptions
-  ): Table<T, ["*"], I>;
+    adapter: ValidationAdapter<T, I>,
+    options?: PgBuddyClientOptions & { adapterRelations?: AR }
+  ): ValidatedTable<T, ["*"], I, AR> {
+    if (!isValidationAdapter(adapter)) {
+      throw new TableError("Adapter tables require a ValidationAdapter");
+    }
+    if (
+      !Array.isArray(adapter.fields) ||
+      adapter.fields.length === 0 ||
+      adapter.fields.some((field) => typeof field !== "string" || !field)
+    ) {
+      throw new TableError("ValidationAdapter.fields must be a non-empty array of column names");
+    }
+
+    const strictNames = options?.strictNames ?? this.strictNames ?? false;
+    const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
+    const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
+    const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const uniqueKeys = options?.unique ?? this.uniqueKeys;
+    const defaultTake = options?.defaultTake ?? this.defaultTake;
+    const columnMap = options?.columnMap ?? this.columnMap;
+    const columnCodecs = options?.columnCodecs ?? this.columnCodecs;
+
+    if (typeof tableName !== "string" || !tableName.trim()) {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
+    }
+    if (
+      allowedColumns !== undefined &&
+      (!Array.isArray(allowedColumns) ||
+        !allowedColumns.every((column) => typeof column === "string"))
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_ALLOWED_COLUMNS);
+    }
+    if (!Number.isInteger(maxTake) || maxTake <= 0) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    assertUniqueOption(uniqueKeys);
+    assertDefaultTake(defaultTake);
+    assertColumnMap(columnMap);
+    assertColumnCodecs(columnCodecs);
+    if (defaultTake !== undefined && defaultTake > maxTake) {
+      throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
+    }
+
+    if (columnMap) {
+      for (const field of Object.keys(columnMap)) {
+        if (!adapter.fields.includes(field as keyof T & string)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+        }
+      }
+    }
+    if (columnCodecs) {
+      for (const field of Object.keys(columnCodecs)) {
+        if (!adapter.fields.includes(field as keyof T & string)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+        }
+      }
+    }
+
+    const trimmedName = tableName.trim();
+    const isValid = strictNames
+      ? isValidIdentifier(trimmedName, { allowSchema })
+      : isValidName(trimmedName) && (allowSchema || !trimmedName.includes("."));
+    if (!isValid) {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
+    }
+
+    const table = new Table<Row, ["*"], Row>(this.sql, trimmedName, {
+      strictNames,
+      allowSchema,
+      allowedColumns,
+      maxTake,
+      uniqueKeys,
+      defaultTake,
+      columnMap,
+      columnCodecs,
+      columns: adapter.fields as readonly string[],
+    });
+
+    return new ValidatedTable(
+      table as unknown as Table<T, ["*"], I>,
+      adapter,
+      options?.adapterRelations
+    );
+  }
+
   table<S extends ZodObject<ZodRawShape>, R extends ZodRelations>(
     tableName: string,
     schema: S,
@@ -272,25 +505,41 @@ export class PgBuddyClient {
     schema: S,
     options?: PgBuddyClientOptions
   ): ZodTable<S>;
-  table<
-    T extends Row,
-    I extends Row = T,
-    S extends ZodObject<ZodRawShape> = ZodObject<ZodRawShape>,
-  >(
+  table<S, const AR extends AdapterRelations = Record<string, never>>(
     tableName: string,
-    schemaOrOptions?: S | PgBuddyClientOptions,
-    options?: PgBuddyClientOptions
-  ): Table<T, ["*"], I> | ZodTable<S> {
-    const schema = isZodSchema(schemaOrOptions) ? schemaOrOptions : undefined;
-    const resolvedOptions = isZodSchema(schemaOrOptions) ? options : schemaOrOptions;
+    schema: S,
+    options?: PgBuddyClientOptions & { adapterRelations?: AR }
+  ): ValidatedTable<ValidatedRow<S>, ["*"], ValidatedInput<S>, AR>;
+  table(
+    tableName: string,
+    schema: unknown,
+    options?: PgBuddyClientOptions & { adapterRelations?: AdapterRelations }
+  ): ZodTable<ZodObject<ZodRawShape>> | ValidatedTable<Row, ["*"], Row, AdapterRelations> {
+    if (this.adapter !== zodValidator) {
+      if (options?.relations) {
+        throw new TableError("Relations require the Zod adapter");
+      }
+      const bound = bindValidator(schema, this.adapter) as unknown as ValidationAdapter<Row, Row>;
+      return this.buildAdapterTable(tableName, bound, options) as unknown as ValidatedTable<
+        Row,
+        ["*"],
+        Row,
+        AdapterRelations
+      >;
+    }
 
-    const strictNames = resolvedOptions?.strictNames ?? this.strictNames ?? false;
-    const allowSchema = resolvedOptions?.allowSchema ?? this.allowSchema ?? false;
-    const allowedColumns = resolvedOptions?.allowedColumns ?? this.allowedColumns;
-    const maxTake = resolvedOptions?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
-    const uniqueKeys = resolvedOptions?.unique ?? this.uniqueKeys;
-    const defaultTake = resolvedOptions?.defaultTake ?? this.defaultTake;
-    const tableColumns = resolvedOptions?.columns;
+    if (!isZodSchema(schema)) {
+      throw new TableError(Errors.TABLE.INVALID_SCHEMA);
+    }
+
+    const strictNames = options?.strictNames ?? this.strictNames ?? false;
+    const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
+    const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
+    const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const uniqueKeys = options?.unique ?? this.uniqueKeys;
+    const defaultTake = options?.defaultTake ?? this.defaultTake;
+    const columnMap = options?.columnMap ?? this.columnMap;
+    const columnCodecs = options?.columnCodecs ?? this.columnCodecs;
 
     if (typeof tableName !== "string") {
       throw new TableError(Errors.TABLE.INVALID_NAME);
@@ -310,25 +559,30 @@ export class PgBuddyClient {
 
     assertUniqueOption(uniqueKeys);
     assertDefaultTake(defaultTake);
+    assertColumnMap(columnMap);
+    assertColumnCodecs(columnCodecs);
 
-    if (
-      tableColumns !== undefined &&
-      (!Array.isArray(tableColumns) ||
-        tableColumns.length === 0 ||
-        tableColumns.some((column) => typeof column !== "string"))
-    ) {
-      throw new TableError(Errors.TABLE.INVALID_COLUMNS);
+    if (columnCodecs) {
+      for (const field of Object.keys(columnCodecs)) {
+        if (!Object.hasOwn(schema.shape, field)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+        }
+      }
     }
 
-    if (schema && tableColumns) {
-      throw new TableError(Errors.TABLE.INVALID_COLUMNS);
+    if (columnMap) {
+      for (const [field, column] of Object.entries(columnMap)) {
+        if (!Object.hasOwn(schema.shape, field) || !column) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+        }
+      }
     }
 
     if (defaultTake !== undefined && defaultTake > maxTake) {
       throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
     }
 
-    if (schema && uniqueKeys) {
+    if (uniqueKeys) {
       for (const column of uniqueKeys.flat()) {
         if (!Object.hasOwn(schema.shape, column)) {
           throw new TableError(Errors.TABLE.INVALID_UNIQUE);
@@ -347,12 +601,7 @@ export class PgBuddyClient {
       throw new TableError(Errors.TABLE.INVALID_NAME);
     }
 
-    // With a schema we know the columns, so select them explicitly instead of
-    // SELECT * — this keeps result shapes stable and avoids leaking columns the
-    // schema does not model.
-    const schemaColumns = schema ? Object.keys(schema.shape) : undefined;
-
-    // Use unknown cast through Row to avoid explicit any in the internal implementation
+    const schemaColumns = Object.keys(schema.shape);
     const table = new Table<Row, ["*"], Row>(this.sql, trimmedName, {
       strictNames,
       allowSchema,
@@ -360,29 +609,23 @@ export class PgBuddyClient {
       maxTake,
       uniqueKeys,
       defaultTake,
-      columns: tableColumns,
-      selectedFields: schemaColumns?.length
+      columnMap,
+      columnCodecs,
+      selectedFields: schemaColumns.length
         ? (schemaColumns as unknown as SelectKeys<Row>)
         : undefined,
     });
 
-    if (schema) {
-      const relations = resolvedOptions?.relations;
+    const zodTable = new ZodTable(
+      table as unknown as Table<
+        RowFromSchema<ZodObject<ZodRawShape>>,
+        ["*"],
+        RowFromSchema<ZodObject<ZodRawShape>>
+      >,
+      schema,
+      options?.relations
+    );
 
-      // table is typed as Table<Row> internally (impl signature); cast to align with ZodTable's expected generic
-      // biome-ignore lint/suspicious/noExplicitAny: necessary to bridge internal Row type and ZodTable's generic
-      const zodTable = new ZodTable(table as unknown as Table<any, ["*"], any>, schema, relations);
-
-      return zodTable as unknown as ZodTable<S>;
-    }
-
-    return table as Table<T, ["*"], I>;
-  }
-
-  tableWithInsert<T extends Row, AutoKeys extends keyof T>(
-    tableName: string,
-    options?: PgBuddyClientOptions
-  ): Table<T, ["*"], Insertable<T, AutoKeys>> {
-    return this.table<T, Insertable<T, AutoKeys>>(tableName, options);
+    return zodTable as unknown as ZodTable<ZodObject<ZodRawShape>>;
   }
 }

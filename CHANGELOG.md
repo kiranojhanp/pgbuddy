@@ -7,7 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Zod is the default validator and a required peer. Plain
+  TypeScript-only tables (`db.table<T>()`, `tableWithInsert`, `columns`, and
+  `Insertable`/`Model`/`Updatable`/`Selectable`) remain removed. A
+  connection-level `ValidatorAdapter` can validate tables from Valibot, Yup, or
+  a custom library; Zod remains required for relations and schema-derived
+  projections.
+- `findFirstOrThrow()` / `findUniqueOrThrow()` now set
+  `QueryError.code = "NO_ROWS"`.
+
 ### Added
+- `withAggregate` for per-relation count/sum/avg/min/max, including through
+  relations and a `where` refinement.
+- `orderByRelated` for ordering parents by correlated relation aggregates.
+- Per-field `columnCodecs` for custom encode/decode serialization across writes,
+  filters, cursors, and result rows.
+- `db.batch(callback | pending queries)` for true one-round-trip batches; the
+  callback must synchronously return pending queries.
+- `db.batchSQL([...])` typed raw statement batch using `sql.batch`.
+- `insertFrom`, `updateFrom`, and `deleteUsing` for `INSERT … SELECT`,
+  `UPDATE … FROM`, and `DELETE … USING`.
+- Typed aggregate `HAVING` conditions via `groupBy(...).having({...})`.
+- Expression-based grouping via `groupByExpr({ alias: sqlExpr(...) })`.
+- SELECT cancellation via `signal()` and batched streaming via `stream()`.
+- Adapter relation keys are inferred from `fields` field lists.
+- postgres.js v4 is now the only supported major.
+- `toSQL()` inspection for SELECT builders, including computed projections.
+- `db.prepare(text)` for reusable raw prepared statements.
+- `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.
+- Connection-level `ValidatorAdapter` support: configure one adapter on
+  `PgBuddyClient` and use `db.table` for every table, including joins,
+  aggregates, grouped queries, computed projections, `omit`, and field-list
+  adapter relations.
+- Prapti-style schema + adapter split with built-in `zodValidator` and
+  schema-inferred types.
+- Tree-shakeable Valibot/Yup adapters at `pgbuddy/adapters/valibot` and
+  `pgbuddy/adapters/yup` (optional peers).
+- Cyclic relation configurations are rejected instead of recursing forever.
+- Relation and join configs accept `columnMap`/`columnCodecs` for includes,
+  counts, selected right-side join columns, and relation filters.
+- Per-table/client `columnMap` for schema field → database column mapping
+  across reads, writes, filters, ordering, aggregates, cursors, and grouping.
+- Many-to-many/through relations with junction tables, filtering, and counts.
+- Nested includes via child relation configs, with recursive result types.
+- The batched relation loader was extracted into `src/relations.ts`.
+- Chained narrow joins with table aliases and self-joins; schema-aware
+  `ZodJoinQuery` supports multiple `innerJoin`/`leftJoin` calls and nested
+  right-side rows.
 - `allowedColumns` client/table option: an allowlist for `create`, `createMany`
   and `update` payload keys, rejected with a `QueryError` when a key is not
   allowlisted. Mitigates mass assignment when write payloads contain

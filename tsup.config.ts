@@ -2,7 +2,11 @@ import { defineConfig } from "tsup";
 import tsconfig from "./tsconfig.json";
 
 export default defineConfig((options) => ({
-  entry: ["src/index.ts"],
+  entry: {
+    index: "src/index.ts",
+    "adapters/valibot": "src/adapters/valibot.ts",
+    "adapters/yup": "src/adapters/yup.ts",
+  },
   dts: true,
   outDir: "dist",
   format: ["cjs", "esm"],

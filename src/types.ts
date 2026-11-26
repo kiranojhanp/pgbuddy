@@ -227,6 +227,17 @@ export type ComputedResult<X extends Record<string, SqlExpression<unknown>>> = {
   [K in keyof X]: X[K] extends SqlExpression<infer V> ? V : never;
 };
 
+/** Schema field name to database column name. */
+export type ColumnMap = Readonly<Record<string, string>>;
+
+/** Optional per-column serialization hooks. */
+export type ColumnCodec = {
+  encode?: (value: unknown) => unknown;
+  decode?: (value: unknown) => unknown;
+};
+
+export type ColumnCodecs = Readonly<Record<string, ColumnCodec>>;
+
 /** A map of aliases to typed SQL expressions. */
 export type ComputedMap = Record<string, SqlExpression<unknown>>;
 
@@ -290,6 +301,11 @@ export type CreateManyOptions = {
   };
 };
 
+/** Data accepted by `update`; SQL fragments are allowed per field. */
+export type UpdateData<T extends Row> = {
+  [K in keyof T]?: T[K] | SqlFragment;
+};
+
 /**
  * Options for `upsert`.
  *
@@ -305,39 +321,4 @@ export type UpsertOptions<T extends Row, I extends Row = T> = {
   targetWhere?: SqlFragment;
   /** Optional WHERE for the DO UPDATE branch. */
   setWhere?: SqlFragment;
-};
-
-/**
- * Helper type for insertable rows.
- *
- * Marks auto-generated keys as optional.
- */
-export type Insertable<T extends Row, TAuto extends keyof T = never> = Omit<T, TAuto> &
-  Partial<Pick<T, TAuto>>;
-
-/**
- * Values accepted by `update`: either the column type or a postgres.js SQL
- * fragment (for `now()`, arithmetic, JSON operators, ...).
- */
-export type UpdateData<T extends Row> = {
-  [K in keyof T]?: T[K] | SqlFragment;
-};
-
-/**
- * Helper type for update payloads.
- */
-export type Updatable<T extends Row> = Partial<T>;
-
-/**
- * Helper type for select payloads.
- */
-export type Selectable<T extends Row> = T;
-
-/**
- * Prisma-like model helper to group derived types.
- */
-export type Model<T extends Row, AutoKeys extends keyof T = never> = {
-  Insert: Insertable<T, AutoKeys>;
-  Update: Updatable<T>;
-  Select: Selectable<T>;
 };

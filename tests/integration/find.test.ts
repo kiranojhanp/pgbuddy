@@ -1,13 +1,7 @@
 import type { Sql } from "postgres";
 import { PgBuddyClient } from "../../src";
 import { startPglite } from "../helpers/pglite";
-
-interface User {
-  id: number;
-  email: string;
-  status: "active" | "inactive";
-  last_login: Date | null;
-}
+import { UserSchema } from "../helpers/schemas";
 
 describe("Table - find", () => {
   let sql: Sql<Record<string, unknown>>;
@@ -48,14 +42,14 @@ describe("Table - find", () => {
   });
 
   test("findMany returns all matching records", async () => {
-    const users = await db.table<User>("users").where({ status: "active" }).findMany();
+    const users = await db.table("users", UserSchema).where({ status: "active" }).findMany();
 
     expect(users).toHaveLength(2);
   });
 
   test("findMany returns ordered and paginated results", async () => {
     const users = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .orderBy([{ column: "email", direction: "ASC" }])
       .skip(1)
       .take(1)
@@ -66,46 +60,49 @@ describe("Table - find", () => {
   });
 
   test("findMany respects select projection", async () => {
-    const users = await db.table<User>("users").select(["id", "email"]).findMany();
+    const users = await db.table("users", UserSchema).select(["id", "email"]).findMany();
 
     expect("status" in users[0]).toBe(false);
   });
 
   test("findFirst returns the first matching record", async () => {
-    const user = await db.table<User>("users").where({ status: "active" }).findFirst();
+    const user = await db.table("users", UserSchema).where({ status: "active" }).findFirst();
 
     expect(user).not.toBeNull();
     expect(user?.status).toBe("active");
   });
 
   test("findFirst returns null when no rows match", async () => {
-    const user = await db.table<User>("users").where({ email: "nobody@example.com" }).findFirst();
+    const user = await db
+      .table("users", UserSchema)
+      .where({ email: "nobody@example.com" })
+      .findFirst();
 
     expect(user).toBeNull();
   });
 
   test("findUnique returns the single matching record", async () => {
-    const user = await db.table<User>("users").where({ email: "a@example.com" }).findUnique();
+    const user = await db.table("users", UserSchema).where({ email: "a@example.com" }).findUnique();
 
     expect(user?.email).toBe("a@example.com");
   });
 
   test("findUnique throws when multiple rows match", async () => {
     await expect(
-      db.table<User>("users").where({ status: "active" }).findUnique()
+      db.table("users", UserSchema).where({ status: "active" }).findUnique()
     ).rejects.toThrow();
   });
 
   test("count returns total or filtered count", async () => {
-    const total = await db.table<User>("users").count();
-    const active = await db.table<User>("users").where({ status: "active" }).count();
+    const total = await db.table("users", UserSchema).count();
+    const active = await db.table("users", UserSchema).where({ status: "active" }).count();
 
     expect(total).toBe(3);
     expect(active).toBe(2);
   });
 
   test("builder does not carry state across chains", async () => {
-    const table = db.table<User>("users");
+    const table = db.table("users", UserSchema);
 
     const activeUsers = await table.where({ status: "active" }).findMany();
     const allUsers = await table.findMany();
@@ -115,7 +112,7 @@ describe("Table - find", () => {
   });
 
   test("select projection does not leak to subsequent queries", async () => {
-    const table = db.table<User>("users");
+    const table = db.table("users", UserSchema);
 
     const projected = await table.select(["email"]).findMany();
     const full = await table.findMany();

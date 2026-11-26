@@ -22,6 +22,17 @@ const TeamSchema = z.object({
   name: z.string(),
 });
 
+const TagSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+});
+
+const CommentSchema = z.object({
+  id: z.number(),
+  post_id: z.number(),
+  body: z.string(),
+});
+
 const MemberSchema = z.object({
   id: z.number(),
   tenant_id: z.number(),
@@ -40,6 +51,9 @@ describe("relations", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql);
 
+    await sql`DROP TABLE IF EXISTS comments;`;
+    await sql`DROP TABLE IF EXISTS post_tags;`;
+    await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS members;`;
     await sql`DROP TABLE IF EXISTS teams;`;
     await sql`DROP TABLE IF EXISTS posts;`;
@@ -52,6 +66,26 @@ describe("relations", () => {
         title TEXT NOT NULL,
         published BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `;
+    await sql`
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL
+      );
+    `;
+    await sql`
+      CREATE TABLE comments (
+        id INTEGER PRIMARY KEY,
+        post_id INTEGER NOT NULL,
+        body TEXT NOT NULL
+      );
+    `;
+    await sql`
+      CREATE TABLE post_tags (
+        post_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (post_id, tag_id)
       );
     `;
     await sql`
@@ -73,6 +107,9 @@ describe("relations", () => {
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS comments;`;
+    await sql`DROP TABLE IF EXISTS post_tags;`;
+    await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS members;`;
     await sql`DROP TABLE IF EXISTS teams;`;
     await sql`DROP TABLE IF EXISTS posts;`;
@@ -81,7 +118,7 @@ describe("relations", () => {
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE members, teams, posts, users;`;
+    await sql`TRUNCATE comments, post_tags, tags, members, teams, posts, users;`;
   });
 
   const users = () =>
@@ -93,6 +130,27 @@ describe("relations", () => {
           localKey: "id",
           foreignKey: "user_id",
           relation: "many",
+          relations: {
+            comments: {
+              table: "comments",
+              schema: CommentSchema,
+              localKey: "id",
+              foreignKey: "post_id",
+              relation: "many",
+            },
+            tags: {
+              table: "tags",
+              schema: TagSchema,
+              localKey: "id",
+              relation: "many",
+              through: {
+                table: "post_tags",
+                parentKey: "post_id",
+                relatedKey: "tag_id",
+                targetKey: "id",
+              },
+            },
+          },
         },
       },
     });
@@ -106,6 +164,18 @@ describe("relations", () => {
           localKey: "user_id",
           foreignKey: "id",
           relation: "one",
+        },
+        tags: {
+          table: "tags",
+          schema: TagSchema,
+          localKey: "id",
+          relation: "many",
+          through: {
+            table: "post_tags",
+            parentKey: "post_id",
+            relatedKey: "tag_id",
+            targetKey: "id",
+          },
         },
       },
     });
@@ -221,9 +291,14 @@ describe("relations", () => {
 
     // take() applies per parent, not to the whole batched query.
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.posts).toEqual([{ id: 11, title: "Second" }]);
-    expect(rows[1]?.posts).toEqual([{ id: 14, title: "Fifth" }]);
-    expect(Object.keys(rows[0]?.posts[0] ?? {}).sort()).toEqual(["id", "title"]);
+    expect(rows[0]?.posts).toEqual([{ id: 11, title: "Second", comments: [], tags: [] }]);
+    expect(rows[1]?.posts).toEqual([{ id: 14, title: "Fifth", comments: [], tags: [] }]);
+    expect(Object.keys(rows[0]?.posts[0] ?? {}).sort()).toEqual([
+      "comments",
+      "id",
+      "tags",
+      "title",
+    ]);
   });
 
   test("relation select includes the foreign key only when requested", async () => {
@@ -234,7 +309,13 @@ describe("relations", () => {
       .include("posts", (posts) => posts.select(["id", "user_id", "title"]))
       .findMany();
 
-    expect(rows[0]?.posts[0]).toEqual({ id: 10, user_id: 1, title: "First" });
+    expect(rows[0]?.posts[0]).toEqual({
+      id: 10,
+      user_id: 1,
+      title: "First",
+      comments: [],
+      tags: [],
+    });
   });
 
   test("relation refinements are parameterized", async () => {
@@ -625,7 +706,7 @@ describe("relations", () => {
       })
       .findMany();
 
-    expect(rows[0]?.posts).toEqual([{ id: 10, title: "First" }]);
+    expect(rows[0]?.posts).toEqual([{ id: 10, title: "First", comments: [], tags: [] }]);
   });
 
   test("innerJoin and leftJoin nest the right row", async () => {
@@ -670,5 +751,287 @@ describe("relations", () => {
 
     expect(rows[0]?.lowerName).toBe("ada");
     expect(rows[0]?.posts).toHaveLength(1);
+  });
+
+  test("multiple joins and aliases nest every right row", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title, published)
+      VALUES (10, 1, 'First', true), (11, 2, 'Second', true), (12, 1, 'Third', true)
+    `;
+
+    const rows = await db
+      .table("users", UserSchema)
+      .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+      .innerJoin(
+        "other_posts",
+        PostSchema,
+        sql`"other_posts"."user_id" = "users"."id" AND "other_posts"."id" = 12`,
+        {
+          table: "posts",
+          alias: "other_posts",
+        }
+      )
+      .whereRaw(sql`"users"."id" = 1 AND "posts"."id" = 10`)
+      .findMany();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.posts.title).toBe("First");
+    expect(rows[0]?.other_posts.title).toBe("Third");
+
+    const aliased = await db
+      .table("users", UserSchema)
+      .innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+        table: "users",
+        alias: "manager",
+      })
+      .whereRaw(sql`"users"."id" = 1`)
+      .findMany();
+
+    expect(aliased[0]?.manager.name).toBe("Ada");
+  });
+
+  test("through relations load, count, and filter", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second'), (12, 1, 'Third')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript'), (2, 'postgres')`;
+    await sql`
+      INSERT INTO post_tags (post_id, tag_id)
+      VALUES (10, 1), (10, 2), (11, 2)
+    `;
+
+    const included = await posts()
+      .include("tags", (tags) => tags.orderBy([{ column: "id", direction: "ASC" }]))
+      .withCount("tags")
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+
+    expect(included[0]?.tags.map((tag) => tag.name)).toEqual(["typescript", "postgres"]);
+    expect(included[0]?.tags_count).toBe(2);
+    expect(included[1]?.tags.map((tag) => tag.name)).toEqual(["postgres"]);
+
+    const limited = await posts()
+      .include("tags", (tags) => tags.orderBy([{ column: "id", direction: "DESC" }]).take(1))
+      .where({ id: 10 })
+      .findMany();
+
+    expect(limited[0]?.tags.map((tag) => tag.id)).toEqual([2]);
+
+    const filtered = await posts()
+      .whereRelated("tags", (tags) => tags.where({ name: "typescript" }))
+      .findMany();
+
+    expect(filtered.map((post) => post.id)).toEqual([10]);
+
+    const counted = await posts()
+      .withCount("tags", (tags) => tags.where({ name: "postgres" }))
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+
+    expect(counted.map((post) => post.tags_count)).toEqual([1, 1, 0]);
+
+    const missing = await posts()
+      .whereMissing("tags")
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+
+    expect(missing.map((post) => post.id)).toEqual([12]);
+
+    const every = await posts()
+      .whereEvery("tags", (tags) => tags.where({ name: "postgres" }))
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+
+    expect(every.map((post) => post.id)).toEqual([11, 12]);
+  });
+
+  test("nested includes load declared child relations", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second')
+    `;
+    await sql`
+      INSERT INTO comments (id, post_id, body)
+      VALUES (100, 10, 'one'), (101, 10, 'two'), (102, 11, 'three')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
+    await sql`INSERT INTO post_tags (post_id, tag_id) VALUES (10, 1)`;
+
+    const rows = await users()
+      .include("posts", (posts) => posts.orderBy([{ column: "id", direction: "ASC" }]))
+      .findMany();
+
+    expect(rows[0]?.posts[0]?.comments.map((comment) => comment.body)).toEqual(["one", "two"]);
+    expect(rows[0]?.posts[0]?.tags.map((tag) => tag.name)).toEqual(["typescript"]);
+    expect(rows[0]?.posts[1]?.comments.map((comment) => comment.body)).toEqual(["three"]);
+    expect(rows[0]?.posts[1]?.tags).toEqual([]);
+  });
+
+  test("withAggregate computes per-relation aggregates", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second'), (12, 1, 'Third')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript'), (2, 'postgres')`;
+    await sql`
+      INSERT INTO post_tags (post_id, tag_id)
+      VALUES (10, 1), (10, 2), (11, 2)
+    `;
+
+    const direct = await users()
+      .withAggregate("posts", {
+        count: true,
+        sum: ["id"],
+        avg: ["id"],
+        min: ["id"],
+        max: ["id"],
+      })
+      .findMany();
+
+    expect(direct[0]?.posts_count).toBe(3);
+    expect(direct[0]?.posts_sum_id).toBe(33);
+    expect(direct[0]?.posts_avg_id).toBe(11);
+
+    const filtered = await users()
+      .withAggregate("posts", { count: true }, (posts) => posts.where({ title: "First" }))
+      .findMany();
+
+    expect(filtered[0]?.posts_count).toBe(1);
+
+    const through = await posts()
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .withAggregate("tags", { count: true, min: ["id"], max: ["id"] })
+      .findMany();
+
+    expect(through[0]?.tags_count).toBe(2);
+    expect(through[0]?.tags_min_id).toBe(1);
+    expect(through[0]?.tags_max_id).toBe(2);
+    expect(through[2]?.tags_count).toBe(0);
+    expect(through[2]?.tags_min_id).toBeNull();
+  });
+
+  test("orderByRelated orders parents by related aggregates", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second'), (12, 2, 'Third')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript'), (2, 'postgres')`;
+    await sql`
+      INSERT INTO post_tags (post_id, tag_id)
+      VALUES (10, 1), (10, 2), (11, 2)
+    `;
+
+    const byPosts = await users()
+      .orderByRelated("posts", { aggregate: "count", direction: "DESC" })
+      .findMany();
+    expect(byPosts.map((user) => user.id)).toEqual([1, 2]);
+
+    const byTags = await posts()
+      .orderByRelated("tags", { aggregate: "count", direction: "DESC" })
+      .findMany();
+    expect(byTags[0]?.id).toBe(10);
+    expect(byTags[0]?.title).toBe("First");
+  });
+
+  test("cyclic relation configs are rejected", () => {
+    const cyclic: Record<string, unknown> = {
+      table: "posts",
+      schema: PostSchema,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+    };
+    cyclic.relations = { loop: cyclic };
+
+    expect(() => db.table("users", UserSchema, { relations: { posts: cyclic } })).toThrow(
+      TableError
+    );
+  });
+
+  test("joins can map and decode right-side columns", async () => {
+    const PostJoinSchema = z.object({
+      id: z.number(),
+      headline: z.string(),
+      published: z.boolean(),
+    });
+
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title, published)
+      VALUES (10, 1, 'First', true)
+    `;
+
+    const rows = await users()
+      .innerJoin("posts", PostJoinSchema, sql`"posts"."user_id" = "users"."id"`, {
+        columnMap: { headline: "title" },
+        columnCodecs: {
+          headline: { decode: (value) => `decoded:${String(value)}` },
+        },
+      })
+      .whereRaw(sql`"users"."id" = 1`)
+      .findMany();
+
+    expect(rows[0]?.posts.headline).toBe("decoded:First");
+  });
+
+  test("relation column maps and codecs apply to includes and counts", async () => {
+    const TagMapSchema = z.object({
+      id: z.number(),
+      label: z.string(),
+    });
+
+    const postsMapped = db.table("posts", PostSchema, {
+      relations: {
+        tags: {
+          table: "tags",
+          schema: TagMapSchema,
+          localKey: "id",
+          relation: "many",
+          columnMap: { label: "name" },
+          columnCodecs: {
+            label: { decode: (value) => `mapped:${String(value)}` },
+          },
+          through: {
+            table: "post_tags",
+            parentKey: "post_id",
+            relatedKey: "tag_id",
+            targetKey: "id",
+          },
+        },
+      },
+    });
+
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First'), (11, 1, 'Second')`;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
+    await sql`INSERT INTO post_tags (post_id, tag_id) VALUES (10, 1)`;
+
+    const rows = await postsMapped.include("tags").withCount("tags").findMany();
+
+    expect(rows[0]?.tags[0]?.label).toBe("mapped:typescript");
+    expect(rows[0]?.tags_count).toBe(1);
+
+    const [aggregated] = await postsMapped
+      .where({ id: 10 })
+      .withAggregate("tags", { min: ["label"] })
+      .findMany();
+    expect(aggregated?.tags_min_label).toBe("mapped:typescript");
+
+    const related = await postsMapped
+      .whereRelated("tags", (tags) => tags.where({ label: "typescript" }))
+      .findMany();
+    expect(related.map((post) => post.id)).toEqual([10]);
+
+    const missing = await postsMapped
+      .whereMissing("tags")
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+    expect(missing.map((post) => post.id)).toEqual([11]);
   });
 });

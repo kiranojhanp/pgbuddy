@@ -22,7 +22,8 @@ All options can be set on the client and overridden per table:
 | `maxTake` | `10000` | Upper bound for `take()`. A larger value throws a `QueryError`. |
 | `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
 | `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
-| `columns` | `undefined` | Explicit column list for a plain `Table`. Avoids `SELECT *` and enables `omit()`. |
+| `columnMap` | `undefined` | Map schema field names to database column names for this table or the whole client. Values must be unique. |
+| `columnCodecs` | `undefined` | Per-field `{ encode?, decode? }` hooks for custom database representations. |
 | `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
 
 ### sql
@@ -53,10 +54,105 @@ throws. Nested calls use savepoints.
 
 ```typescript
 await db.transaction(async (tx) => {
-  const users = tx.table<User>("users");
-  await users.create({ email });
+  const users = tx.table("users", UserSchema);
+  await users.create({ email, name });
 });
 ```
+
+### prepare(text)
+
+```typescript
+prepare<T extends Row = Row>(text: string): PreparedQuery<T>
+```
+
+Creates a reusable prepared statement from trusted SQL. Calls are executed with
+postgres.js named preparation (`prepare: true`) and accept bound parameters:
+
+```typescript
+const findUser = db.prepare<{ id: number; email: string }>(
+  "select id, email from users where id = $1"
+);
+await findUser([1]);
+```
+
+The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
+prepared plans are not supported yet.
+
+### batch(queries | callback)
+
+```typescript
+batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+batch<Q extends readonly PendingQuery<any>[]>(
+  callback: (tx: PgBuddyClient) => [...Q]
+): Promise<BatchResults<Q>>;
+```
+
+Runs pending postgres.js queries through `sql.batch`: one round trip and one
+implicit transaction. The callback must be synchronous and return pending
+queries.
+
+```typescript
+const [updated, count] = await db.batch((tx) => [
+  tx.sql`update users set status = ${status} where id = ${id}`,
+  tx.sql`select count(*)::int as count from users`,
+]);
+```
+
+Use `db.transaction` for sequential statements that depend on previous results.
+
+### batchSQL(statements)
+
+```typescript
+batchSQL<Q extends readonly BatchSQLStatement[]>(
+  statements: Q
+): Promise<BatchSQLResults<Q>>
+```
+
+Runs raw SQL statements through postgres.js `sql.batch`: one round trip and one
+implicit transaction.
+
+```typescript
+const [rows, count] = await db.batchSQL([
+  { text: "select * from users where id = $1", parameters: [id] },
+  { text: "select count(*)::int from users" },
+]);
+```
+
+### insertFrom(select, options?)
+
+```typescript
+insertFrom(select: SqlFragment, options?: {
+  columns?: readonly (keyof T & string)[];
+  returning?: boolean;
+  computed?: ComputedMap;
+}): Promise<Array<T> | number>
+```
+
+Inserts from a raw `SELECT`; column names use the table mapping. The SELECT is
+not validated by pgbuddy.
+
+### updateFrom(data, from, options?)
+
+```typescript
+updateFrom(data, from: SqlFragment, options?: {
+  returning?: boolean;
+  computed?: ComputedMap;
+}): Promise<Array<T> | number>
+```
+
+Runs `UPDATE ... FROM` using the builder's existing where conditions. The FROM
+fragment is raw SQL.
+
+### deleteUsing(using, options?)
+
+```typescript
+deleteUsing(using: SqlFragment, options?: {
+  returning?: boolean;
+}): Promise<Array<T> | number>
+```
+
+Runs `DELETE ... USING` using the builder's existing where conditions. The USING
+fragment is raw SQL.
 
 ### Security: write payloads
 
@@ -84,53 +180,41 @@ table<S extends ZodObject<any>>(
 )
 ```
 
-Creates a chainable table query builder with Zod validation.
+Creates a chainable table query builder using the client's configured
+validation adapter. Zod is the default; configure `new PgBuddyClient(sql, {
+adapter })` for another library.
 
 - `tableName` — table name
-- `schema` — Zod schema for input validation (unknown keys are stripped)
-- `options` — optional `PgBuddyClientOptions`
-- Returns `ZodTable<S>`
+- `schema` — schema for the configured adapter
+- `options` — optional `PgBuddyClientOptions`; `relations` is Zod-only,
+  `adapterRelations` is for adapter tables
+- Returns `ZodTable<S>` for Zod or `ValidatedTable` for another adapter
 
-### table(tableName, options?)
+### Validation adapters
+
+Configure one adapter on the client. Zod is the default.
 
 ```typescript
-table<T extends Row, I extends Row = T>(
-  tableName: string,
-  options?: PgBuddyClientOptions
-)
+const db = new PgBuddyClient(sql, { adapter: valibotValidator });
+const users = db.table("users", ValibotUserSchema);
 ```
 
-Creates a chainable table query builder without Zod validation.
+Built-ins: `zodValidator`, `pgbuddy/adapters/valibot`, and
+`pgbuddy/adapters/yup`. A custom `ValidatorAdapter` supplies
+`fields(schema)`, `parse(schema, value)`, and `parsePartial(schema, value)`.
+Output/input types are inferred from the schema.
 
-- `tableName` — table name
-- `T` — full row type
-- `I` — insertable row type (defaults to `T`)
-- `options` — optional `PgBuddyClientOptions`
-- Returns `Table<T, ["*"], I>`
-
-### tableWithInsert(tableName, options?)
-
-```typescript
-tableWithInsert<T extends Row, AutoKeys extends keyof T>(
-  tableName: string,
-  options?: PgBuddyClientOptions
-)
-```
-
-Creates a table query builder where auto-generated keys are optional on insert.
-
-- `tableName` — table name
-- `T` — full row type
-- `AutoKeys` — keys in `T` that are auto-generated and optional on insert
-- `options` — optional `PgBuddyClientOptions`
-- Returns `Table<T, ["*"], Insertable<T, AutoKeys>>`
-- Throws `TableError` if the table name is invalid
+Adapter tables support core CRUD, joins, aggregates, grouped queries, computed
+projections, `omit`, and `prepare`. `options.adapterRelations` declares
+field-list relations; child-row keys are inferred from `fields` (use `as const`)
+with `unknown` values. Relations and schema-derived projections remain
+Zod-only.
 
 ---
 
 ## ZodTable\<S\>
 
-`ZodTable` has the same chainable API as `Table`, with runtime validation added:
+`ZodTable` is the default schema-backed table builder, with runtime validation built in:
 
 - `where` validates field names and values against the schema
 - `select` validates projected columns against the schema; `"*"` means every
@@ -185,11 +269,24 @@ const rows = await users
 - `withCount("posts")` adds `posts_count: number` to each row. It accepts a
   refinement: `withCount("posts", (posts) => posts.where({ published: true }))`
   counts matching rows only (order/take/select are ignored for counts).
+- `withAggregate("posts", { count, sum, avg, min, max })` adds per-relation
+  aggregate fields such as `posts_count` and `posts_sum_id`. It accepts the same
+  `where` refinement and is a terminal query (`withAggregate(...).findMany()`).
+- `orderByRelated("posts", { aggregate, column?, direction, nulls? })` orders
+  parent rows by a correlated aggregate over a direct or through relation.
 - `whereRelated("posts", (posts) => posts.where(...))` filters parents with
   `EXISTS`; `whereMissing("posts")` uses `NOT EXISTS`; `whereEvery(...)` uses
   `NOT EXISTS (... WHERE NOT (refinement))`. `whereEvery("posts")` without a
   refinement is a no-op (vacuously true).
 - `localKey`/`foreignKey` accept arrays for composite keys.
+- Many-to-many relations use `through: { table, parentKey, relatedKey, targetKey? }`
+  instead of `foreignKey`. Through relations support includes, counts, and
+  `whereRelated`/`whereMissing`/`whereEvery`.
+- Relation configs accept `columnMap` and `columnCodecs` for the related
+  table; includes, counts, and relation filters honor them.
+- Child `relations` on a relation config are loaded recursively. The parent
+  relation's `select` controls its own columns; child relations are always
+  included once declared.
 - The parent key is selected automatically and stripped if it was not
   requested.
 - Relation table names are validated with the table's `strictNames` /
@@ -199,14 +296,21 @@ const rows = await users
   and relation methods can follow `selectExpr`.
 - Narrow joins: `users.innerJoin("posts", PostSchema, on)` and `leftJoin`;
   see the Joins section.
-- Mutations do not populate includes, and nested includes are not supported;
-  use `db.sql` for those.
+- Nested relations are declared with a child `relations` map on the relation
+  config and load automatically when the parent relation is included. Cyclic
+  relation configs are rejected at table construction.
+- Mutations do not populate includes or relation writes; use `db.sql` for those.
+- Relation aggregates use `withAggregate(name, { count, sum, avg, min, max }, refine?)`
+  and support direct and through relations.
 
 ---
 
-## Table\<T\>
+## Table methods
 
-The `Table` API is chainable. Build up query state with `select`, `where`, `skip`, `take`, and `orderBy`, then execute with `findMany`, `findFirst`, `findUnique`, or `count`. Mutations are `create`, `createMany`, `update`, and `delete`.
+Every table builder is a `ZodTable`; the methods below are the shared chainable
+surface. Build up query state with `select`, `where`, `skip`, `take`, and
+`orderBy`, then execute with `findMany`, `findFirst`, `findUnique`, or `count`.
+Mutations are `create`, `createMany`, `update`, and `delete`.
 
 ### Chainable query methods
 
@@ -252,7 +356,7 @@ Filter by a unique column set declared in the `unique` table option. Throws
 unique option is configured). `findUnique()` then fetches a single row.
 
 ```typescript
-const users = db.table<User>("users", { unique: [["email"]] });
+const users = db.table("users", UserSchema, { unique: [["email"]] });
 const user = await users.whereUnique({ email }).findUnique();
 ```
 
@@ -392,6 +496,36 @@ Returns the first matching record, or throws `QueryError` (`No record found`).
 
 Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
 
+#### toSQL()
+
+```typescript
+toSQL(): { text: string; parameters: readonly unknown[] }
+```
+
+Inspects the current SELECT without executing it. Identifiers are quoted and
+values are returned separately in `parameters`. Covers computed projections on
+`selectExpr(...)`.
+
+#### signal(signal)
+
+Attaches an `AbortSignal` to SELECT execution.
+
+#### stream(batchSize = 1)
+
+Streams the base SELECT as batches of rows. Relation includes are not applied to
+streamed rows.
+
+#### prepare()
+
+```typescript
+prepare(): () => Promise<Array<T>>
+```
+
+Builds a reusable prepared executor for the current SELECT. Parameters are
+fixed to the builder state; create another prepared builder to reuse the same
+plan with different values. Relation includes are not applied by prepared
+execution.
+
 #### count()
 
 Returns the number of matching records.
@@ -440,27 +574,30 @@ grouping such as `FILTER`, `ROLLUP`, or `CUBE`.
 
 ```typescript
 const rows = await users
-  .innerJoin("posts", {
-    columns: ["id", "user_id", "title"],
-    on: sql`"posts"."user_id" = "users"."id"`,
-  })
+  .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+  .leftJoin("comments", CommentSchema, sql`"comments"."post_id" = "posts"."id"`)
   .findMany();
-// Array<User & { posts: { id: number; user_id: number; title: string } }>
+// Array<User & { posts: Post; comments: Comment | null }>
 ```
 
-`leftJoin` has the same shape, but `posts` is `{...} | null` when no
-right-side row matches. The right row is nested under the join name, so
-duplicate column names do not clobber the left row. With a Zod table, pass the
-right schema instead of columns:
+Each right row is nested under its join name. `innerJoin` rows are required;
+`leftJoin` rows are `{...} | null`. Joins can be chained. Use `alias` to join
+the same table more than once:
 
 ```typescript
-await users.innerJoin("posts", PostSchema, on);
+await users.innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+  table: "users",
+  alias: "manager",
+});
 ```
 
-Right-side columns are explicit. Because both tables can share column names,
-use `whereRaw`/`orderByRaw` with qualified columns for filters or ordering.
-`on` is a trusted SQL fragment. Joins are single-table joins; there is no join
-tree or alias API yet.
+The alias defaults to the join name, and the table defaults to the join name.
+A right-side alias must differ from the left table name and from other join
+aliases. Join options accept `columnMap` and `columnCodecs` for the right
+table; they apply to selected right-side columns. Right-side columns come from the Zod schema. Because tables can share
+column names, use `whereRaw`/`orderByRaw` with qualified columns for filters or
+ordering. `on` is a trusted SQL fragment. Narrow joins are supported; a general
+join tree is not.
 
 ### Mutations
 
@@ -492,8 +629,9 @@ createMany(
 )
 ```
 
-Insert multiple records and return them (respects `select`). Use
-`Insertable<T, AutoKeys>` to mark auto-generated keys as optional.
+Insert multiple records and return them (respects `select`). Make
+auto-generated keys optional in the Zod schema (for example
+`id: z.number().int().optional()`).
 `skipDuplicates` adds `ON CONFLICT DO NOTHING`; `onConflict` updates the named
 columns from `EXCLUDED` and/or applies arbitrary `set` expressions. Large
 batches are chunked automatically.
@@ -555,60 +693,6 @@ Delete records matching `where` and return the deleted rows (respects
 
 ## Types
 
-### Insertable\<T, AutoKeys\>
-
-```typescript
-type Insertable<T extends Row, AutoKeys extends keyof T = never> =
-  Omit<T, AutoKeys> & Partial<Pick<T, AutoKeys>>;
-```
-
-Marks auto-generated columns as optional when using `create`/`createMany` without Zod.
-
-### Updatable\<T\>
-
-```typescript
-type Updatable<T extends Row> = Partial<T>;
-```
-
-Type for update payloads.
-
-### Model\<T, AutoKeys\>
-
-```typescript
-type Model<T extends Row, AutoKeys extends keyof T = never> = {
-  Insert: Insertable<T, AutoKeys>;
-  Update: Updatable<T>;
-  Select: T;
-};
-```
-
-Groups `Insert`, `Update`, and `Select` types — a Prisma-style type bundle without Zod.
-
-### CreateManyOptions
-
-```typescript
-type CreateManyOptions = {
-  skipDuplicates?: boolean;
-  onConflict?: {
-    target: readonly string[];
-    update?: readonly string[];
-    set?: Readonly<Record<string, SqlFragment>>;
-  };
-};
-```
-
-### UpsertOptions\<T, I\>
-
-```typescript
-type UpsertOptions<T extends Row, I extends Row = T> = {
-  where: Partial<T>;
-  create: I;
-  update?: Partial<T>;
-  targetWhere?: SqlFragment;
-  setWhere?: SqlFragment;
-};
-```
-
 ### WhereCondition\<T\>
 
 ```typescript
@@ -659,22 +743,37 @@ interface SortSpec<T> {
 
 ## Column mapping
 
-pgbuddy passes identifiers through postgres.js, so use its `transform` for
-camelCase fields over snake_case columns:
-
 ```typescript
-const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
-
-const UserSchema = z.object({
-  id: z.number(),
-  fullName: z.string(),
-  createdAt: z.date(),
+const users = db.table("users", UserSchema, {
+  columnMap: {
+    fullName: "full_name",
+    createdAt: "created_at",
+  },
 });
 ```
 
-Schema keys map to `full_name` / `created_at` across inserts, filters, ordering,
-projections, aggregates, and results. Mapping is global to the connection;
-there is no per-column `mapWith`/`$type` hook yet.
+Results keep schema field names. The map applies to reads, writes, filters,
+ordering, distinct, cursors, aggregates, and grouping. Set `columnMap` on the
+client to apply a default map to every table.
+
+`columnCodecs` adds per-field serialization:
+
+```typescript
+const products = db.table("products", ProductSchema, {
+  columnMap: { price: "price_cents" },
+  columnCodecs: {
+    price: {
+      encode: (value) => Math.round(Number(value) * 100),
+      decode: (value) => Number(value) / 100,
+    },
+  },
+});
+```
+
+Codecs apply to writes, filter values, cursors, and decoded rows; SQL-fragment
+values bypass encoding. Relation configs, right-side join columns, and
+relation-loaded child rows do not use table codecs yet. `postgres.camel`
+remains an alternative for connection-wide camelCase mapping.
 
 ## Error types
 

@@ -28,8 +28,9 @@ The scenario has the usual ecommerce tables:
 - `orders`
 - `order_items`
 - `reviews`
-- `inventory` (plain `Table`)
-- `audit_log` (plain `Table` with an auto-generated id)
+- `inventory`
+- `price_overrides` (used by the SQL write helpers)
+- `audit_log` (auto-generated id)
 
 It declares one-hop relations in both directions:
 
@@ -44,16 +45,18 @@ It declares one-hop relations in both directions:
 | Area | API exercised |
 | --- | --- |
 | Reads | `findMany`, `findFirst`, `findUnique`, `findUniqueOrThrow`, `findFirstOrThrow`, `count`, `exists` |
+| Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in the README |
+| Batch | `db.batch` with synchronous pending-query callback |
 | Filtering | object conditions, typed `WhereCondition[]`, all predicate helpers, nested `and`/`or`/`not`, `whereRaw` |
 | Projection | `select`, `omit`, `distinct`, `distinctOn`, `distinctOnExpr`, `selectExpr`, `computed` |
 | Pagination | `skip`, `take`, `orderBy` with `NULLS`, `orderByRaw`, single and composite `cursor` |
 | Relations | callback and declarative `include`, `withCount` with refinement, `whereRelated`, `whereMissing`, `whereEvery` |
 | Joins | `innerJoin`, `leftJoin`, nested right rows, `JoinQuery` filtering/order/projection/first |
-| Grouping | `groupBy`, aggregate aliases, `having`, grouped `orderBy`/`skip`/`take`/`findFirstOrThrow` |
+| Grouping | `groupBy`, `groupByExpr`, aggregate aliases, typed/raw `having`, grouped `orderBy`/`skip`/`take`/`findFirstOrThrow` |
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max` |
 | Transactions | isolation level, read-only/deferrable, nested-capable `transaction`, row locking |
-| Writes | `create`, `createMany`, `upsert`, `update`, `delete`; conflict handling; computed `RETURNING`; count mode |
-| Plain tables | `table`, `tableWithInsert`, `columns`, `omit`, `whereUnique`, `groupBy` |
+| Writes | `create`, `createMany`, `upsert`, `update`, `delete`; `insertFrom`, `updateFrom`, `deleteUsing`; conflict handling; computed `RETURNING`; count mode |
+| Zod schemas | `table` for inventory/audit, `omit`, `whereUnique`, `groupBy` |
 | Errors | `QueryError.code`, `TableError`, all PostgreSQL error helpers |
 | Computed writes | `create`/`update`/`delete`/`upsert` with `computed` |
 
@@ -119,8 +122,29 @@ const grouped = await orders
     count: sqlExpr<number>(sql`count(*)::int`),
     total: sqlExpr<number>(sql`sum(total_cents)::int`),
   })
-  .having(sql`count(*) > 0`)
+  .having({ count: { gt: 0 } })
   .findMany();
+
+const byLowerStatus = await orders
+  .groupByExpr(
+    { statusLower: sqlExpr<string>(sql`lower(status)`) },
+    { count: sqlExpr<number>(sql`count(*)::int`) }
+  )
+  .findMany();
+```
+
+### True batch and SQL writes
+
+```typescript
+const [rows, count] = await db.batch((tx) => [
+  tx.sql`select id, status from orders order by id`,
+  tx.sql`select count(*)::int as count from orders`,
+]);
+
+await priceOverrides.insertFrom(
+  sql`select id, price_cents + 100 from products where id = 1`,
+  { columns: ["product_id", "price_cents"] }
+);
 ```
 
 ### Locking inside a transaction
@@ -137,9 +161,10 @@ await db.transaction(async (tx) => {
 
 ## Notes
 
-- `having` and the join `on` clause are raw SQL fragments.
+- `having` accepts typed aggregate conditions or a raw SQL fragment; join `on`
+  clauses remain raw SQL fragments.
 - Use qualified column names in `whereRaw`/`orderByRaw` for joins.
 - `count(*)` is cast to `int` in the example because postgres.js otherwise
   returns a string for `bigint`.
-- Relations are one-hop and read-only; see the README's remaining-todos section
-  for nested relations and many-to-many.
+- Relations are read-only and support nested/through configs; relation writes
+  are intentionally out of scope.

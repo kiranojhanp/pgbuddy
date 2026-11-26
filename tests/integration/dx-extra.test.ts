@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { Errors, inArray, PgBuddyClient, QueryError, sqlExpr, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
+import { UserSchema } from "../helpers/schemas";
 
 interface User {
   id: number;
@@ -51,26 +52,26 @@ describe("limits, counts, and transactions", () => {
   test("defaultTake limits findMany but explicit take overrides it", async () => {
     const limited = new PgBuddyClient(sql, { defaultTake: 2 });
 
-    expect(await limited.table<User>("users").findMany()).toHaveLength(2);
-    expect(await limited.table<User>("users").take(3).findMany()).toHaveLength(3);
-    expect(await limited.table<User>("users").findFirst()).not.toBeNull();
+    expect(await limited.table("users", UserSchema).findMany()).toHaveLength(2);
+    expect(await limited.table("users", UserSchema).take(3).findMany()).toHaveLength(3);
+    expect(await limited.table("users", UserSchema).findFirst()).not.toBeNull();
   });
 
   test("defaultTake is validated", () => {
     expect(() => new PgBuddyClient(sql, { defaultTake: 0 })).toThrow(TableError);
     expect(() => new PgBuddyClient(sql, { defaultTake: 10_001 })).not.toThrow();
-    expect(() => db.table<User>("users", { defaultTake: 10_001 })).toThrow(TableError);
+    expect(() => db.table("users", UserSchema, { defaultTake: 10_001 })).toThrow(TableError);
   });
 
   test("exists checks for matching rows", async () => {
-    const users = db.table<User>("users");
+    const users = db.table("users", UserSchema);
 
     await expect(users.where({ status: "active" }).exists()).resolves.toBe(true);
     await expect(users.where({ email: "missing@example.com" }).exists()).resolves.toBe(false);
   });
 
   test("update and delete can return a count", async () => {
-    const users = db.table<User>("users");
+    const users = db.table("users", UserSchema);
 
     const updated = await users
       .where({ status: "active" })
@@ -96,7 +97,7 @@ describe("limits, counts, and transactions", () => {
   });
 
   test("orderBy supports NULLS FIRST / NULLS LAST", async () => {
-    const users = db.table<User>("users");
+    const users = db.table("users", UserSchema);
 
     const first = await users
       .orderBy([{ column: "last_login", direction: "ASC", nulls: "first" }])
@@ -110,7 +111,7 @@ describe("limits, counts, and transactions", () => {
   });
 
   test("aggregate supports count, distinct, sum, avg, min, and max", async () => {
-    const result = await db.table<User>("users").aggregate({
+    const result = await db.table("users", UserSchema).aggregate({
       count: true,
       countDistinct: ["status"],
       sum: ["id"],
@@ -128,7 +129,7 @@ describe("limits, counts, and transactions", () => {
   });
 
   test("QueryError exposes stable codes", async () => {
-    const users = db.table<User>("users");
+    const users = db.table("users", UserSchema);
 
     await expect(
       users.where({ email: "missing@example.com" }).findFirstOrThrow()
@@ -155,7 +156,7 @@ describe("limits, counts, and transactions", () => {
 
   test("composite cursors use lexicographic keyset pagination", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .orderBy([
         { column: "status", direction: "ASC" },
         { column: "id", direction: "ASC" },
@@ -169,7 +170,7 @@ describe("limits, counts, and transactions", () => {
   test("composite cursors require matching orderBy columns", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         .orderBy([{ column: "id", direction: "ASC" }])
         .cursor({ status: "active", id: 2 })
         .findMany()
@@ -178,7 +179,7 @@ describe("limits, counts, and transactions", () => {
 
   test("computed fields extend find results", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where({ status: "active" })
       .findMany({
         computed: {
@@ -192,7 +193,7 @@ describe("limits, counts, and transactions", () => {
   test("computed field aliases cannot collide with selected columns", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         .select(["id", "email"])
         .findMany({ computed: { email: sqlExpr<string>(sql`lower(email)`) } })
     ).rejects.toThrow(Errors.SELECT.INVALID_COLUMNS("email"));
@@ -200,7 +201,7 @@ describe("limits, counts, and transactions", () => {
 
   test("selectExpr is a chainable computed projection", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where({ status: "active" })
       .selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })
       .findMany();
@@ -209,7 +210,7 @@ describe("limits, counts, and transactions", () => {
 
     expect(
       await db
-        .table<User>("users")
+        .table("users", UserSchema)
         .selectExpr({ total: sqlExpr<number>(sql`count(*)::int`) })
         .count()
     ).toBe(4);
@@ -217,7 +218,7 @@ describe("limits, counts, and transactions", () => {
 
   test("orderByRaw combines with column ordering", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .orderBy([{ column: "status", direction: "ASC" }])
       .orderByRaw(sql`id DESC`)
       .findMany();
@@ -227,7 +228,7 @@ describe("limits, counts, and transactions", () => {
 
   test("distinctOnExpr supports expressions", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .select(["status"])
       .distinctOnExpr([sql`status`])
       .orderByRaw(sql`status ASC, id ASC`)
@@ -239,18 +240,21 @@ describe("limits, counts, and transactions", () => {
   test("row locking clauses execute and validate", async () => {
     await expect(
       db.transaction(async (tx) => {
-        const rows = await tx.table<User>("users").for("update", { skipLocked: true }).findMany();
+        const rows = await tx
+          .table("users", UserSchema)
+          .for("update", { skipLocked: true })
+          .findMany();
         expect(rows).toHaveLength(4);
       })
     ).resolves.toBeUndefined();
 
-    expect(() => db.table<User>("users").for("update", { skipLocked: true, noWait: true })).toThrow(
-      Errors.SELECT.INVALID_LOCK
-    );
+    expect(() =>
+      db.table("users", UserSchema).for("update", { skipLocked: true, noWait: true })
+    ).toThrow(Errors.SELECT.INVALID_LOCK);
   });
 
   test("undefined values are omitted from writes", async () => {
-    const insertable = db.tableWithInsert<User, "id">("users");
+    const insertable = db.table("users", UserSchema);
 
     const created = await insertable.create({
       email: "undefined@example.com",
@@ -269,7 +273,7 @@ describe("limits, counts, and transactions", () => {
 
   test("groupBy supports aggregates and having", async () => {
     const rows = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
       .orderBy([{ column: "status", direction: "ASC" }])
       .findMany();
@@ -280,7 +284,7 @@ describe("limits, counts, and transactions", () => {
     ]);
 
     const filtered = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
       .having(sql`count(*) > 2`)
       .findMany();

@@ -1,13 +1,7 @@
 import type { Sql } from "postgres";
 import { Errors, PgBuddyClient, sqlExpr } from "../../src";
 import { startPglite } from "../helpers/pglite";
-
-interface User {
-  id: number;
-  email: string;
-  status: "active" | "inactive";
-  last_login: Date | null;
-}
+import { UserSchema } from "../helpers/schemas";
 
 describe("write options and set queries", () => {
   let sql: Sql<Record<string, unknown>>;
@@ -40,7 +34,7 @@ describe("write options and set queries", () => {
     await sql`TRUNCATE users RESTART IDENTITY;`;
   });
 
-  const users = () => db.tableWithInsert<User, "id">("users");
+  const users = () => db.table("users", UserSchema);
 
   test("upsert inserts and updates", async () => {
     const created = await users().upsert({
@@ -76,7 +70,7 @@ describe("write options and set queries", () => {
         create: {} as never,
         update: { status: "inactive" },
       })
-    ).rejects.toThrow(Errors.INSERT.INVALID_DATA);
+    ).rejects.toMatchObject({ code: "INVALID_DATA" });
   });
 
   test("createMany skipDuplicates skips conflicting rows", async () => {
