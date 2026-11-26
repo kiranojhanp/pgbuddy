@@ -11,7 +11,11 @@ import type {
 } from "../types";
 import { isValidIdentifier, isValidName } from "./validators";
 
-type NameOptions = { strictNames?: boolean; allowSchema?: boolean };
+type NameOptions = {
+  strictNames?: boolean;
+  allowSchema?: boolean;
+  columnMap?: Readonly<Record<string, string>>;
+};
 type IdentifierKind = "select" | "where";
 
 function normalizeIdentifier(
@@ -43,7 +47,7 @@ function normalizeIdentifier(
     throw new QueryError(msg, { code: kind === "where" ? "INVALID_WHERE" : "INVALID_COLUMNS" });
   }
 
-  return trimmed;
+  return options?.columnMap?.[trimmed] ?? trimmed;
 }
 
 /**

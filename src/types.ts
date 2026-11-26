@@ -227,6 +227,9 @@ export type ComputedResult<X extends Record<string, SqlExpression<unknown>>> = {
   [K in keyof X]: X[K] extends SqlExpression<infer V> ? V : never;
 };
 
+/** Schema field name to database column name. */
+export type ColumnMap = Readonly<Record<string, string>>;
+
 /** A map of aliases to typed SQL expressions. */
 export type ComputedMap = Record<string, SqlExpression<unknown>>;
 

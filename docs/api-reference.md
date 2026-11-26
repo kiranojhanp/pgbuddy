@@ -22,6 +22,7 @@ All options can be set on the client and overridden per table:
 | `maxTake` | `10000` | Upper bound for `take()`. A larger value throws a `QueryError`. |
 | `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
 | `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
+| `columnMap` | `undefined` | Map schema field names to database column names for this table or the whole client. Values must be unique. |
 | `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
 
 ### sql
@@ -582,22 +583,21 @@ interface SortSpec<T> {
 
 ## Column mapping
 
-pgbuddy passes identifiers through postgres.js, so use its `transform` for
-camelCase fields over snake_case columns:
-
 ```typescript
-const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
-
-const UserSchema = z.object({
-  id: z.number(),
-  fullName: z.string(),
-  createdAt: z.date(),
+const users = db.table("users", UserSchema, {
+  columnMap: {
+    fullName: "full_name",
+    createdAt: "created_at",
+  },
 });
 ```
 
-Schema keys map to `full_name` / `created_at` across inserts, filters, ordering,
-projections, aggregates, and results. Mapping is global to the connection;
-there is no per-column `mapWith`/`$type` hook yet.
+Results keep schema field names. The map applies to reads, writes, filters,
+ordering, distinct, cursors, aggregates, and grouping. Set `columnMap` on the
+client to apply a default map to every table. Relation configs and right-side
+join columns still use explicit database names. Per-column codecs are not
+implemented yet; `postgres.camel` remains an alternative for connection-wide
+camelCase mapping.
 
 ## Error types
 

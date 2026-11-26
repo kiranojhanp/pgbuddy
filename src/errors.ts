@@ -24,6 +24,7 @@ export const Errors = {
     INVALID_MAX_TAKE: "maxTake must be a positive integer",
     INVALID_DEFAULT_TAKE: "defaultTake must be a positive integer and <= maxTake",
     INVALID_UNIQUE: "unique must be an array of non-empty column lists",
+    INVALID_COLUMN_MAP: "columnMap must map schema fields to unique database columns",
   },
   QUERY: {
     NOT_UNIQUE: "Expected at most one record but found multiple",

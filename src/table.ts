@@ -4,6 +4,7 @@ import { gt, isPredicate, lt, rawPredicate, type WhereInput } from "./predicates
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnMap,
   ComputedMap,
   ComputedOptions,
   ComputedResult,
@@ -253,7 +254,7 @@ type JoinSpec = {
 
 type JoinHost = {
   getSql(): Sql<Record<string, unknown>>;
-  getNameOptions(): { strictNames: boolean; allowSchema: boolean };
+  getNameOptions(): { strictNames: boolean; allowSchema: boolean; columnMap?: ColumnMap };
   getTableName(): string;
 };
 
@@ -466,6 +467,7 @@ type TableState<T extends Row> = {
   strictNames?: boolean;
   allowSchema?: boolean;
   allowedColumns?: readonly string[];
+  columnMap?: ColumnMap;
   maxTake?: number;
   uniqueKeys?: readonly (readonly string[])[];
   uniqueWhere?: boolean;
@@ -517,6 +519,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private strictNames: boolean;
   private allowSchema: boolean;
   private allowedColumns?: readonly string[];
+  private columnMap?: ColumnMap;
   private maxTake: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private uniqueWhere: boolean;
@@ -542,6 +545,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.strictNames = Boolean(state?.strictNames);
     this.allowSchema = Boolean(state?.allowSchema);
     this.allowedColumns = state?.allowedColumns ? [...state.allowedColumns] : undefined;
+    this.columnMap = state?.columnMap ? { ...state.columnMap } : undefined;
     this.maxTake = state?.maxTake ?? DEFAULT_MAX_TAKE;
     this.uniqueKeys = state?.uniqueKeys?.map((columns) => [...columns]);
     this.uniqueWhere = Boolean(state?.uniqueWhere);
@@ -549,8 +553,36 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   /** @internal Returns the identifier validation options. */
-  getNameOptions(): { strictNames: boolean; allowSchema: boolean } {
-    return { strictNames: this.strictNames, allowSchema: this.allowSchema };
+  getNameOptions(): { strictNames: boolean; allowSchema: boolean; columnMap?: ColumnMap } {
+    return {
+      strictNames: this.strictNames,
+      allowSchema: this.allowSchema,
+      columnMap: this.columnMap,
+    };
+  }
+
+  private resolveColumn(field: string): string {
+    return this.columnMap?.[field] ?? field;
+  }
+
+  private mapRecord(record: Record<string, unknown>): Record<string, unknown> {
+    const mapped: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      mapped[this.resolveColumn(key)] = value;
+    }
+    return mapped;
+  }
+
+  private nameOptions(): {
+    strictNames: boolean;
+    allowSchema: boolean;
+    columnMap?: ColumnMap;
+  } {
+    return {
+      strictNames: this.strictNames,
+      allowSchema: this.allowSchema,
+      columnMap: this.columnMap,
+    };
   }
 
   /** @internal Returns the table name. */
@@ -589,6 +621,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       strictNames: this.strictNames,
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
+      columnMap: this.columnMap,
       maxTake: this.maxTake,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
@@ -650,6 +683,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       strictNames: this.strictNames,
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
+      columnMap: this.columnMap,
       maxTake: this.maxTake,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
@@ -824,16 +858,12 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     if (!hasSort && !hasRaw) return this.sql``;
     if (!hasSort) return this.sql`ORDER BY ${this.orderByRawValue}`;
     if (!hasRaw) {
-      return this.sql`ORDER BY ${createSortExpression(this.sql, this.orderByValue, {
-        strictNames: this.strictNames,
-        allowSchema: this.allowSchema,
-      })}`;
+      return this
+        .sql`ORDER BY ${createSortExpression(this.sql, this.orderByValue, this.nameOptions())}`;
     }
 
-    return this.sql`ORDER BY ${createSortExpression(this.sql, this.orderByValue, {
-      strictNames: this.strictNames,
-      allowSchema: this.allowSchema,
-    })}, ${this.orderByRawValue}`;
+    return this
+      .sql`ORDER BY ${createSortExpression(this.sql, this.orderByValue, this.nameOptions())}, ${this.orderByRawValue}`;
   }
 
   /**
@@ -878,6 +908,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         strictNames: this.strictNames,
         allowSchema: this.allowSchema,
         allowedColumns: this.allowedColumns,
+        columnMap: this.columnMap,
         maxTake: this.maxTake,
         uniqueKeys: this.uniqueKeys,
         uniqueWhere: this.uniqueWhere,
@@ -1146,8 +1177,20 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       throw new QueryError(Errors.SELECT.INVALID_GROUP, { code: "INVALID_GROUP" });
     }
 
-    const options = { strictNames: this.strictNames, allowSchema: this.allowSchema };
-    const groupColumns = buildSelect(this.sql, columns as never, options);
+    const options = this.nameOptions();
+    const groupSelection = columns.reduce((acc, field, index) => {
+      buildSelect(this.sql, [field] as never, {
+        strictNames: this.strictNames,
+        allowSchema: this.allowSchema,
+      });
+      const column = this.resolveColumn(field);
+      const part =
+        column === field
+          ? this.sql`${this.sql(field as never)}`
+          : this.sql`${this.sql(column as never)} AS ${this.sql(field as never)}`;
+      return index === 0 ? part : this.sql`${acc}, ${part}`;
+    }, this.sql``);
+    const groupColumns = this.sql(columns.map((column) => this.resolveColumn(column)) as string[]);
     const aggregateEntries = Object.entries(aggregates);
 
     const seen = new Set<string>(columns as readonly string[]);
@@ -1166,8 +1209,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       this.sql``
     );
     const selection = aggregateParts.length
-      ? this.sql`${groupColumns}, ${aggregateList}`
-      : groupColumns;
+      ? this.sql`${groupSelection}, ${aggregateList}`
+      : groupSelection;
 
     const rows = await this.sql<Array<Record<string, unknown>>>`
             SELECT ${this.distinctValue && !this.distinctOnValue && !this.distinctOnExprValue ? this.sql`DISTINCT ` : this.sql``}${selection}
@@ -1203,19 +1246,19 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }
 
     for (const column of countDistinct) {
-      parts.push(this.sql`COUNT(DISTINCT ${this.sql(column as never)})::int`);
+      parts.push(this.sql`COUNT(DISTINCT ${this.sql(this.resolveColumn(column) as never)})::int`);
     }
     for (const column of sum) {
-      parts.push(this.sql`SUM(${this.sql(column as never)})`);
+      parts.push(this.sql`SUM(${this.sql(this.resolveColumn(column) as never)})`);
     }
     for (const column of avg) {
-      parts.push(this.sql`AVG(${this.sql(column as never)})`);
+      parts.push(this.sql`AVG(${this.sql(this.resolveColumn(column) as never)})`);
     }
     for (const column of min) {
-      parts.push(this.sql`MIN(${this.sql(column as never)})`);
+      parts.push(this.sql`MIN(${this.sql(this.resolveColumn(column) as never)})`);
     }
     for (const column of max) {
-      parts.push(this.sql`MAX(${this.sql(column as never)})`);
+      parts.push(this.sql`MAX(${this.sql(this.resolveColumn(column) as never)})`);
     }
 
     if (parts.length === 0) {
@@ -1232,10 +1275,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     const rows = await this.sql`
             SELECT ${combined}
             FROM ${this.sql(this.tableName)}
-            ${buildWhereInputs(this.sql, this.whereInputs, {
-              strictNames: this.strictNames,
-              allowSchema: this.allowSchema,
-            })}
+            ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
         `.values();
 
     const row = rows[0] as unknown[] | undefined;
@@ -1308,10 +1348,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     const result = await this.sql<[{ count: string }]>`
             SELECT COUNT(*) as count
             FROM ${this.sql(this.tableName)}
-            ${buildWhereInputs(this.sql, this.whereInputs, {
-              strictNames: this.strictNames,
-              allowSchema: this.allowSchema,
-            })}
+            ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
         `;
 
     return parseInt(result[0]?.count ?? "0", 10);
@@ -1324,10 +1361,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     const result = await this.sql<[{ exists: boolean }]>`
             SELECT EXISTS(
               SELECT 1 FROM ${this.sql(this.tableName)}
-              ${buildWhereInputs(this.sql, this.whereInputs, {
-                strictNames: this.strictNames,
-                allowSchema: this.allowSchema,
-              })}
+              ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
             ) AS exists
         `;
 
@@ -1393,7 +1427,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
 
     const result = await this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
-            ${this.sql(cleaned as Row)}
+            ${this.sql(this.mapRecord(cleaned) as Row)}
             ${conflict}RETURNING ${this.buildSelection(options?.computed)}
         `;
 
@@ -1441,7 +1475,9 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }
 
     const target = Object.keys(options.where);
-    const targetFragment = this.sql`(${this.sql(target)})`;
+    const targetFragment = this.sql`(${this.sql(
+      target.map((column) => this.resolveColumn(column))
+    )})`;
 
     for (const column of target) {
       if (!(column in create)) {
@@ -1457,7 +1493,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         : [[target[0] as string, create[target[0] as keyof I]]];
 
     const assignments = updateEntries.reduce((acc, [column, value], index) => {
-      const assignment = this.sql`${this.sql(column as never)} = ${value}`;
+      const assignment = this.sql`${this.sql(this.resolveColumn(column) as never)} = ${value}`;
       return index === 0 ? assignment : this.sql`${acc}, ${assignment}`;
     }, this.sql``);
 
@@ -1466,7 +1502,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
 
     const result = await this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
-            ${this.sql(create as Row)}
+            ${this.sql(this.mapRecord(create) as Row)}
             ON CONFLICT ${targetFragment}${targetWhere} DO UPDATE SET ${assignments}${setWhere}
             RETURNING ${this.buildSelection(options.computed)}
         `;
@@ -1610,12 +1646,15 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       const assignments: SqlFragment[] = [];
 
       for (const column of update) {
+        const mapped = this.resolveColumn(column);
         assignments.push(
-          this.sql`${this.sql(column as never)} = EXCLUDED.${this.sql(column as never)}`
+          this.sql`${this.sql(mapped as never)} = EXCLUDED.${this.sql(mapped as never)}`
         );
       }
       for (const [column, expression] of Object.entries(set)) {
-        assignments.push(this.sql`${this.sql(column as never)} = ${expression}`);
+        assignments.push(
+          this.sql`${this.sql(this.resolveColumn(column) as never)} = ${expression}`
+        );
       }
 
       const assignmentList = assignments.reduce(
@@ -1623,12 +1662,17 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         this.sql``
       );
 
-      conflict = this.sql`ON CONFLICT (${this.sql([...target])}) DO UPDATE SET ${assignmentList} `;
+      conflict = this.sql`ON CONFLICT (${this.sql(
+        target.map((column) => this.resolveColumn(column))
+      )}) DO UPDATE SET ${assignmentList} `;
     }
+
+    const mappedColumns = columns.map((column) => this.resolveColumn(column));
+    const mappedRecords = records.map((record) => this.mapRecord(record));
 
     return this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
-            ${this.sql(records as Row[], columns)}
+            ${this.sql(mappedRecords as Row[], mappedColumns)}
             ${conflict}RETURNING ${this.buildSelection(options?.computed)}
         `;
   }
@@ -1659,6 +1703,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
           strictNames: this.strictNames,
           allowSchema: this.allowSchema,
           allowedColumns: this.allowedColumns,
+          columnMap: this.columnMap,
           maxTake: this.maxTake,
           uniqueKeys: this.uniqueKeys,
           uniqueWhere: this.uniqueWhere,
@@ -1721,14 +1766,11 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.assertAllowedColumns(Object.keys(cleaned), "update");
 
     const assignments = Object.entries(cleaned).reduce((acc, [column, value], index) => {
-      const assignment = this.sql`${this.sql(column as never)} = ${value}`;
+      const assignment = this.sql`${this.sql(this.resolveColumn(column) as never)} = ${value}`;
       return index === 0 ? assignment : this.sql`${acc}, ${assignment}`;
     }, this.sql``);
 
-    const where = buildWhereInputs(this.sql, this.whereInputs, {
-      strictNames: this.strictNames,
-      allowSchema: this.allowSchema,
-    });
+    const where = buildWhereInputs(this.sql, this.whereInputs, this.nameOptions());
 
     if (options?.returning === false) {
       const result = await this.sql`
@@ -1787,10 +1829,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       throw new QueryError(Errors.DELETE.NO_CONDITIONS, { code: "NO_CONDITIONS" });
     }
 
-    const where = buildWhereInputs(this.sql, this.whereInputs, {
-      strictNames: this.strictNames,
-      allowSchema: this.allowSchema,
-    });
+    const where = buildWhereInputs(this.sql, this.whereInputs, this.nameOptions());
 
     if (options?.returning === false) {
       const result = await this.sql`
@@ -1818,7 +1857,9 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }
 
     if (this.distinctOnValue?.length) {
-      return this.sql`DISTINCT ON (${this.sql(this.distinctOnValue)}) `;
+      return this.sql`DISTINCT ON (${this.sql(
+        this.distinctOnValue.map((column) => this.resolveColumn(column)) as string[]
+      )}) `;
     }
     return this.sql`DISTINCT `;
   }
@@ -1889,12 +1930,14 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         .reduce(
           (acc, [prefixColumn, prefixValue], prefixIndex) =>
             prefixIndex === 0
-              ? this.sql`${this.sql(prefixColumn as never)} = ${prefixValue}`
-              : this.sql`${acc} AND ${this.sql(prefixColumn as never)} = ${prefixValue}`,
+              ? this.sql`${this.sql(this.resolveColumn(prefixColumn) as never)} = ${prefixValue}`
+              : this
+                  .sql`${acc} AND ${this.sql(this.resolveColumn(prefixColumn) as never)} = ${prefixValue}`,
           this.sql``
         );
 
-      const term = this.sql`${this.sql(column as never)} ${this.sql.unsafe(operator)} ${value}`;
+      const term = this
+        .sql`${this.sql(this.resolveColumn(column) as never)} ${this.sql.unsafe(operator)} ${value}`;
       const termWithPrefix = index === 0 ? term : this.sql`${prefix} AND ${term}`;
       comparison = index === 0 ? termWithPrefix : this.sql`${comparison} OR ${termWithPrefix}`;
     }
@@ -1909,15 +1952,30 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * @private
    */
   private buildSelection(computed?: Record<string, SqlExpression<unknown>>): SqlFragment {
-    const base = buildSelect(this.sql, this.selectedFields, {
-      strictNames: this.strictNames,
-      allowSchema: this.allowSchema,
-    });
+    const selected = this.selectedFields as readonly string[];
+    const wildcard = selected.length === 0 || selected[0] === "*";
+
+    if (wildcard && this.columnMap && Object.keys(this.columnMap).length > 0) {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS("*"), { code: "INVALID_COLUMNS" });
+    }
+
+    const base = wildcard
+      ? this.sql`*`
+      : selected.reduce((acc, field, index) => {
+          buildSelect(this.sql, [field] as never, {
+            strictNames: this.strictNames,
+            allowSchema: this.allowSchema,
+          });
+          const column = this.resolveColumn(field);
+          const part =
+            column === field
+              ? this.sql`${this.sql(field)}`
+              : this.sql`${this.sql(column)} AS ${this.sql(field)}`;
+          return index === 0 ? part : this.sql`${acc}, ${part}`;
+        }, this.sql``);
 
     const entries = Object.entries(computed ?? {});
     if (entries.length === 0) return base;
-
-    const selected = this.selectedFields as readonly string[];
     const seen = new Set<string>();
 
     const expressions = entries.reduce((acc, [alias, expression], index) => {
@@ -1967,14 +2025,27 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
     }
 
-    const options = { strictNames: this.strictNames, allowSchema: this.allowSchema };
+    const options = this.nameOptions();
     const selected = this.selectedFields as readonly string[];
+    if (
+      (selected.length === 0 || selected[0] === "*") &&
+      this.columnMap &&
+      Object.keys(this.columnMap).length > 0
+    ) {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS("*"), { code: "INVALID_COLUMNS" });
+    }
     const leftSelection =
       selected.length === 0 || selected[0] === "*"
         ? this.sql`${this.sql(this.tableName)}.*`
-        : selected.reduce((acc, column, index) => {
-            buildSelect(this.sql, [column] as never, options);
-            const part = this.sql`${this.sql(this.tableName)}.${this.sql(column as never)}`;
+        : selected.reduce((acc, field, index) => {
+            buildSelect(this.sql, [field] as never, {
+              strictNames: this.strictNames,
+              allowSchema: this.allowSchema,
+            });
+            const column = this.resolveColumn(field);
+            const qualified = this.sql`${this.sql(this.tableName)}.${this.sql(column as never)}`;
+            const part =
+              column === field ? qualified : this.sql`${qualified} AS ${this.sql(field)}`;
             return index === 0 ? part : this.sql`${acc}, ${part}`;
           }, this.sql``);
 
@@ -2035,10 +2106,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     return this.sql<Array<SelectFields<T, K>[0]>>`
             SELECT ${this.distinctFragment()}${this.buildSelection(computed)}
             FROM ${this.sql(this.tableName)}
-            ${buildWhereInputs(this.sql, this.selectWhereInputs(), {
-              strictNames: this.strictNames,
-              allowSchema: this.allowSchema,
-            })}
+            ${buildWhereInputs(this.sql, this.selectWhereInputs(), this.nameOptions())}
             ${this.orderFragment()}
             ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
             ${this.lockFragment()}

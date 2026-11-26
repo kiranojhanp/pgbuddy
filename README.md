@@ -470,21 +470,34 @@ Narrow joins are supported; a general join tree is not.
 
 ## Column mapping
 
-pgbuddy passes identifiers through postgres.js, so use its `transform` for
-camelCase fields over snake_case columns:
+Map schema fields to database columns per table:
 
 ```ts
-const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
-
-const UserSchema = z.object({
-  id: z.number(),
-  fullName: z.string(),
-  createdAt: z.date(),
+const users = db.table("users", UserSchema, {
+  columnMap: {
+    fullName: "full_name",
+    createdAt: "created_at",
+  },
 });
 ```
 
-`fullName` maps to `full_name` across inserts, filters, ordering, projections,
-aggregates, and results.
+Result keys stay in schema form (`fullName`, `createdAt`). The map applies to
+projections, inserts, updates, upserts, filters, ordering, distinct, cursors,
+aggregates, and grouped queries. The client-level `columnMap` sets a default
+for every table.
+
+For a whole connection with consistent camelCase/snake_case naming, postgres.js
+transforms remain an alternative:
+
+```ts
+const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
+```
+
+Current limitation: relation configs and right-side join columns do not read
+`columnMap` yet; use explicit database column names there.
+
+Per-column custom serialization (`mapWith`/`$type`-style codecs) is not
+implemented yet.
 
 ## Kitchen sink
 
@@ -514,9 +527,10 @@ a schema toolkit or a full SQL AST.
 
 ### P1 — high value, moderate effort
 
-- [ ] **Per-column mapping and custom serialization.** `postgres.camel` covers
-  the common camelCase/snake_case case, but mixed naming and custom DB types
-  need per-column `mapWith`/`$type`-style hooks.
+- [x] **Per-column name mapping.** `columnMap` maps schema fields to database
+  columns across reads, writes, filters, ordering, aggregates, and grouping.
+- [ ] **Per-column custom serialization** (`mapWith`/`$type`-style codecs).
+  Mixed naming is covered by `columnMap`; custom DB types still need codecs.
 - [ ] **Validator adapter for non-Zod libraries.** Zod is required today; a
   small adapter interface should be designed before a second validator is
   added, without weakening validation.
@@ -544,9 +558,8 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Per-column mapping** — unblocks production schemas with mixed naming or
-   custom types.
-2. **Validator adapter** — prepare for validation libraries beyond Zod.
+1. **Validator adapter** — prepare for validation libraries beyond Zod.
+2. **Per-column custom serialization** — codecs for custom DB types.
 3. **Relation ordering and per-relation aggregates** — rounds out the relation
    API before lifecycle work.
 

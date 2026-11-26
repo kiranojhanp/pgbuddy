@@ -2,7 +2,7 @@ import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
-import type { SelectKeys } from "./types";
+import type { ColumnMap, SelectKeys } from "./types";
 import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
 import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
 
@@ -20,6 +20,7 @@ import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
  * - `unique` — unique column sets used by `whereUnique` (for example
  *   `[["email"], ["tenant_id", "slug"]]`).
  * - `defaultTake` — default row limit for `findMany` when no `take()` is set.
+ * - `columnMap` — map schema field names to database column names.
  */
 export type PgBuddyClientOptions = {
   strictNames?: boolean;
@@ -28,6 +29,8 @@ export type PgBuddyClientOptions = {
   maxTake?: number;
   unique?: readonly (readonly string[])[];
   defaultTake?: number;
+  /** Schema field name → database column name. */
+  columnMap?: ColumnMap;
   /** Relations available to `ZodTable.include`. */
   relations?: ZodRelations;
 };
@@ -56,6 +59,22 @@ function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
 function assertDefaultTake(defaultTake: number | undefined): void {
   if (defaultTake !== undefined && (!Number.isInteger(defaultTake) || defaultTake <= 0)) {
     throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
+  }
+}
+
+function assertColumnMap(columnMap: ColumnMap | undefined): void {
+  if (columnMap === undefined) return;
+
+  if (typeof columnMap !== "object" || columnMap === null || Array.isArray(columnMap)) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+
+  const values = Object.values(columnMap);
+  if (values.some((value) => typeof value !== "string" || !value.trim())) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+  if (new Set(values).size !== values.length) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
   }
 }
 
@@ -115,6 +134,7 @@ export class PgBuddyClient {
   private maxTake?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private defaultTake?: number;
+  private columnMap?: ColumnMap;
 
   /**
    * Creates a new PgBuddyClient instance.
@@ -148,6 +168,8 @@ export class PgBuddyClient {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
     }
 
+    assertColumnMap(options?.columnMap);
+
     assertUniqueOption(options?.unique);
     assertDefaultTake(options?.defaultTake);
 
@@ -158,6 +180,7 @@ export class PgBuddyClient {
     this.maxTake = options?.maxTake;
     this.uniqueKeys = options?.unique?.map((list) => [...list]);
     this.defaultTake = options?.defaultTake;
+    this.columnMap = options?.columnMap ? { ...options.columnMap } : undefined;
   }
 
   /**
@@ -278,6 +301,7 @@ export class PgBuddyClient {
     const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
+    const columnMap = options?.columnMap ?? this.columnMap;
 
     if (typeof tableName !== "string") {
       throw new TableError(Errors.TABLE.INVALID_NAME);
@@ -297,6 +321,15 @@ export class PgBuddyClient {
 
     assertUniqueOption(uniqueKeys);
     assertDefaultTake(defaultTake);
+    assertColumnMap(columnMap);
+
+    if (columnMap) {
+      for (const [field, column] of Object.entries(columnMap)) {
+        if (!Object.hasOwn(schema.shape, field) || !column) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+        }
+      }
+    }
 
     if (defaultTake !== undefined && defaultTake > maxTake) {
       throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
@@ -329,6 +362,7 @@ export class PgBuddyClient {
       maxTake,
       uniqueKeys,
       defaultTake,
+      columnMap,
       selectedFields: schemaColumns.length
         ? (schemaColumns as unknown as SelectKeys<Row>)
         : undefined,
