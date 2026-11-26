@@ -679,9 +679,9 @@ a schema toolkit or a full SQL AST.
   recursively with deep result types. Cyclic relation configs are rejected.
 - [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
   loader now lives in `src/relations.ts`.
-- [ ] **Run the real-PostgreSQL CI service job.** The full suite has been run
-  locally against PostgreSQL 16 and 18 on both postgres.js majors; the hosted CI
-  service job itself is still pending.
+- [x] **Real-PostgreSQL CI service job.** The hosted PostgreSQL 16 matrix
+  passes for postgres.js 3.4.5 and 4.1.1
+  ([run 45742549477](https://github.com/kiranojhanp/pgbuddy/actions/runs/45742549477)).
 
 ### P1 — high value, moderate effort
 
@@ -732,7 +732,7 @@ a schema toolkit or a full SQL AST.
 ## Compatibility
 
 - **Zod v4 or newer is required.**
-- **postgres.js v3 (>= 3.4.5) and v4** are supported. CI runs the full test suite against both `3.4.5` and `4.1.1`.
+- **postgres.js v3 (>= 3.4.5) and v4** are supported. CI runs the full suite against both `3.4.5` and `4.1.1` on PGlite and a real PostgreSQL 16 service.
 - pgbuddy imports postgres.js **types only**, so your postgres.js major version does not affect pgbuddy's runtime or module format.
 - postgres.js v4 lets the server decide parameter types, which changes some `Date` / `bigint` / array behaviour compared with v3. See [Upgrading from v3](https://github.com/porsager/postgres#upgrading-from-v3).
 
