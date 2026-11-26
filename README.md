@@ -57,9 +57,27 @@ await users.where({ email: "alice@example.com" }).update({ name: "Alice Smith" }
 await users.where({ email: "alice@example.com" }).delete();
 ```
 
-`db.table()` returns a `ZodTable` when given a schema, and a plain `Table` otherwise.
+Every table is created from a Zod object schema. The schema drives projections,
+validates writes, and types results. Use `.optional()` for database defaults or
+auto-generated ids and `.nullable()` for nullable columns. There is no
+unvalidated table builder; use `db.sql` when you need raw SQL.
 
-Tip: Use [Kanel](https://kristiandupont.github.io/kanel/) to generate TypeScript types directly from your database schema.
+Tip: Use [Kanel](https://kristiandupont.github.io/kanel/) or another
+introspection tool to generate TypeScript types, then define matching Zod
+schemas for validation.
+
+## Schema-first
+
+Zod is required, not an optional add-on:
+
+- `create`, `createMany`, `update`, and `upsert` validate their payloads before
+  executing SQL.
+- `select(["*"])` expands to the schema's columns, never `SELECT *`.
+- `ZodTable` validates `where`, `orderBy`, `omit`, and relation refinements
+  against the schema.
+- `z.object` strips unknown keys; use `z.strictObject` to reject them.
+
+For raw queries or features the typed API does not model, use `db.sql`.
 
 ## Filtering
 
@@ -253,6 +271,8 @@ const PostSchema = z.object({
   id: z.number(),
   user_id: z.number(),
   title: z.string(),
+  published: z.boolean(),
+  created_at: z.date(),
 });
 
 const users = db.table("users", UserSchema, {
@@ -303,7 +323,7 @@ const updated = await users
 ```ts
 await db.transaction(async (tx) => {
   const rows = await tx
-    .table<User>("users")
+    .table("users", UserSchema)
     .where({ status: "pending" })
     .for("update", { skipLocked: true })
     .take(10)
@@ -354,7 +374,7 @@ Available helpers: `isUniqueViolation`, `isForeignKeyViolation`, `isNotNullViola
 
 - Values are always sent as bound parameters and identifiers are escaped by postgres.js, so user-supplied values cannot break out of SQL.
 - `create`, `createMany` and `update` treat **every non-`undefined` key** of the payload as a column. Never pass an unvalidated request body: an attacker could set columns such as `role` or `is_admin`. Use a Zod schema (which strips unknown keys by default), a `z.strictObject` schema, or the `allowedColumns` option to enforce a write allowlist.
-- With a plain `Table`, treat column names given to `select` and `orderBy` as developer-controlled, not user input. `ZodTable` validates them against the schema at runtime.
+- `select`/`orderBy` column names are validated against the schema at runtime; still treat dynamic column names as developer-controlled input.
 - `take()` is capped at 10,000 rows by default; raise or lower it with the `maxTake` option.
 - Schema-qualified (dotted) table and column names are rejected unless `allowSchema: true` is set.
 
@@ -363,18 +383,13 @@ Available helpers: `isUniqueViolation`, `isForeignKeyViolation`, `isNotNullViola
 Narrow joins nest the right row:
 
 ```ts
-const rows = await db
-  .table<User>("users")
-  .innerJoin("posts", {
-    columns: ["id", "user_id", "title"],
-    on: sql`"posts"."user_id" = "users"."id"`,
-  })
+const rows = await users
+  .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
   .findMany();
 
 // rows[0].posts.title
 ```
 
-With a Zod table, pass the schema: `users.innerJoin("posts", PostSchema, on)`.
 `leftJoin` returns `posts: {...} | null`. Use `whereRaw`/`orderByRaw` with
 qualified columns when names are ambiguous. This is a single-table join;
 multiple joins and aliases are not modeled yet.
@@ -444,6 +459,7 @@ Not planned: multi-dialect support (Postgres-only by design).
 
 ## Compatibility
 
+- **Zod v4 or newer is required.**
 - **postgres.js v3 (>= 3.4.5) and v4** are supported. CI runs the full test suite against both `3.4.5` and `4.1.1`.
 - pgbuddy imports postgres.js **types only**, so your postgres.js major version does not affect pgbuddy's runtime or module format.
 - postgres.js v4 lets the server decide parameter types, which changes some `Date` / `bigint` / array behaviour compared with v3. See [Upgrading from v3](https://github.com/porsager/postgres#upgrading-from-v3).
