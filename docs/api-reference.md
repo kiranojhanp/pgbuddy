@@ -238,8 +238,7 @@ const rows = await users
   instead of `foreignKey`. Through relations support includes, counts, and
   `whereRelated`/`whereMissing`/`whereEvery`.
 - Relation configs accept `columnMap` and `columnCodecs` for the related
-  table; includes and counts honor them. Relation filter SQL still uses
-  explicit database column names.
+  table; includes, counts, and relation filters honor them.
 - Child `relations` on a relation config are loaded recursively. The parent
   relation's `select` controls its own columns; child relations are always
   included once declared.

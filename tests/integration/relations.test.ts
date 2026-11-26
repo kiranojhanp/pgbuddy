@@ -1008,7 +1008,7 @@ describe("relations", () => {
     });
 
     await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
-    await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First')`;
+    await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First'), (11, 1, 'Second')`;
     await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
     await sql`INSERT INTO post_tags (post_id, tag_id) VALUES (10, 1)`;
 
@@ -1016,5 +1016,16 @@ describe("relations", () => {
 
     expect(rows[0]?.tags[0]?.label).toBe("mapped:typescript");
     expect(rows[0]?.tags_count).toBe(1);
+
+    const related = await postsMapped
+      .whereRelated("tags", (tags) => tags.where({ label: "typescript" }))
+      .findMany();
+    expect(related.map((post) => post.id)).toEqual([10]);
+
+    const missing = await postsMapped
+      .whereMissing("tags")
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .findMany();
+    expect(missing.map((post) => post.id)).toEqual([11]);
   });
 });

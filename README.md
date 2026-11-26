@@ -388,8 +388,8 @@ const tagged = await posts.include("tags").withCount("tags").findMany();
 Through relations support the same `include` refinement, `withCount`, and
 `whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
 Relation configs accept `columnMap` and `columnCodecs` for the related table;
-they apply to includes and counts. Relation filter SQL still uses explicit
-database column names.
+they apply to includes, counts, and `whereRelated`/`whereMissing`/`whereEvery`
+filters.
 
 Per-relation aggregates are available with `withAggregate`:
 

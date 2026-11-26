@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Prapti-style) with built-in `zodValidator` and schema-inferred types.
 - Cyclic relation configurations are rejected instead of recursing forever.
 - Relation and join configs accept `columnMap`/`columnCodecs` for includes,
-  counts, and selected right-side join columns.
+  counts, selected right-side join columns, and relation filters.
 - Per-table/client `columnMap` for schema field → database column mapping
   across reads, writes, filters, ordering, aggregates, cursors, and grouping.
 - Many-to-many/through relations with junction tables, filtering, and counts.

@@ -939,7 +939,8 @@ export type RelationOptions<
 function buildKeyLink(
   sql: Sql<Record<string, unknown>>,
   parentTable: string,
-  relation: NormalizedRelation
+  relation: NormalizedRelation,
+  parentColumnMap?: Readonly<Record<string, string>>
 ): SqlFragment {
   let link = sql``;
 
@@ -947,7 +948,9 @@ function buildKeyLink(
     const foreignKey = relation.foreignKeys[index];
     if (!foreignKey) throw new QueryError("Invalid relation configuration");
 
-    const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${sql(relation.config.table)}.${sql(foreignKey)}`;
+    const parentColumn = parentColumnMap?.[localKey] ?? localKey;
+    const foreignColumn = relation.config.columnMap?.[foreignKey] ?? foreignKey;
+    const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${sql(relation.config.table)}.${sql(foreignColumn)}`;
     link = index === 0 ? condition : sql`${link} AND ${condition}`;
   });
 
@@ -1174,6 +1177,16 @@ export class ZodTable<
     return this.wrap(this.table.orderByRaw(this.buildRelatedOrder(relation, spec)));
   }
 
+  private relationNameOptions(relation: NormalizedRelation): {
+    columnMap?: ColumnMap;
+    columnCodecs?: ColumnCodecs;
+  } {
+    return {
+      columnMap: relation.config.columnMap,
+      columnCodecs: relation.config.columnCodecs,
+    };
+  }
+
   private buildRelatedOrder(
     relation: NormalizedRelation,
     spec: RelatedOrder<ZodRelationConfig>
@@ -1213,27 +1226,33 @@ export class ZodTable<
       const join = through.targetKeys.reduce((acc, targetKey, index) => {
         const relatedKey = through.relatedKeys[index];
         if (!relatedKey) throw new QueryError("Invalid relation configuration");
-        const condition = sql`${related}.${sql(targetKey)} = ${junction}.${sql(relatedKey)}`;
+        const mappedTarget = relation.config.columnMap?.[targetKey] ?? targetKey;
+        const condition = sql`${related}.${sql(mappedTarget)} = ${junction}.${sql(relatedKey)}`;
         return index === 0 ? condition : sql`${acc} AND ${condition}`;
       }, sql``);
       from = sql`FROM ${sql(through.table)} AS ${junction} JOIN ${sql(relation.config.table)} AS ${related} ON ${join}`;
       link = relation.localKeys.reduce((acc, localKey, index) => {
         const junctionKey = through.parentKeys[index];
         if (!junctionKey) throw new QueryError("Invalid relation configuration");
-        const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${junction}.${sql(junctionKey)}`;
+        const parentColumn = this.table.getNameOptions().columnMap?.[localKey] ?? localKey;
+        const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${junction}.${sql(junctionKey)}`;
         return index === 0 ? condition : sql`${acc} AND ${condition}`;
       }, sql``);
       aggregateColumn =
         aggregate === "count"
           ? sql`COUNT(*)::int`
-          : sql`${functionName}(${related}.${sql(spec.column as string)})`;
+          : sql`${functionName}(${related}.${sql(
+              relation.config.columnMap?.[spec.column as string] ?? (spec.column as string)
+            )})`;
     } else {
       from = sql`FROM ${sql(relation.config.table)}`;
-      link = buildKeyLink(sql, parentTable, relation);
+      link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
       aggregateColumn =
         aggregate === "count"
           ? sql`COUNT(*)::int`
-          : sql`${functionName}(${sql(relation.config.table)}.${sql(spec.column as string)})`;
+          : sql`${functionName}(${sql(relation.config.table)}.${sql(
+              relation.config.columnMap?.[spec.column as string] ?? (spec.column as string)
+            )})`;
     }
 
     return sql`(SELECT ${aggregateColumn} ${from} WHERE ${link}) ${sql.unsafe(direction)}${
@@ -1317,11 +1336,12 @@ export class ZodTable<
 
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
-    const link = buildKeyLink(sql, parentTable, relation);
+    const link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
     const linkExpression = buildWhereExpression(sql, [rawPredicate<Row>(link)]);
     const refinementExpression = buildWhereExpression(
       sql,
-      (refinement.whereInputs ?? []) as readonly WhereInput<Row>[]
+      (refinement.whereInputs ?? []) as readonly WhereInput<Row>[],
+      this.relationNameOptions(relation)
     );
 
     const where = refinementExpression
@@ -1348,7 +1368,8 @@ export class ZodTable<
       const junctionKey = through.parentKeys[index];
       if (!junctionKey) throw new QueryError("Invalid relation configuration");
 
-      const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${junction}.${sql(junctionKey)}`;
+      const parentColumn = this.table.getNameOptions().columnMap?.[localKey] ?? localKey;
+      const condition = sql`${sql(parentTable)}.${sql(parentColumn)} = ${junction}.${sql(junctionKey)}`;
       return index === 0 ? condition : sql`${acc} AND ${condition}`;
     }, sql``);
 
@@ -1362,12 +1383,16 @@ export class ZodTable<
 
     const targetWhere = buildWhereExpression(
       sql,
-      (refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]
+      (refinement?.whereInputs ?? []) as readonly WhereInput<Row>[],
+      this.relationNameOptions(relation)
     );
     const targetFilter = targetWhere
       ? sql`WHERE ${negateRefinement ? sql`NOT (${targetWhere})` : targetWhere}`
       : sql``;
-    const targetQuery = sql`SELECT ${tuple(through.targetKeys)} FROM ${sql(relation.config.table)} ${targetFilter}`;
+    const mappedTargetKeys = through.targetKeys.map(
+      (key) => relation.config.columnMap?.[key] ?? key
+    );
+    const targetQuery = sql`SELECT ${tuple(mappedTargetKeys)} FROM ${sql(relation.config.table)} ${targetFilter}`;
     const junctionTarget = tuple(through.relatedKeys, "__pgbuddy_through");
 
     const exists = sql`EXISTS (
@@ -1389,12 +1414,12 @@ export class ZodTable<
 
     const sql = this.table.getSql();
     const parentTable = getParentTableName(this.table);
-    const link = buildKeyLink(sql, parentTable, relation);
+    const link = buildKeyLink(sql, parentTable, relation, this.table.getNameOptions().columnMap);
     const inputs: WhereInput<Row>[] = [
       ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
       rawPredicate<Row>(link),
     ];
-    const where = buildWhereInputs(sql, inputs);
+    const where = buildWhereInputs(sql, inputs, this.relationNameOptions(relation));
     const exists = sql`EXISTS (SELECT 1 FROM ${sql(relation.config.table)} ${where})`;
 
     return negate ? sql`NOT ${exists}` : exists;
