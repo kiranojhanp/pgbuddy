@@ -325,7 +325,38 @@ const tagged = await posts.include("tags").withCount("tags").findMany();
 
 Through relations support the same `include` refinement, `withCount`, and
 `whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
-Use `db.sql` for nested includes and relation writes.
+
+Nested relations are declared on the relation config and load automatically
+when the parent relation is included:
+
+```ts
+const users = db.table("users", UserSchema, {
+  relations: {
+    posts: {
+      table: "posts",
+      schema: PostSchema,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+      relations: {
+        comments: {
+          table: "comments",
+          schema: CommentSchema,
+          localKey: "id",
+          foreignKey: "post_id",
+          relation: "many",
+        },
+      },
+    },
+  },
+});
+
+const rows = await users.include("posts").findMany();
+// rows[0].posts[0].comments
+```
+
+Child relations can use either direct foreign keys or `through` junctions. Use
+`db.sql` for relation writes.
 
 ## Counts and aggregates
 
@@ -473,11 +504,10 @@ a schema toolkit or a full SQL AST.
   chained narrow joins and schema-aware `ZodJoinQuery`.
 - [x] **Many-to-many/through relations.** Junction tables are declared with
   `through` and support includes, counts, and relation filters.
-- [ ] **Nested includes** (`posts.comments`). This still needs recursive
-  relation metadata and tree-shaped result types.
-- [ ] **Split the relation runtime out of `src/zod-table.ts`.** Do this with the
-  relation-graph work; that file is already ~1,700 lines and carries seven
-  generics.
+- [x] **Nested includes** (`posts.comments`). Declared child relations load
+  recursively with deep result types.
+- [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
+  loader now lives in `src/relations.ts`.
 - [ ] **Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.**
   Quick operational win; PGlite cannot catch every server-version difference.
 
@@ -513,10 +543,11 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Nested includes** — the remaining relation-graph feature.
-2. **Split the relation runtime** while touching the relation loader.
-3. **Per-column mapping** — unblocks production schemas with mixed naming or
+1. **Per-column mapping** — unblocks production schemas with mixed naming or
    custom types.
+2. **Validator adapter** — prepare for validation libraries beyond Zod.
+3. **Relation ordering and per-relation aggregates** — rounds out the relation
+   API before lifecycle work.
 
 ## Compatibility
 

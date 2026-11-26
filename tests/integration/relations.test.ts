@@ -27,6 +27,12 @@ const TagSchema = z.object({
   name: z.string(),
 });
 
+const CommentSchema = z.object({
+  id: z.number(),
+  post_id: z.number(),
+  body: z.string(),
+});
+
 const MemberSchema = z.object({
   id: z.number(),
   tenant_id: z.number(),
@@ -45,6 +51,7 @@ describe("relations", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql);
 
+    await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS post_tags;`;
     await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS members;`;
@@ -65,6 +72,13 @@ describe("relations", () => {
       CREATE TABLE tags (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL
+      );
+    `;
+    await sql`
+      CREATE TABLE comments (
+        id INTEGER PRIMARY KEY,
+        post_id INTEGER NOT NULL,
+        body TEXT NOT NULL
       );
     `;
     await sql`
@@ -93,6 +107,7 @@ describe("relations", () => {
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS post_tags;`;
     await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS members;`;
@@ -103,7 +118,7 @@ describe("relations", () => {
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE post_tags, tags, members, teams, posts, users;`;
+    await sql`TRUNCATE comments, post_tags, tags, members, teams, posts, users;`;
   });
 
   const users = () =>
@@ -115,6 +130,27 @@ describe("relations", () => {
           localKey: "id",
           foreignKey: "user_id",
           relation: "many",
+          relations: {
+            comments: {
+              table: "comments",
+              schema: CommentSchema,
+              localKey: "id",
+              foreignKey: "post_id",
+              relation: "many",
+            },
+            tags: {
+              table: "tags",
+              schema: TagSchema,
+              localKey: "id",
+              relation: "many",
+              through: {
+                table: "post_tags",
+                parentKey: "post_id",
+                relatedKey: "tag_id",
+                targetKey: "id",
+              },
+            },
+          },
         },
       },
     });
@@ -255,9 +291,14 @@ describe("relations", () => {
 
     // take() applies per parent, not to the whole batched query.
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.posts).toEqual([{ id: 11, title: "Second" }]);
-    expect(rows[1]?.posts).toEqual([{ id: 14, title: "Fifth" }]);
-    expect(Object.keys(rows[0]?.posts[0] ?? {}).sort()).toEqual(["id", "title"]);
+    expect(rows[0]?.posts).toEqual([{ id: 11, title: "Second", comments: [], tags: [] }]);
+    expect(rows[1]?.posts).toEqual([{ id: 14, title: "Fifth", comments: [], tags: [] }]);
+    expect(Object.keys(rows[0]?.posts[0] ?? {}).sort()).toEqual([
+      "comments",
+      "id",
+      "tags",
+      "title",
+    ]);
   });
 
   test("relation select includes the foreign key only when requested", async () => {
@@ -268,7 +309,13 @@ describe("relations", () => {
       .include("posts", (posts) => posts.select(["id", "user_id", "title"]))
       .findMany();
 
-    expect(rows[0]?.posts[0]).toEqual({ id: 10, user_id: 1, title: "First" });
+    expect(rows[0]?.posts[0]).toEqual({
+      id: 10,
+      user_id: 1,
+      title: "First",
+      comments: [],
+      tags: [],
+    });
   });
 
   test("relation refinements are parameterized", async () => {
@@ -659,7 +706,7 @@ describe("relations", () => {
       })
       .findMany();
 
-    expect(rows[0]?.posts).toEqual([{ id: 10, title: "First" }]);
+    expect(rows[0]?.posts).toEqual([{ id: 10, title: "First", comments: [], tags: [] }]);
   });
 
   test("innerJoin and leftJoin nest the right row", async () => {
@@ -799,5 +846,28 @@ describe("relations", () => {
       .findMany();
 
     expect(every.map((post) => post.id)).toEqual([11, 12]);
+  });
+
+  test("nested includes load declared child relations", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second')
+    `;
+    await sql`
+      INSERT INTO comments (id, post_id, body)
+      VALUES (100, 10, 'one'), (101, 10, 'two'), (102, 11, 'three')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
+    await sql`INSERT INTO post_tags (post_id, tag_id) VALUES (10, 1)`;
+
+    const rows = await users()
+      .include("posts", (posts) => posts.orderBy([{ column: "id", direction: "ASC" }]))
+      .findMany();
+
+    expect(rows[0]?.posts[0]?.comments.map((comment) => comment.body)).toEqual(["one", "two"]);
+    expect(rows[0]?.posts[0]?.tags.map((tag) => tag.name)).toEqual(["typescript"]);
+    expect(rows[0]?.posts[1]?.comments.map((comment) => comment.body)).toEqual(["three"]);
+    expect(rows[0]?.posts[1]?.tags).toEqual([]);
   });
 });

@@ -157,6 +157,9 @@ const rows = await users
 - Many-to-many relations use `through: { table, parentKey, relatedKey, targetKey? }`
   instead of `foreignKey`. Through relations support includes, counts, and
   `whereRelated`/`whereMissing`/`whereEvery`.
+- Child `relations` on a relation config are loaded recursively. The parent
+  relation's `select` controls its own columns; child relations are always
+  included once declared.
 - The parent key is selected automatically and stripped if it was not
   requested.
 - Relation table names are validated with the table's `strictNames` /
@@ -166,8 +169,9 @@ const rows = await users
   and relation methods can follow `selectExpr`.
 - Narrow joins: `users.innerJoin("posts", PostSchema, on)` and `leftJoin`;
   see the Joins section.
-- Mutations do not populate includes, and nested includes are not supported;
-  use `db.sql` for those.
+- Nested relations are declared with a child `relations` map on the relation
+  config and load automatically when the parent relation is included.
+- Mutations do not populate includes or relation writes; use `db.sql` for those.
 
 ---
 

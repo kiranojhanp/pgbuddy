@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Many-to-many/through relations with junction tables, filtering, and counts.
+- Nested includes via child relation configs, with recursive result types.
+- The batched relation loader was extracted into `src/relations.ts`.
 - Chained narrow joins with table aliases and self-joins; schema-aware
   `ZodJoinQuery` supports multiple `innerJoin`/`leftJoin` calls and nested
   right-side rows.
