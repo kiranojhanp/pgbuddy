@@ -4,7 +4,7 @@ The kitchen sink is a single runnable script that exercises the full pgbuddy
 surface against an ecommerce schema. Use it as the reference when you want to
 see how the pieces fit together.
 
-**File:** [`examples/ecommerce-kitchen-sink.ts`](../examples/ecommerce-kitchen-sink.ts)
+**File:** [`examples/ecommerce-kitchen-sink.ts`](https://github.com/kiranojhanp/pgbuddy/blob/master/examples/ecommerce-kitchen-sink.ts)
 
 ## Run it
 

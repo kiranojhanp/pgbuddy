@@ -1,45 +1,33 @@
 # PgBuddy
 
-<p align="center">
-  <img src="assets/banner.png" alt="PgBuddy banner" width="100%" />
-</p>
+> PgBuddy is a lightweight, type-safe PostgreSQL query helper for postgres.js v4. The canonical AI index is [llms.txt](https://github.com/kiranojhanp/pgbuddy/blob/master/llms.txt).
 
-> A lightweight, type-safe PostgreSQL query helper for postgres.js v4. Zod-first by default, with relations, joins, mapping/codecs, one-round-trip batching, pagination, prepared queries, and connection-level validation adapters — while keeping raw SQL available.
+## Copy this prompt for an AI agent
 
-[![npm version](https://img.shields.io/npm/v/pgbuddy.svg)](https://www.npmjs.com/package/pgbuddy)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+~~~text
+You are an AI coding agent working in a TypeScript project that uses PgBuddy.
 
-## For AI agents
+# Project
+PgBuddy is a lightweight, type-safe PostgreSQL query helper for postgres.js v4.
+It is a helper, not an ORM or runtime. The user provides a postgres.js Sql
+instance. Raw SQL is always available through db.sql.
 
-- **Canonical index:** [llms.txt](llms.txt)
-- **API reference:** [docs/api-reference.md](docs/api-reference.md)
-- **Full guide:** [docs/introduction.md](docs/introduction.md)
-- **Recipes:** [docs/recipes/paginated-tables.md](docs/recipes/paginated-tables.md), [soft deletes](docs/recipes/soft-deletes.md), [tenant/RLS](docs/recipes/tenant-scoping.md)
-- **Advanced execution:** [docs/advanced.md](docs/advanced.md)
+Canonical documentation (GitHub):
+- LLM index: https://github.com/kiranojhanp/pgbuddy/blob/master/llms.txt
+- API reference: https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md
+- Introduction: https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md
+- Advanced execution: https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md
+- Pagination recipe: https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/paginated-tables.md
 
-## What it is
+# Requirements
+- postgres.js ^4.0.0
+- Zod >=4.6.6 for Zod tables and relation features
+- Valibot or Yup only when the project uses a connection-level adapter
+- TypeScript only; keep types strict
 
-PgBuddy wraps a user-provided postgres.js `Sql` instance. It is a helper, not a
-runtime or ORM:
-
-- **Zod-first** table schemas validate writes and derive projections.
-- **One adapter per connection** — Zod, Valibot, Yup, or custom.
-- **Raw SQL is always available** through `db.sql`.
-- **Batch-friendly** by default: `findManyAndCount`, typed deferred queries, and
-  `db.batch` use one round trip.
-- **Only postgres.js v4** is supported.
-
-## Install
-
-```bash
+# Setup
 npm install pgbuddy postgres zod
-```
 
-Valibot and Yup are optional peer dependencies.
-
-## Quick start
-
-```ts
 import postgres from "postgres";
 import { PgBuddyClient } from "pgbuddy";
 import { z } from "zod";
@@ -47,70 +35,52 @@ import { z } from "zod";
 const sql = postgres(process.env.DATABASE_URL);
 const db = new PgBuddyClient(sql);
 
-const UserSchema = z.object({
-  id: z.number().optional(),
-  name: z.string(),
-  email: z.email(),
-  status: z.enum(["active", "inactive"]).optional(),
-  created_at: z.date().optional(),
-  deleted_at: z.date().nullable().optional(),
-});
+# Core rules
+1. Create one PgBuddyClient per postgres.js connection.
+2. Define each table from a Zod object schema with db.table("table", Schema).
+3. Validate user input before it reaches db.table writes. Never pass an
+   unvalidated request body as a write payload.
+4. Use z.object for stripping or z.strictObject to reject unknown keys.
+5. Use .optional() for database defaults/generated ids and .nullable() for
+   nullable columns.
+6. Use db.sql, whereRaw, orderByRaw, prepare, and batchSQL only for trusted SQL.
+7. Prefer findManyAndCount() for page + total in one round trip.
+8. Prefer db.batch([...]) for independent queries; it uses one postgres.js batch.
+9. Use db.transaction() for sequential work that depends on earlier results.
+10. Do not add CTEs, set operations, window functions, migrations, or relation
+    write graphs to PgBuddy; use raw SQL or another tool for those.
 
-const users = db.table("users", UserSchema);
+# Common patterns
 
-const user = await users.create({
-  name: "Alice",
-  email: "alice@example.com",
-});
+Create:
+const user = await users.create({ name: "Alice", email: "alice@example.com" });
 
-const found = await users
-  .where({ email: "alice@example.com" })
-  .findFirst();
+Read:
+const found = await users.where({ email: "alice@example.com" }).findFirst();
 
-await users
-  .where({ id: user.id! })
-  .update({ name: "Alice Smith" });
-
-await users.where({ id: user.id! }).delete();
-```
-
-Use `.optional()` for database defaults or generated ids and `.nullable()` for
-nullable columns. Unknown keys are stripped by `z.object`; use `z.strictObject`
-to reject them.
-
-## Core examples
-
-### Filter, sort, and page
-
-```ts
+Filter, sort, page:
 const page = await users
   .where({ status: "active" })
   .orderBy([{ column: "created_at", direction: "DESC" }])
   .skip(0)
   .take(25)
   .findMany();
-```
 
-### Page plus total in one batch
-
-```ts
+Page + total, one round trip:
 const { rows, total } = await users
   .where({ status: "active" })
   .orderBy([{ column: "created_at", direction: "DESC" }])
   .skip(0)
   .take(25)
   .findManyAndCount();
-```
 
-### Relations
+Typed batch:
+const [rows, count] = await db.batch([
+  users.where({ status: "active" }).findMany(),
+  users.where({ status: "active" }).count(),
+]);
 
-```ts
-const PostSchema = z.object({
-  id: z.number(),
-  user_id: z.number(),
-  title: z.string(),
-});
-
+Relations:
 const users = db.table("users", UserSchema, {
   relations: {
     posts: {
@@ -122,53 +92,34 @@ const users = db.table("users", UserSchema, {
     },
   },
 });
+const rows = await users.include("posts").withCount("posts").findMany();
 
-const rows = await users
-  .include("posts", (posts) => posts.orderBy([{ column: "id", direction: "DESC" }]).take(3))
-  .withCount("posts")
-  .findMany();
-```
-
-### Raw SQL escape hatch
-
-```ts
+Raw SQL escape hatch:
 const rows = await db.sql`select * from users where id = ${id}`;
-```
 
-## Documentation
+# Before finishing
+- Run: bun test
+- Run: bun run test:types
+- Run: bun run build
+- Report any behavior that required raw SQL.
+- Do not claim a feature works unless it is covered by a test or a runnable example.
+~~~
 
-| Topic | Start here |
-| --- | --- |
-| Introduction and design | [docs/introduction.md](docs/introduction.md) |
-| CRUD and writes | [docs/crud-operations.md](docs/crud-operations.md) |
-| Filtering, sorting, pagination | [docs/select-operations.md](docs/select-operations.md) |
-| Chaining, relations, joins | [docs/chainable-api.md](docs/chainable-api.md) |
-| Column mapping and codecs | [docs/data-transformation.md](docs/data-transformation.md) |
-| Advanced execution | [docs/advanced.md](docs/advanced.md) |
-| API reference | [docs/api-reference.md](docs/api-reference.md) |
-| Paginated tables recipe | [docs/recipes/paginated-tables.md](docs/recipes/paginated-tables.md) |
-| Soft deletes recipe | [docs/recipes/soft-deletes.md](docs/recipes/soft-deletes.md) |
-| Tenant/RLS recipe | [docs/recipes/tenant-scoping.md](docs/recipes/tenant-scoping.md) |
-| Kitchen sink | [docs/kitchen-sink.md](docs/kitchen-sink.md) |
-| Roadmap | [docs/roadmap.md](docs/roadmap.md) |
-| LLM index | [llms.txt](llms.txt) |
+## Human documentation
 
-## Validation adapters
-
-Zod is the default. Configure one adapter on the connection; every table uses
-it:
-
-```ts
-import { PgBuddyClient } from "pgbuddy";
-import { valibotValidator } from "pgbuddy/adapters/valibot";
-
-const db = new PgBuddyClient(sql, { adapter: valibotValidator });
-const users = db.table("users", ValibotUserSchema);
-```
-
-Built-ins: `zodValidator`, `pgbuddy/adapters/valibot`,
-`pgbuddy/adapters/yup`. See [API reference](docs/api-reference.md) for adapter
-relations and type details.
+- [llms.txt](https://github.com/kiranojhanp/pgbuddy/blob/master/llms.txt)
+- [Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md)
+- [CRUD operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/crud-operations.md)
+- [Select operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/select-operations.md)
+- [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md)
+- [Data transformation](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/data-transformation.md)
+- [Advanced execution](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md)
+- [API reference](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md)
+- [Paginated tables recipe](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/paginated-tables.md)
+- [Soft deletes recipe](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/soft-deletes.md)
+- [Tenant/RLS recipe](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/tenant-scoping.md)
+- [Kitchen sink](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/kitchen-sink.md)
+- [Roadmap](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/roadmap.md)
 
 ## Requirements
 
@@ -176,16 +127,6 @@ relations and type details.
 - Zod `>=4.6.6` for Zod tables and relation features
 - Valibot/Yup optional
 - PostgreSQL 16 is verified in CI; other versions are not currently tested
-
-## Development
-
-```bash
-bun install
-bun test
-bun run test:types
-bun run build
-bun run example:kitchen-sink
-```
 
 ## License
 

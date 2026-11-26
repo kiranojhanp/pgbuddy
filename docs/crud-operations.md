@@ -1,7 +1,7 @@
 # CRUD Operations
 
 These examples assume a table is already set up. See the
-[Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup.
+[Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md) or [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md) for setup.
 
 ## Insert
 
@@ -205,4 +205,4 @@ pass either `skipLocked` or `noWait`.
 - Use `select` to limit which columns are returned from mutations.
 - `createMany` chunks large batches automatically.
 - `take` is capped at 10,000 rows by default (`maxTake` option). `findMany` without `take` still returns every matching row, so paginate untrusted queries.
-- See [Error Types](api-reference.md#error-types) for details on `QueryError` and `TableError`.
+- See [Error Types](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md#error-types) for details on `QueryError` and `TableError`.

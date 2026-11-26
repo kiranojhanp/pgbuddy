@@ -1,7 +1,7 @@
 # Select Operations
 
 These examples assume a table is already set up. See the
-[Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup.
+[Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md) or [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md) for setup.
 The schema used here has fields: `id`, `name`, `email`, `status`, `age`,
 `last_login`, `deleted_at`, `created_at`.
 

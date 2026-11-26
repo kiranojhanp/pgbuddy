@@ -1,8 +1,8 @@
 # Advanced Execution
 
 This page covers execution and SQL features that go beyond everyday CRUD. For
-basic queries, start with [CRUD operations](crud-operations.md) and
-[Select operations](select-operations.md).
+basic queries, start with [CRUD operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/crud-operations.md) and
+[Select operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/select-operations.md).
 
 ## True batching
 
@@ -225,6 +225,6 @@ await db.transaction(async (tx) => {
 - Transaction modes and values are bound/escaped by postgres.js.
 - Zod `>=4.6.6` is the minimum supported version.
 
-See [Soft deletes](recipes/soft-deletes.md) and
-[Tenant scoping and RLS](recipes/tenant-scoping.md) for application-level
+See [Soft deletes](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/soft-deletes.md) and
+[Tenant scoping and RLS](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/recipes/tenant-scoping.md) for application-level
 security patterns.

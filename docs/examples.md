@@ -1,6 +1,6 @@
 # Examples
 
-These examples assume `db` is a `PgBuddyClient` instance. See the [Introduction](introduction.md) for setup.
+These examples assume `db` is a `PgBuddyClient` instance. See the [Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md) for setup.
 
 ```typescript
 import { z } from 'zod';
@@ -308,4 +308,4 @@ const perAuthor = await db
   .findMany();
 ```
 
-For error handling, see [Error types](api-reference.md#error-types) in the API reference.
+For error handling, see [Error types](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md#error-types) in the API reference.

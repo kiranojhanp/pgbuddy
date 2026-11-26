@@ -82,7 +82,7 @@ const activeUsers = await users
   .findMany();
 ```
 
-See the [Chainable API](chainable-api.md) guide for the full reference.
+See the [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md) guide for the full reference.
 
 ### Advanced usage
 
@@ -110,16 +110,16 @@ footguns remain at the call site:
 - **`select`/`orderBy` column names are not user input.** With a plain `Table`,
   treat them as developer-controlled; `ZodTable` checks them against the schema.
 
-See the [API reference](api-reference.md#options) for `allowedColumns`,
+See the [API reference](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md#options) for `allowedColumns`,
 `maxTake`, `strictNames`, and `allowSchema`.
 
 ### Next steps
 
-- [CRUD Operations](crud-operations.md)
-- [Select Operations](select-operations.md)
-- [Chainable API](chainable-api.md)
-- [Data Transformation](data-transformation.md)
-- [API Reference](api-reference.md)
-- [Examples](examples.md)
-- [Ecommerce kitchen sink](kitchen-sink.md)
+- [CRUD Operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/crud-operations.md)
+- [Select Operations](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/select-operations.md)
+- [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md)
+- [Data Transformation](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/data-transformation.md)
+- [API Reference](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/api-reference.md)
+- [Examples](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/examples.md)
+- [Ecommerce kitchen sink](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/kitchen-sink.md)
 - [postgres.js documentation](https://github.com/porsager/postgres)
