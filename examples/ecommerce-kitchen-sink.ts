@@ -115,6 +115,14 @@ const InventorySchema = z.object({
   quantity: z.number().int(),
 });
 
+const UserTableQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(2),
+  sort: z.enum(["id", "full_name", "created_at"]).default("id"),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  status: z.enum(["active", "inactive", "banned"]).optional(),
+});
+
 const PriceOverrideSchema = z.object({
   product_id: z.number().int(),
   price_cents: z.number().int(),
@@ -434,6 +442,36 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
   for await (const batch of users.orderBy([{ column: "id", direction: "ASC" }]).stream(2)) {
     streamedUsers.push(...batch);
   }
+
+  // App-level paginated table helper: validates query params, maps only
+  // allowed sort/filter fields, and fetches rows + total in one batch.
+  const query = UserTableQuerySchema.parse({
+    page: "2",
+    pageSize: "1",
+    sort: "full_name",
+    direction: "asc",
+    status: "active",
+  });
+  const sortColumns = {
+    id: "id",
+    full_name: "full_name",
+    created_at: "created_at",
+  } as const;
+  const direction = query.direction === "asc" ? "ASC" : "DESC";
+  const pageResult = await users
+    .where(query.status ? { status: query.status } : {})
+    .orderBy([{ column: sortColumns[query.sort], direction }])
+    .skip((query.page - 1) * query.pageSize)
+    .take(query.pageSize)
+    .findManyAndCount();
+
+  console.log("pagination", {
+    page: query.page,
+    pageSize: query.pageSize,
+    pageCount: Math.ceil(pageResult.total / query.pageSize),
+    total: pageResult.total,
+    rows: pageResult.rows,
+  });
 
   console.log("batch", { batchOrders, batchCount, streamedUsers });
 

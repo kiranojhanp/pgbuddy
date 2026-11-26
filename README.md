@@ -529,6 +529,24 @@ const first = await findActive();
 const second = await findActive();
 ```
 
+## Paginated tables
+
+Fetch a page and its filtered total in one batch:
+
+```ts
+const { rows, total } = await users
+  .where({ status: "active" })
+  .orderBy([{ column: "created_at", direction: "DESC" }])
+  .skip(offset)
+  .take(pageSize)
+  .findManyAndCount();
+```
+
+`total` counts all rows matching the filters, ignoring `skip`/`take`. pgbuddy
+does not parse HTTP params or decide the response envelope; see the
+[app-level paginated-table recipe](docs/recipes/paginated-tables.md) for a
+Zod-validated helper with sort/filter allowlists.
+
 ## Streaming and cancellation
 
 ```ts
@@ -821,6 +839,7 @@ and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 ## Documentation
 
 - [Introduction](docs/introduction.md)
+- [Paginated tables recipe](docs/recipes/paginated-tables.md)
 - [CRUD operations](docs/crud-operations.md)
 - [Select operations](docs/select-operations.md)
 - [Chainable API](docs/chainable-api.md)

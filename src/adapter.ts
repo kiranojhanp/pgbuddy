@@ -16,6 +16,7 @@ import type {
   ColumnCodecs,
   ColumnMap,
   ComputedMap,
+  ComputedOptions,
   CreateManyOptions,
   SelectKeys,
   SortSpec,
@@ -420,6 +421,16 @@ export class ValidatedTable<
 
   findMany(): Promise<Array<T>> {
     return this.table.findMany() as Promise<Array<T>>;
+  }
+
+  async findManyAndCount(
+    options?: ComputedOptions<Record<string, SqlExpression<unknown>>>
+  ): Promise<{
+    rows: Array<T>;
+    total: number;
+  }> {
+    const { rows, total } = await this.table.findManyAndCount(options);
+    return { rows: rows as Array<T>, total };
   }
 
   findFirst(): Promise<T | null> {

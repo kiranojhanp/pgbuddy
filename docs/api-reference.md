@@ -496,6 +496,20 @@ Returns the first matching record, or throws `QueryError` (`No record found`).
 
 Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
 
+#### findManyAndCount()
+
+```typescript
+findManyAndCount(options?: ComputedOptions): Promise<{
+  rows: Array<T>;
+  total: number;
+}>
+```
+
+Fetches the current page and the filtered total in one postgres.js batch.
+`total` ignores `skip`/`take` and counts all rows matching the current filters.
+Use `db.transaction` when the page and count must share a transaction with
+other work.
+
 #### toSQL()
 
 ```typescript

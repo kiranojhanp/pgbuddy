@@ -47,6 +47,7 @@ It declares one-hop relations in both directions:
 | Reads | `findMany`, `findFirst`, `findUnique`, `findUniqueOrThrow`, `findFirstOrThrow`, `count`, `exists` |
 | Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in the README |
 | Batch | `db.batch` with synchronous pending-query callback |
+| Pagination | `findManyAndCount` via a validated app-level table query helper |
 | Filtering | object conditions, typed `WhereCondition[]`, all predicate helpers, nested `and`/`or`/`not`, `whereRaw` |
 | Projection | `select`, `omit`, `distinct`, `distinctOn`, `distinctOnExpr`, `selectExpr`, `computed` |
 | Pagination | `skip`, `take`, `orderBy` with `NULLS`, `orderByRaw`, single and composite `cursor` |

@@ -1734,6 +1734,35 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    *   .count();
    * ```
    */
+  /**
+   * Fetch the current page and the total number of matching rows in one
+   * postgres.js batch. `total` ignores skip/take and cursor values.
+   */
+  async findManyAndCount<X extends ComputedMap = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<{ rows: Array<SelectFields<T, K>[0] & ComputedResult<X>>; total: number }> {
+    const selectQuery = this.buildSelectQuery(options?.computed);
+    const countQuery = this.sql<Array<{ count: number }>>`
+      SELECT COUNT(*)::int AS count
+      FROM ${this.sql(this.tableName)}
+      ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
+    `;
+    if (this.signalValue) {
+      selectQuery.signal(this.signalValue);
+      countQuery.signal(this.signalValue);
+    }
+
+    const [rawRows, countRows] = (await this.sql.batch([selectQuery, countQuery])) as [
+      Array<Record<string, unknown>>,
+      Array<{ count: number }>,
+    ];
+
+    return {
+      rows: this.decodeRows(rawRows) as Array<SelectFields<T, K>[0] & ComputedResult<X>>,
+      total: Number(countRows[0]?.count ?? 0),
+    };
+  }
+
   async count(): Promise<number> {
     const result = await this.sql<[{ count: string }]>`
             SELECT COUNT(*) as count

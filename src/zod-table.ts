@@ -1731,6 +1731,28 @@ export class ZodTable<
     >;
   }
 
+  async findManyAndCount<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<{
+    rows: Array<
+      WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+    >;
+    total: number;
+  }> {
+    const prepared = this.prepareQuery();
+    const { rows, total } = await prepared.table.findManyAndCount(options);
+    const enriched = await this.finalize(
+      rows as Array<Record<string, unknown>>,
+      prepared.stripKeys
+    );
+    return {
+      rows: enriched as unknown as Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+      >,
+      total,
+    };
+  }
+
   async findFirst<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
   ): Promise<WithRelations<
