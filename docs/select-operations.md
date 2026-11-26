@@ -1,7 +1,7 @@
 # Select Operations
 
 These examples assume a table is already set up. See the
-[Introduction](introduction.md) or [Chainable API](chainable-api.md) for setup.
+[Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md) or [Chainable API](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/chainable-api.md) for setup.
 The schema used here has fields: `id`, `name`, `email`, `status`, `age`,
 `last_login`, `deleted_at`, `created_at`.
 
@@ -216,6 +216,7 @@ await db.transaction(async (tx) => {
 
 - Use `select` to return only the columns you need.
 - Index the fields you filter and sort on.
-- Bound result sets with `take`/`defaultTake`.
+- Bound result sets with `take`/`defaultTake`; optionally set `maxSkip`.
+- Use `findManyAndCount()` when you need a page and total in one batch.
 - Prefer keyset cursors over large offsets.
 - Put the most selective conditions first.

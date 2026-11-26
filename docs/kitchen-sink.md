@@ -4,7 +4,7 @@ The kitchen sink is a single runnable script that exercises the full pgbuddy
 surface against an ecommerce schema. Use it as the reference when you want to
 see how the pieces fit together.
 
-**File:** [`examples/ecommerce-kitchen-sink.ts`](../examples/ecommerce-kitchen-sink.ts)
+**File:** [`examples/ecommerce-kitchen-sink.ts`](https://github.com/kiranojhanp/pgbuddy/blob/master/examples/ecommerce-kitchen-sink.ts)
 
 ## Run it
 
@@ -33,7 +33,7 @@ The scenario has the usual ecommerce tables:
 - `price_overrides` (used by the SQL write helpers)
 - `audit_log` (auto-generated id)
 
-It declares one-hop relations in both directions:
+It declares direct relations in both directions:
 
 - user → orders, reviews
 - category → products
@@ -46,7 +46,7 @@ It declares one-hop relations in both directions:
 | Area | API exercised |
 | --- | --- |
 | Reads | `findMany`, `findFirst`, `findUnique`, `findUniqueOrThrow`, `findFirstOrThrow`, `count`, `exists` |
-| Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in the README |
+| Streaming | `stream(batchSize)`; `signal(AbortSignal)` is documented in [Advanced execution](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md) |
 | Prepared params | `db.param()` + `prepareParams()` |
 | Plans | `explain()` |
 | Batch | `db.batch` with deferred builders and synchronous pending-query callback |
