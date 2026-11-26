@@ -14,6 +14,7 @@ import {
 import { PostgresErrorCodes } from "./database-errors";
 import { type DeferredQuery, isDeferredQuery } from "./deferred";
 import { Errors, QueryError, TableError } from "./errors";
+import { SqlParam } from "./params";
 import { Table } from "./table";
 import type { ColumnCodecs, ColumnMap, SelectKeys, SqlExpression, SqlFragment } from "./types";
 import { filteredExpr } from "./types";
@@ -426,6 +427,17 @@ export class PgBuddyClient {
         }
       }
     }
+  }
+
+  /**
+   * Create a named placeholder for `prepareParams()`.
+   * The generic is a type assertion; the runtime value is a placeholder.
+   */
+  param<T = unknown>(name: string): T {
+    if (typeof name !== "string" || !name.trim()) {
+      throw new TableError("param name must be a non-empty string");
+    }
+    return new SqlParam(name) as unknown as T;
   }
 
   /** Add a FILTER (WHERE ...) clause to an aggregate expression. */

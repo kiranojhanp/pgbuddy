@@ -2,6 +2,7 @@ import type { Row, Sql } from "postgres";
 import type { input as ZodInput, ZodIssue, ZodObject, output as ZodOutput, ZodRawShape } from "zod";
 import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
+import { isSqlParam } from "./params";
 import {
   getPredicateNode,
   isPredicate,
@@ -117,6 +118,7 @@ function validateWhereObject<S extends ZodSchema>(
       throw new QueryError(Errors.WHERE.INVALID_FIELD(key), { code: "INVALID_WHERE" });
     }
     ensureFieldExists(shape, key);
+    if (isSqlParam(value)) continue;
     const fieldSchema = shape[key];
     if (fieldSchema) {
       validateValue(key, fieldSchema, value, "where value");
@@ -159,7 +161,9 @@ function validatePredicate<S extends ZodSchema>(
       const fieldSchema = shape[node.field];
       if (fieldSchema) {
         for (const value of node.values) {
-          validateValue(node.field, fieldSchema, value, "where IN value");
+          if (!isSqlParam(value)) {
+            validateValue(node.field, fieldSchema, value, "where IN value");
+          }
         }
       }
       return;
@@ -178,8 +182,12 @@ function validatePredicate<S extends ZodSchema>(
       ensureFieldExists(shape, node.field);
       const fieldSchema = shape[node.field];
       if (fieldSchema) {
-        validateValue(node.field, fieldSchema, node.low, "where value");
-        validateValue(node.field, fieldSchema, node.high, "where value");
+        if (!isSqlParam(node.low)) {
+          validateValue(node.field, fieldSchema, node.low, "where value");
+        }
+        if (!isSqlParam(node.high)) {
+          validateValue(node.field, fieldSchema, node.high, "where value");
+        }
       }
       return;
     }
@@ -187,9 +195,14 @@ function validatePredicate<S extends ZodSchema>(
     case "comparison": {
       ensureFieldExists(shape, node.field);
       const fieldSchema = shape[node.field];
-      if (fieldSchema) {
+      if (fieldSchema && !isSqlParam(node.value)) {
         validateValue(node.field, fieldSchema, node.value, "where value");
       }
+      return;
+    }
+
+    case "operator": {
+      ensureFieldExists(shape, node.field);
       return;
     }
   }
@@ -221,7 +234,7 @@ function validateWhereAdvanced<S extends ZodSchema>(
       }
       for (const entry of condition.value) {
         const fieldSchema = shape[field];
-        if (fieldSchema) {
+        if (fieldSchema && !isSqlParam(entry)) {
           validateValue(field, fieldSchema, entry, "where IN value");
         }
       }
@@ -236,7 +249,7 @@ function validateWhereAdvanced<S extends ZodSchema>(
     }
 
     const fieldSchema = shape[field];
-    if (fieldSchema) {
+    if (fieldSchema && !isSqlParam(condition.value)) {
       validateValue(field, fieldSchema, condition.value, "where value");
     }
   }
@@ -1732,6 +1745,12 @@ export class ZodTable<
 
   stream(batchSize = 1): AsyncIterable<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
     return this.table.stream(batchSize);
+  }
+
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.prepareParams<P>();
   }
 
   prepare(): () => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {

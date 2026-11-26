@@ -59,4 +59,19 @@ describe("prepared statements", () => {
     expect(first).toEqual([{ id: 1, email: "ada@example.com" }]);
     expect(second).toEqual(first);
   });
+
+  test("binds named parameters into a prepared builder", async () => {
+    const UserSchema = z.object({
+      id: z.number().int(),
+      email: z.string(),
+    });
+    const users = db.table("users", UserSchema);
+    const find = users.where({ id: db.param<number>("id") }).prepareParams<{ id: number }>();
+
+    expect(await find({ id: 1 })).toEqual([{ id: 1, email: "ada@example.com" }]);
+    expect(await find({ id: 2 })).toEqual([{ id: 2, email: "grace@example.com" }]);
+    await expect(find({ id: 3 })).resolves.toEqual([]);
+
+    await expect(find({} as { id: number })).rejects.toThrow("Missing prepared parameter");
+  });
 });

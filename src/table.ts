@@ -1,6 +1,7 @@
 import type { Row, Sql } from "postgres";
 import { type DeferredQuery, deferredQuery } from "./deferred";
 import { Errors, QueryError } from "./errors";
+import { isSqlParam } from "./params";
 import { gt, isPredicate, lt, rawPredicate, type WhereInput } from "./predicates";
 import type {
   AggregateOptions,
@@ -881,6 +882,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   private encodeValue(field: string, value: unknown): unknown {
+    if (isSqlParam(value)) return value;
     if (
       typeof value === "function" ||
       (typeof value === "object" &&
@@ -2829,6 +2831,31 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * fixed to the current builder state; create another prepared builder to
    * execute the same plan with different values.
    */
+  /**
+   * Build a parameterized prepared SELECT. Use `db.param(name)` placeholders
+   * in the builder values and pass their values on each execution.
+   */
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<SelectFields<T, K>[0]>> {
+    const { text, parameters } = describeQuery(this.buildSelectQuery());
+    return async (values: P) => {
+      const resolved = parameters.map((parameter) => {
+        if (!isSqlParam(parameter)) return parameter;
+        if (!(parameter.name in values)) {
+          throw new QueryError(`Missing prepared parameter: ${parameter.name}`, {
+            code: "INVALID_DATA",
+          });
+        }
+        return values[parameter.name];
+      });
+      const rows = await this.sql.unsafe<Array<SelectFields<T, K>[0]>>(text, resolved as never);
+      return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+        SelectFields<T, K>[0]
+      >;
+    };
+  }
+
   prepare(): () => Promise<Array<SelectFields<T, K>[0]>> {
     const { text, parameters } = this.toSQL();
     return async () =>

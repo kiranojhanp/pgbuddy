@@ -602,6 +602,16 @@ Attaches an `AbortSignal` to SELECT execution.
 Streams the base SELECT as batches of rows. Relation includes are not applied to
 streamed rows.
 
+#### prepareParams()
+
+```typescript
+prepareParams<P extends Record<string, unknown>>(): (values: P) => Promise<Array<T>>
+```
+
+Builds a parameterized prepared SELECT. Use `db.param<T>(name)` as a value
+placeholder and pass `{ [name]: value }` on execution. SELECT-only; relation
+includes are not applied.
+
 #### prepare()
 
 ```typescript

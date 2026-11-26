@@ -503,6 +503,12 @@ export class ValidatedTable<
     return this.table.stream(batchSize) as AsyncIterable<Array<T>>;
   }
 
+  prepareParams<P extends Record<string, unknown> = Record<string, unknown>>(): (
+    values: P
+  ) => Promise<Array<T>> {
+    return this.table.prepareParams<P>() as (values: P) => Promise<Array<T>>;
+  }
+
   prepare(): () => Promise<Array<T>> {
     return this.table.prepare() as () => Promise<Array<T>>;
   }

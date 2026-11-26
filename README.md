@@ -555,6 +555,21 @@ const first = await findActive();
 const second = await findActive();
 ```
 
+For varying values with one prepared plan, use `db.param` and
+`prepareParams()`:
+
+```ts
+const findUser = users
+  .where({ id: db.param<number>("id") })
+  .prepareParams<{ id: number }>();
+
+const ada = await findUser({ id: 1 });
+const grace = await findUser({ id: 2 });
+```
+
+`prepareParams()` builds the query once and rebinds the named placeholders on
+each execution. It is SELECT-only and does not apply relation includes.
+
 ## Paginated tables
 
 Fetch a page and its filtered total in one batch:

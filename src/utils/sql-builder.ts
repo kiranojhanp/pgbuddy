@@ -1,5 +1,6 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "../errors";
+import { isSqlParam } from "../params";
 import { getPredicateNode, isPredicate, type Predicate, type WhereInput } from "../predicates";
 import type {
   ColumnCodecs,
@@ -20,6 +21,7 @@ type NameOptions = {
 };
 
 function encodeValue(field: string, value: unknown, options?: NameOptions): unknown {
+  if (isSqlParam(value)) return value;
   const encode = options?.columnCodecs?.[field]?.encode;
   return encode ? encode(value) : value;
 }
