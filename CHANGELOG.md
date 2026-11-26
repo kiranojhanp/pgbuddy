@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-field `columnCodecs` for custom encode/decode serialization across writes,
   filters, cursors, and result rows.
 - `db.batch([...])` for sequential atomic query batches with tuple result types.
+- `db.batchSQL([...])` for true one-round-trip batches on postgres.js v4, with
+  a sequential v3 fallback.
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.
 - `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.

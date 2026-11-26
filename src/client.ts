@@ -132,6 +132,15 @@ export type BatchQuery = (tx: PgBuddyClient) => Promise<unknown>;
 
 export type PreparedQuery<T extends Row = Row> = (parameters?: readonly unknown[]) => Promise<T[]>;
 
+export type BatchSQLStatement = {
+  text: string;
+  parameters?: readonly unknown[];
+};
+
+export type BatchSQLResults<Q extends readonly BatchSQLStatement[]> = {
+  -readonly [K in keyof Q]: Row[];
+};
+
 export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
   infer Head extends BatchQuery,
   ...infer Tail extends readonly BatchQuery[],
@@ -312,6 +321,49 @@ export class PgBuddyClient {
       }
       return this.sql.unsafe<T[]>(text, parameters as never, { prepare: true });
     };
+  }
+
+  /**
+   * Run raw SQL statements as one postgres.js batch on v4 (one round trip,
+   * one implicit transaction). v3 falls back to a sequential transaction.
+   */
+  async batchSQL<Q extends readonly BatchSQLStatement[]>(
+    statements: Q,
+    options?: TransactionOptions
+  ): Promise<BatchSQLResults<Q>> {
+    if (!Array.isArray(statements) || statements.length === 0) {
+      throw new TableError("batchSQL requires a non-empty array of statements");
+    }
+    for (const statement of statements) {
+      if (
+        !statement ||
+        typeof statement.text !== "string" ||
+        !statement.text.trim() ||
+        (statement.parameters !== undefined && !Array.isArray(statement.parameters))
+      ) {
+        throw new TableError("batchSQL received an invalid statement");
+      }
+    }
+
+    const queries = statements.map((statement) =>
+      this.sql.unsafe(statement.text, (statement.parameters ?? []) as never)
+    );
+
+    const driver = this.sql as unknown as {
+      batch?: (items: unknown[]) => Promise<unknown[]>;
+    };
+
+    if (typeof driver.batch === "function") {
+      return (await driver.batch(queries)) as BatchSQLResults<Q>;
+    }
+
+    return this.transaction(async (tx) => {
+      const results: unknown[] = [];
+      for (const statement of statements) {
+        results.push(await tx.sql.unsafe(statement.text, (statement.parameters ?? []) as never));
+      }
+      return results;
+    }, options) as Promise<BatchSQLResults<Q>>;
   }
 
   /**

@@ -59,6 +59,7 @@ describe("validation adapter table", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql, { adapter });
 
+    await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await sql`
@@ -75,9 +76,17 @@ describe("validation adapter table", () => {
         title TEXT NOT NULL
       );
     `;
+    await sql`
+      CREATE TABLE comments (
+        id INTEGER PRIMARY KEY,
+        post_id INTEGER NOT NULL,
+        body TEXT NOT NULL
+      );
+    `;
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await stop();
@@ -179,6 +188,15 @@ describe("validation adapter table", () => {
             localKey: "id",
             foreignKey: "user_id",
             relation: "many",
+            relations: {
+              comments: {
+                table: "comments",
+                fields: ["id", "post_id", "body"],
+                localKey: "id",
+                foreignKey: "post_id",
+                relation: "many",
+              },
+            },
           },
         },
       });
@@ -189,10 +207,14 @@ describe("validation adapter table", () => {
       status: "active",
     });
     await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First')`;
+    await sql`INSERT INTO comments (id, post_id, body) VALUES (100, 10, 'Nested')`;
 
     const rows = await usersWithRelations().include("posts").withCount("posts").findMany();
 
     expect(rows[0]?.posts[0]?.title).toBe("First");
     expect(rows[0]?.posts_count).toBe(1);
+
+    const comments = rows[0]?.posts[0]?.comments as Array<Record<string, unknown>> | undefined;
+    expect(comments?.[0]?.body).toBe("Nested");
   });
 });

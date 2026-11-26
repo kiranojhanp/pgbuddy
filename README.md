@@ -334,9 +334,19 @@ const [created, found, count] = await db.batch([
 ]);
 ```
 
-`batch` runs sequentially inside one transaction and rolls back everything on
-failure. It is not a single protocol round-trip; use postgres.js directly for a
-driver-level batch.
+`batch` runs thunks sequentially inside one transaction and rolls back
+everything on failure. For a true one-round-trip batch on postgres.js v4, use
+`batchSQL` with raw statements:
+
+```ts
+const [updated, count] = await db.batchSQL([
+  { text: "update users set status = $1 where id = $2", parameters: ["active", id] },
+  { text: "select count(*)::int as count from users" },
+]);
+```
+
+On postgres.js v3.4.5, `batchSQL` falls back to a sequential transaction because
+`sql.batch` is not available there.
 ```
 
 ## Relations
@@ -716,8 +726,8 @@ a schema toolkit or a full SQL AST.
   executor using postgres.js named preparation.
 - [x] **Builder-level prepared SELECT plans.** `Table.prepare()` returns a
   reusable executor with fixed parameters.
-- [ ] **True protocol batch** — postgres.js has no portable v3/v4 batch API;
-  `db.batch` remains sequential and transactional.
+- [x] **True protocol batch on postgres.js v4.** `db.batchSQL` uses `sql.batch`
+  for one round trip; v3.4.5 falls back to a sequential transaction.
 
 ### P2 — useful, but raw SQL is acceptable
 
@@ -737,10 +747,11 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **True protocol batch** — driver-level batching across v3/v4.
-2. **Hosted PostgreSQL 16 CI evidence** — local verification is complete.
-3. **Adapter relation typing** — adapter relations are runtime-supported but
+1. **Adapter relation typing** — adapter relations are runtime-supported but
    child rows are untyped.
+2. **Through adapter relation coverage** — nested adapter relations are tested;
+   through configs use the same runtime but need explicit coverage.
+3. **Query cancellation and streaming** — currently raw postgres.js only.
 
 ## Compatibility
 

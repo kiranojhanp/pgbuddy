@@ -98,6 +98,26 @@ const [created, count] = await db.batch([
 ]);
 ```
 
+### batchSQL(statements, options?)
+
+```typescript
+batchSQL<Q extends readonly BatchSQLStatement[]>(
+  statements: Q,
+  options?: TransactionOptions
+): Promise<BatchSQLResults<Q>>
+```
+
+Runs raw SQL statements through postgres.js `sql.batch` on v4: one round trip
+and one implicit transaction. On v3.4.5 it falls back to a sequential
+transaction because `sql.batch` is unavailable.
+
+```typescript
+const [rows, count] = await db.batchSQL([
+  { text: "select * from users where id = $1", parameters: [id] },
+  { text: "select count(*)::int from users" },
+]);
+```
+
 ### Security: write payloads
 
 `create`, `createMany` and `update` insert or update **every key** in the

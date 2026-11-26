@@ -83,4 +83,14 @@ describe("client batch", () => {
 
     await expect(db.batch([])).resolves.toEqual([]);
   });
+
+  test("batchSQL sends raw statements as a batch", async () => {
+    const [one, two] = await db.batchSQL([
+      { text: "select 1::int as value" },
+      { text: "select $1::int as value", parameters: [2] },
+    ]);
+
+    expect(one).toEqual([{ value: 1 }]);
+    expect(two).toEqual([{ value: 2 }]);
+  });
 });

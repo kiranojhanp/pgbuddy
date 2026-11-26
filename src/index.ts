@@ -61,6 +61,8 @@ import { ValidatedTable } from "./adapter";
 import type {
   BatchQuery,
   BatchResults,
+  BatchSQLResults,
+  BatchSQLStatement,
   PgBuddyClientOptions,
   PreparedQuery,
   TransactionOptions,
@@ -177,6 +179,8 @@ export type {
   UpdateData,
   BatchQuery,
   BatchResults,
+  BatchSQLResults,
+  BatchSQLStatement,
   PreparedQuery,
   PgBuddyClientOptions,
   TransactionOptions,
