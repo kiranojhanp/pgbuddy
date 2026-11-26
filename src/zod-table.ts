@@ -499,7 +499,8 @@ function normalizeRelation<S extends ZodSchema>(
   name: string,
   raw: unknown,
   parentSchema: S,
-  nameOptions: NameOptions
+  nameOptions: NameOptions,
+  path: WeakSet<object>
 ): NormalizedRelation {
   const context = `Invalid relation ${JSON.stringify(name)}`;
 
@@ -510,6 +511,11 @@ function normalizeRelation<S extends ZodSchema>(
   if (!isPlainObject(raw)) {
     throw new TableError(`${context}: expected a relation configuration object`);
   }
+
+  if (path.has(raw)) {
+    throw new TableError(`${context}: cyclic relation configuration`);
+  }
+  path.add(raw);
 
   const table = raw.table;
   if (!isNonEmptyString(table)) {
@@ -550,10 +556,18 @@ function normalizeRelation<S extends ZodSchema>(
   }
   const relatedSchema = raw.schema;
   const relatedShape = relatedSchema.shape as unknown as ZodShape;
-  const childRelations =
-    raw.relations === undefined
-      ? { relations: {} as ZodRelations, info: new Map<string, NormalizedRelation>() }
-      : normalizeRelations(raw.relations, relatedSchema, nameOptions);
+  let childRelations: {
+    relations: ZodRelations;
+    info: Map<string, NormalizedRelation>;
+  };
+  try {
+    childRelations =
+      raw.relations === undefined
+        ? { relations: {} as ZodRelations, info: new Map<string, NormalizedRelation>() }
+        : normalizeRelations(raw.relations, relatedSchema, nameOptions, path);
+  } finally {
+    path.delete(raw);
+  }
 
   if (raw.through !== undefined) {
     if (raw.foreignKey !== undefined) {
@@ -687,7 +701,8 @@ function normalizeRelation<S extends ZodSchema>(
 function normalizeRelations<S extends ZodSchema, R extends ZodRelations>(
   relations: unknown,
   schema: S,
-  nameOptions: NameOptions
+  nameOptions: NameOptions,
+  path: WeakSet<object> = new WeakSet()
 ): { relations: R; info: Map<string, NormalizedRelation> } {
   if (relations === undefined) {
     return { relations: {} as R, info: new Map() };
@@ -701,7 +716,7 @@ function normalizeRelations<S extends ZodSchema, R extends ZodRelations>(
   const info = new Map<string, NormalizedRelation>();
 
   for (const [name, raw] of Object.entries(relations)) {
-    const relation = normalizeRelation(name, raw, schema, nameOptions);
+    const relation = normalizeRelation(name, raw, schema, nameOptions, path);
     // defineProperty avoids the `__proto__` setter for hostile relation names.
     Object.defineProperty(normalized, name, {
       configurable: true,

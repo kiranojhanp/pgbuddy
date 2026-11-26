@@ -938,4 +938,19 @@ describe("relations", () => {
     expect(byTags[0]?.id).toBe(10);
     expect(byTags[0]?.title).toBe("First");
   });
+
+  test("cyclic relation configs are rejected", () => {
+    const cyclic: Record<string, unknown> = {
+      table: "posts",
+      schema: PostSchema,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many",
+    };
+    cyclic.relations = { loop: cyclic };
+
+    expect(() => db.table("users", UserSchema, { relations: { posts: cyclic } })).toThrow(
+      TableError
+    );
+  });
 });

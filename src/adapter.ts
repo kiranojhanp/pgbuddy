@@ -1,4 +1,5 @@
 import type { Row } from "postgres";
+import type { ZodObject, ZodRawShape } from "zod";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
 import type { Table } from "./table";
@@ -27,6 +28,87 @@ export interface ValidationAdapter<T extends Row, I extends Row = T> {
   /** Validate and normalize a partial update payload. */
   parsePartial(value: unknown): ValidationResult<Partial<I>>;
 }
+
+/**
+ * Library-level adapter, modeled after Prapti's validation adapters: the
+ * schema and the bridge are separate, so one adapter can serve many schemas.
+ */
+export interface ValidatorAdapter {
+  fields<S>(schema: S): readonly string[];
+  parse<S>(schema: S, value: unknown): unknown;
+  parsePartial<S>(schema: S, value: unknown): unknown;
+}
+
+type InferOutput<T> = T extends { _output: infer U }
+  ? U
+  : T extends { __outputType: infer U }
+    ? U
+    : T extends { readonly "~standard": { readonly types?: { readonly output?: infer U } } }
+      ? U
+      : unknown;
+
+type InferInput<T> = T extends { _input: infer U }
+  ? U
+  : T extends { __inputType: infer U }
+    ? U
+    : T extends { readonly "~standard": { readonly types?: { readonly input?: infer U } } }
+      ? U
+      : InferOutput<T>;
+
+export type ValidatedRow<S> = InferOutput<S> & Row;
+export type ValidatedInput<S> = InferInput<S> & Row;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Bind a schema + validator adapter to the per-table validation contract.
+ */
+export function bindValidator<S>(
+  schema: S,
+  validator: ValidatorAdapter
+): ValidationAdapter<ValidatedRow<S>, ValidatedInput<S>> {
+  const fields = validator.fields(schema);
+  if (!Array.isArray(fields) || fields.length === 0) {
+    throw new Error("ValidatorAdapter.fields must return a non-empty array");
+  }
+
+  return {
+    __pgbuddyAdapter: true,
+    fields: fields as readonly (keyof ValidatedRow<S> & string)[],
+    parse(value) {
+      try {
+        return {
+          success: true,
+          data: validator.parse(schema, value) as ValidatedInput<S>,
+        };
+      } catch (error) {
+        return { success: false, error: errorMessage(error) };
+      }
+    },
+    parsePartial(value) {
+      try {
+        return {
+          success: true,
+          data: validator.parsePartial(schema, value) as Partial<ValidatedInput<S>>,
+        };
+      } catch (error) {
+        return { success: false, error: errorMessage(error) };
+      }
+    },
+  };
+}
+
+/** Built-in adapter for Zod object schemas. */
+export const zodValidator: ValidatorAdapter = {
+  fields: <S>(schema: S): readonly string[] =>
+    Object.keys((schema as unknown as ZodObject<ZodRawShape>).shape),
+  parse: <S>(schema: S, value: unknown): unknown =>
+    (schema as unknown as ZodObject<ZodRawShape>).parse(value),
+  parsePartial: <S>(schema: S, value: unknown): unknown =>
+    (schema as unknown as ZodObject<ZodRawShape>).partial().parse(value),
+};
 
 export function isValidationAdapter(value: unknown): value is ValidationAdapter<Row, Row> {
   return (

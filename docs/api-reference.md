@@ -131,6 +131,25 @@ Creates a chainable table query builder with Zod validation.
 - `options` — optional `PgBuddyClientOptions`
 - Returns `ZodTable<S>`
 
+### tableWithValidator(tableName, schema, adapter, options?)
+
+```typescript
+tableWithValidator<S, I extends Row = ValidatedInput<S>>(
+  tableName: string,
+  schema: S,
+  adapter: ValidatorAdapter,
+  options?: PgBuddyClientOptions
+): ValidatedTable<ValidatedRow<S>, ["*"], I>
+```
+
+Prapti-style schema + adapter path. `ValidatorAdapter` supplies
+`fields(schema)`, `parse(schema, value)`, and `parsePartial(schema, value)`;
+`zodValidator` is built in. Output/input types are inferred from the schema.
+
+```typescript
+const users = db.tableWithValidator("users", UserSchema, zodValidator);
+```
+
 ### tableWithAdapter(tableName, adapter, options?)
 
 ```typescript
@@ -231,7 +250,8 @@ const rows = await users
 - Narrow joins: `users.innerJoin("posts", PostSchema, on)` and `leftJoin`;
   see the Joins section.
 - Nested relations are declared with a child `relations` map on the relation
-  config and load automatically when the parent relation is included.
+  config and load automatically when the parent relation is included. Cyclic
+  relation configs are rejected at table construction.
 - Mutations do not populate includes or relation writes; use `db.sql` for those.
 - Relation aggregates use `withAggregate(name, { count, sum, avg, min, max }, refine?)`
   and support direct and through relations.

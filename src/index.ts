@@ -111,7 +111,14 @@ export {
   TableError,
   sqlExpr,
 };
-export type { ValidationAdapter, ValidationResult } from "./adapter";
+export type {
+  ValidatedInput,
+  ValidatedRow,
+  ValidationAdapter,
+  ValidationResult,
+  ValidatorAdapter,
+} from "./adapter";
+export { zodValidator } from "./adapter";
 export type { PostgresErrorLike } from "./database-errors";
 export {
   constraintName,

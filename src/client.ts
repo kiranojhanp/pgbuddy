@@ -1,6 +1,14 @@
 import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
-import { isValidationAdapter, ValidatedTable, type ValidationAdapter } from "./adapter";
+import {
+  bindValidator,
+  isValidationAdapter,
+  type ValidatedInput,
+  type ValidatedRow,
+  ValidatedTable,
+  type ValidationAdapter,
+  type ValidatorAdapter,
+} from "./adapter";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
 import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
@@ -355,6 +363,23 @@ export class PgBuddyClient {
    * Create a table backed by a non-Zod validation adapter. Relations and
    * schema-derived projections are only available on Zod-backed tables.
    */
+  /**
+   * Create a table from a schema and a library-level validator adapter.
+   * This is the Prapti-style split: one adapter can serve many schemas.
+   */
+  tableWithValidator<S, I extends Row = ValidatedInput<S>>(
+    tableName: string,
+    schema: S,
+    validator: ValidatorAdapter,
+    options?: PgBuddyClientOptions
+  ): ValidatedTable<ValidatedRow<S>, ["*"], I> {
+    const adapter = bindValidator(schema, validator) as unknown as ValidationAdapter<
+      ValidatedRow<S>,
+      I
+    >;
+    return this.tableWithAdapter(tableName, adapter, options);
+  }
+
   tableWithAdapter<T extends Row, I extends Row = T>(
     tableName: string,
     adapter: ValidationAdapter<T, I>,

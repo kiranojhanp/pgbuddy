@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `db.prepare(text)` for reusable raw prepared statements.
 - `ValidationAdapter` + `db.tableWithAdapter` for core CRUD/query chaining with
   non-Zod validators.
+- `ValidatorAdapter` + `db.tableWithValidator` (schema + adapter split,
+  Prapti-style) with built-in `zodValidator` and schema-inferred types.
+- Cyclic relation configurations are rejected instead of recursing forever.
 - Per-table/client `columnMap` for schema field → database column mapping
   across reads, writes, filters, ordering, aggregates, cursors, and grouping.
 - Many-to-many/through relations with junction tables, filtering, and counts.

@@ -17,7 +17,7 @@ A no-nonsense, type-safe, tiny query builder wrapping [postgres.js](https://gith
 npm install pgbuddy postgres zod
 ```
 
-Zod is required. Every table is created from a Zod schema so inputs are validated before they reach PostgreSQL.
+Zod is the default and is required for schema-backed tables, relations, joins, and computed features. `tableWithValidator` / `tableWithAdapter` can bridge other validation libraries for core CRUD.
 
 ---
 
@@ -102,9 +102,23 @@ const adapter: ValidationAdapter<User, UserInput> = {
 const users = db.tableWithAdapter("users", adapter);
 ```
 
-`tableWithAdapter` supports core CRUD and query chaining, including
-`where`/`orderBy`/`select`/`cursor`, writes, counts, and `toSQL`. It does not
-support relations, joins, aggregates, or computed fields yet.
+For a Prapti-style split between schema and validator bridge, pass both:
+
+```ts
+import { zodValidator } from "pgbuddy";
+
+const users = db.tableWithValidator("users", UserSchema, zodValidator);
+```
+
+A `ValidatorAdapter` has `fields(schema)`, `parse(schema, value)`, and
+`parsePartial(schema, value)`; implement those three methods for Valibot, Yup,
+ArkType, or another library. Output and input types are inferred from the
+schema.
+
+Both adapter paths support core CRUD and query chaining, including
+`where`/`orderBy`/`select`/`cursor`, writes, counts, and `toSQL`. They do not
+support relations, joins, aggregates, computed fields, or schema-derived
+projections yet.
 
 ## Filtering
 
@@ -640,12 +654,12 @@ a schema toolkit or a full SQL AST.
 - [x] **Many-to-many/through relations.** Junction tables are declared with
   `through` and support includes, counts, and relation filters.
 - [x] **Nested includes** (`posts.comments`). Declared child relations load
-  recursively with deep result types.
+  recursively with deep result types. Cyclic relation configs are rejected.
 - [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
   loader now lives in `src/relations.ts`.
-- [ ] **Run the real-PostgreSQL CI job against a live PostgreSQL 16 service.**
-  The full suite has been run locally against PostgreSQL 18 on both
-  postgres.js majors; the CI service job itself is still pending.
+- [ ] **Run the real-PostgreSQL CI service job.** The full suite has been run
+  locally against PostgreSQL 16 and 18 on both postgres.js majors; the hosted CI
+  service job itself is still pending.
 
 ### P1 — high value, moderate effort
 

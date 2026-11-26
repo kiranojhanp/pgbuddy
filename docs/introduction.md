@@ -33,8 +33,9 @@ PgBuddy defaults to Zod: you define the shape in code, the database is expected 
 npm install pgbuddy postgres zod
 ```
 
-Zod is required: table builders are created from a Zod schema, so writes are
-validated before they reach PostgreSQL. Both postgres.js v3 (`>= 3.4.5`) and v4
+Zod is the default: schema-backed table builders are created from a Zod schema,
+so writes are validated before they reach PostgreSQL. `tableWithValidator` /
+`tableWithAdapter` can bridge other validation libraries for core CRUD. Both postgres.js v3 (`>= 3.4.5`) and v4
 are supported; the test suite runs against both majors.
 
 ### Quick start
