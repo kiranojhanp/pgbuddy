@@ -66,9 +66,7 @@ describe("findManyAndCount", () => {
   });
 
   test("returns a next cursor and continues with keyset pagination", async () => {
-    const users = db
-      .table("users", UserSchema)
-      .orderBy([{ column: "id", direction: "ASC" }]);
+    const users = db.table("users", UserSchema).orderBy([{ column: "id", direction: "ASC" }]);
 
     const first = await users.take(2).findManyInfinite();
     expect(first.rows.map((row) => row.id)).toEqual([1, 2]);
