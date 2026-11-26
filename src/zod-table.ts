@@ -1620,6 +1620,11 @@ export class ZodTable<
     return this.wrap(this.table.take(count));
   }
 
+  /** Inspect the current SELECT query without executing it. */
+  toSQL(computed?: ComputedMap): { text: string; parameters: readonly unknown[] } {
+    return this.table.toSQL(computed);
+  }
+
   async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
   ): Promise<
@@ -2118,6 +2123,11 @@ export class ZodProjectedQuery<
   constructor(table: ZodTable<S, K, I, R, Inc, Sel, Cnt>, computed: X) {
     this.table = table;
     this.computed = computed;
+  }
+
+  /** Inspect the current SELECT query without executing it. */
+  toSQL(): { text: string; parameters: readonly unknown[] } {
+    return this.table.toSQL(this.computed);
   }
 
   findMany(): Promise<

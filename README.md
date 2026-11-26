@@ -428,6 +428,24 @@ const updated = await users
   .update({ status: "active" }, { returning: false });
 ```
 
+## Query inspection
+
+Inspect the current `SELECT` builder without executing it:
+
+```ts
+const { text, parameters } = users
+  .where({ status: "active" })
+  .orderBy([{ column: "id", direction: "DESC" }])
+  .take(5)
+  .toSQL();
+
+// text: SELECT ... WHERE ... ORDER BY ... LIMIT $2
+// parameters: ["active", 5]
+```
+
+`toSQL()` covers SELECT builders, including `selectExpr`; mutations and frozen
+queries are still executed immediately at their terminal call.
+
 ## Row locking
 
 ```ts
@@ -611,9 +629,11 @@ a schema toolkit or a full SQL AST.
   related aggregate.
 - [x] **Sequential atomic batch API.** `db.batch([...])` runs query thunks in
   one transaction with tuple result types.
-- [ ] **Prepared statements, true protocol batch, and `toSQL()`.** These need a
-  deferred query object; postgres.js already prepares automatically, so this
-  is performance/tooling work rather than a correctness gap.
+- [x] **`toSQL()` inspection** for SELECT builders, including computed
+  projections.
+- [ ] **Prepared statements and true protocol batch.** These need a deferred
+  query object; postgres.js already prepares automatically, so this is
+  performance/tooling work rather than a correctness gap.
 
 ### P2 — useful, but raw SQL is acceptable
 

@@ -503,6 +503,50 @@ function omitUndefined<T>(value: T): T {
   return result as T;
 }
 
+function describeQuery(query: unknown): { text: string; parameters: readonly unknown[] } {
+  const parameters: unknown[] = [];
+
+  const render = (value: unknown): string => {
+    const source = value as {
+      strings?: readonly string[];
+      args?: readonly unknown[];
+      value?: unknown;
+      constructor?: { name?: string };
+    };
+
+    if (Array.isArray(source?.strings) && Array.isArray(source.args)) {
+      const strings = source.strings;
+      const args = source.args;
+      let text = "";
+      strings.forEach((part, index) => {
+        text += part;
+        if (index < args.length) {
+          text += render(args[index]);
+        }
+      });
+      return text;
+    }
+
+    if (
+      typeof source === "object" &&
+      source !== null &&
+      source.constructor?.name === "Identifier" &&
+      typeof source.value === "string"
+    ) {
+      return source.value;
+    }
+
+    parameters.push(value);
+    return `$${parameters.length}`;
+  };
+
+  if (!query || typeof query !== "object") {
+    throw new QueryError("Unable to inspect query");
+  }
+
+  return { text: render(query), parameters };
+}
+
 export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row = T> {
   private sql: Sql<Record<string, unknown>>;
   private tableName: string;
@@ -2157,10 +2201,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     });
   }
 
-  private async executeSelect(
-    computed?: Record<string, SqlExpression<unknown>>
-  ): Promise<Array<SelectFields<T, K>[0]>> {
-    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
+  private buildSelectQuery(computed?: Record<string, SqlExpression<unknown>>): SqlFragment {
+    return this.sql`
             SELECT ${this.distinctFragment()}${this.buildSelection(computed)}
             FROM ${this.sql(this.tableName)}
             ${buildWhereInputs(this.sql, this.selectWhereInputs(), this.nameOptions())}
@@ -2168,6 +2210,20 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
             ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
             ${this.lockFragment()}
         `;
+  }
+
+  private async executeSelect(
+    computed?: Record<string, SqlExpression<unknown>>
+  ): Promise<Array<SelectFields<T, K>[0]>> {
+    const rows = await this.buildSelectQuery(computed);
     return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<SelectFields<T, K>[0]>;
+  }
+
+  /**
+   * Inspect the current SELECT query without executing it. Identifiers are
+   * already quoted; values are returned separately in `parameters`.
+   */
+  toSQL(computed?: ComputedMap): { text: string; parameters: readonly unknown[] } {
+    return describeQuery(this.buildSelectQuery(computed));
   }
 }

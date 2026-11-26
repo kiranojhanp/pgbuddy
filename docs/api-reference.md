@@ -395,6 +395,16 @@ Returns the first matching record, or throws `QueryError` (`No record found`).
 
 Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
 
+#### toSQL()
+
+```typescript
+toSQL(): { text: string; parameters: readonly unknown[] }
+```
+
+Inspects the current SELECT without executing it. Identifiers are quoted and
+values are returned separately in `parameters`. Covers computed projections on
+`selectExpr(...)`.
+
 #### count()
 
 Returns the number of matching records.
