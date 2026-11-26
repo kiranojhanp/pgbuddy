@@ -117,6 +117,8 @@ function assertUniqueOption(unique: readonly (readonly string[])[] | undefined):
 
 export type BatchQuery = (tx: PgBuddyClient) => Promise<unknown>;
 
+export type PreparedQuery<T extends Row = Row> = (parameters?: readonly unknown[]) => Promise<T[]>;
+
 export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
   infer Head extends BatchQuery,
   ...infer Tail extends readonly BatchQuery[],
@@ -278,6 +280,23 @@ export class PgBuddyClient {
     return mode
       ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
       : await start.call(this.sql, (txSql) => fn(run(txSql)));
+  }
+
+  /**
+   * Create a reusable prepared statement from trusted SQL. Uses postgres.js
+   * named preparation (`prepare: true`); parameters are bound on every call.
+   */
+  prepare<T extends Row = Row>(text: string): PreparedQuery<T> {
+    if (typeof text !== "string" || !text.trim()) {
+      throw new TableError("prepare requires a non-empty SQL string");
+    }
+
+    return async (parameters: readonly unknown[] = []) => {
+      if (!Array.isArray(parameters)) {
+        throw new TableError("prepare parameters must be an array");
+      }
+      return this.sql.unsafe<T[]>(text, parameters as never, { prepare: true });
+    };
   }
 
   /**

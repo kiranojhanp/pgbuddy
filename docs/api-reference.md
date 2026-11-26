@@ -59,6 +59,25 @@ await db.transaction(async (tx) => {
 });
 ```
 
+### prepare(text)
+
+```typescript
+prepare<T extends Row = Row>(text: string): PreparedQuery<T>
+```
+
+Creates a reusable prepared statement from trusted SQL. Calls are executed with
+postgres.js named preparation (`prepare: true`) and accept bound parameters:
+
+```typescript
+const findUser = db.prepare<{ id: number; email: string }>(
+  "select id, email from users where id = $1"
+);
+await findUser([1]);
+```
+
+The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
+prepared plans are not supported yet.
+
 ### batch(queries, options?)
 
 ```typescript

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filters, cursors, and result rows.
 - `db.batch([...])` for sequential atomic query batches with tuple result types.
 - `toSQL()` inspection for SELECT builders, including computed projections.
+- `db.prepare(text)` for reusable raw prepared statements.
 - Per-table/client `columnMap` for schema field → database column mapping
   across reads, writes, filters, ordering, aggregates, cursors, and grouping.
 - Many-to-many/through relations with junction tables, filtering, and counts.

@@ -262,6 +262,12 @@ await db.transaction(async (tx) => {
 
 // The postgres.js instance is always available for raw SQL.
 const rows = await db.sql`select * from users where id = ${id}`;
+
+// Raw prepared statement, reusing postgres.js named preparation.
+const findUser = db.prepare<{ id: number; email: string }>(
+  "select id, email from users where id = $1"
+);
+const prepared = await findUser([id]);
 ```
 
 Run several queries atomically in one transaction with ordered tuple results:
@@ -631,9 +637,10 @@ a schema toolkit or a full SQL AST.
   one transaction with tuple result types.
 - [x] **`toSQL()` inspection** for SELECT builders, including computed
   projections.
-- [ ] **Prepared statements and true protocol batch.** These need a deferred
-  query object; postgres.js already prepares automatically, so this is
-  performance/tooling work rather than a correctness gap.
+- [x] **Raw prepared statements.** `db.prepare(text)` returns a reusable
+  executor using postgres.js named preparation.
+- [ ] **Builder-level prepared plans and true protocol batch.** These need a
+  deferred query object; the raw helper covers the immediate use case.
 
 ### P2 — useful, but raw SQL is acceptable
 
