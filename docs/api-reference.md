@@ -162,8 +162,9 @@ tableWithAdapter<T extends Row, I extends Row = T>(
 
 Creates a table backed by a non-Zod validation adapter. The adapter provides
 `fields`, `parse`, and `parsePartial`; pgbuddy calls them before writes. Core
-CRUD and query chaining are supported. Relations, joins, aggregates, computed
-fields, and schema-derived projections remain Zod-only.
+CRUD, query chaining, joins, aggregates, grouped queries, computed projections,
+and `omit` are supported. Relations and schema-derived projections remain
+Zod-only.
 
 ---
 
@@ -460,6 +461,17 @@ toSQL(): { text: string; parameters: readonly unknown[] }
 Inspects the current SELECT without executing it. Identifiers are quoted and
 values are returned separately in `parameters`. Covers computed projections on
 `selectExpr(...)`.
+
+#### prepare()
+
+```typescript
+prepare(): () => Promise<Array<T>>
+```
+
+Builds a reusable prepared executor for the current SELECT. Parameters are
+fixed to the builder state; create another prepared builder to reuse the same
+plan with different values. Relation includes are not applied by prepared
+execution.
 
 #### count()
 

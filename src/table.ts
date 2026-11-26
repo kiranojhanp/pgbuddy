@@ -2264,4 +2264,17 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   toSQL(computed?: ComputedMap): { text: string; parameters: readonly unknown[] } {
     return describeQuery(this.buildSelectQuery(computed));
   }
+
+  /**
+   * Build a reusable prepared executor for the current SELECT. Parameters are
+   * fixed to the current builder state; create another prepared builder to
+   * execute the same plan with different values.
+   */
+  prepare(): () => Promise<Array<SelectFields<T, K>[0]>> {
+    const { text, parameters } = this.toSQL();
+    return async () =>
+      this.sql.unsafe<Array<SelectFields<T, K>[0]>>(text, parameters as never, {
+        prepare: true,
+      });
+  }
 }

@@ -26,8 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `db.batch([...])` for sequential atomic query batches with tuple result types.
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.
+- `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.
 - `ValidationAdapter` + `db.tableWithAdapter` for core CRUD/query chaining with
-  non-Zod validators.
+  non-Zod validators, including joins, aggregates, grouped queries, computed
+  projections, and `omit`.
 - `ValidatorAdapter` + `db.tableWithValidator` (schema + adapter split,
   Prapti-style) with built-in `zodValidator` and schema-inferred types.
 - Cyclic relation configurations are rejected instead of recursing forever.

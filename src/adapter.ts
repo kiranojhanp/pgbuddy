@@ -2,8 +2,11 @@ import type { Row } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
-import type { Table } from "./table";
+import type { GroupedQuery, JoinOptions, JoinQuery, ProjectedQuery, Table } from "./table";
 import type {
+  AggregateOptions,
+  AggregateResult,
+  ComputedMap,
   CreateManyOptions,
   SelectKeys,
   SortSpec,
@@ -149,6 +152,48 @@ export class ValidatedTable<T extends Row, K extends SelectKeys<T> = ["*"], I ex
     return this.wrap(this.table.select(fields));
   }
 
+  omit<K2 extends readonly (keyof T & string)[]>(
+    columns: K2
+  ): ValidatedTable<T, readonly Exclude<keyof T & string, K2[number]>[], I> {
+    return new ValidatedTable(
+      this.table.omit(columns) as unknown as Table<
+        T,
+        readonly Exclude<keyof T & string, K2[number]>[],
+        I
+      >,
+      this.adapter
+    );
+  }
+
+  selectExpr<X extends ComputedMap>(expressions: X): ProjectedQuery<T, K, I, X> {
+    return this.table.selectExpr(expressions);
+  }
+
+  groupBy<G extends readonly (keyof T & string)[], X extends ComputedMap = Record<never, never>>(
+    columns: G,
+    aggregates?: X
+  ): GroupedQuery<T, K, I, G, X> {
+    return this.table.groupBy(columns, aggregates);
+  }
+
+  aggregate(options: AggregateOptions<T>): Promise<AggregateResult> {
+    return this.table.aggregate(options);
+  }
+
+  innerJoin<Name extends string, J extends Row = Row>(
+    name: Name,
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, { [P in Name]: J }> {
+    return this.table.innerJoin<Name, J>(name, options);
+  }
+
+  leftJoin<Name extends string, J extends Row = Row>(
+    name: Name,
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, { [P in Name]: J | null }> {
+    return this.table.leftJoin<Name, J>(name, options);
+  }
+
   where(conditions: WhereInput<T>): ValidatedTable<T, K, I> {
     return this.wrap(this.table.where(conditions));
   }
@@ -223,6 +268,10 @@ export class ValidatedTable<T extends Row, K extends SelectKeys<T> = ["*"], I ex
 
   toSQL(): { text: string; parameters: readonly unknown[] } {
     return this.table.toSQL();
+  }
+
+  prepare(): () => Promise<Array<T>> {
+    return this.table.prepare() as () => Promise<Array<T>>;
   }
 
   async create(data: I): Promise<T> {

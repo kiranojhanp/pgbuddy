@@ -1702,6 +1702,14 @@ export class ZodTable<
     return this.table.toSQL(computed);
   }
 
+  /**
+   * Build a reusable prepared executor for the base SELECT. Relation includes
+   * are not applied by prepared execution.
+   */
+  prepare(): () => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.prepare();
+  }
+
   async findMany<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
   ): Promise<

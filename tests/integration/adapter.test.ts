@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { PgBuddyClient, QueryError, type ValidationAdapter } from "../../src";
+import { PgBuddyClient, QueryError, sqlExpr, type ValidationAdapter } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 interface User {
@@ -113,5 +113,46 @@ describe("validation adapter table", () => {
     await expect(
       users().create({ id: 1, email: "ada@example.com", status: "bogus" as never })
     ).rejects.toThrow(QueryError);
+  });
+
+  test("supports aggregates, grouping, computed fields, joins, and omit", async () => {
+    await users().createMany([
+      { id: 1, email: "ada@example.com", status: "active" },
+      { id: 2, email: "grace@example.com", status: "active" },
+      { id: 3, email: "linus@example.com", status: "inactive" },
+    ]);
+
+    const totals = await users().aggregate({ count: true, countDistinct: ["status"] });
+    expect(totals.count).toBe(3);
+    expect(totals.countDistinct.status).toBe(2);
+
+    const grouped = await users()
+      .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
+      .orderBy([{ column: "status", direction: "ASC" }])
+      .findMany();
+    expect(grouped).toEqual([
+      { status: "active", count: 2 },
+      { status: "inactive", count: 1 },
+    ]);
+
+    const computed = await users()
+      .where({ id: 1 })
+      .selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })
+      .findMany();
+    expect(computed[0]?.lowerEmail).toBe("ada@example.com");
+
+    const omitted = await users().omit(["email"]).where({ id: 1 }).findMany();
+    expect(omitted[0]).not.toHaveProperty("email");
+
+    const joined = await users()
+      .innerJoin("manager", {
+        table: "users",
+        alias: "manager",
+        columns: ["id", "email", "status"],
+        on: sql`"manager"."id" = "users"."id"`,
+      })
+      .whereRaw(sql`"users"."id" = 1`)
+      .findMany();
+    expect(joined[0]?.manager.email).toBe("ada@example.com");
   });
 });

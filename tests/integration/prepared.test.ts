@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import { z } from "zod";
 import { PgBuddyClient, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
@@ -41,5 +42,21 @@ describe("prepared statements", () => {
   test("rejects empty SQL", () => {
     expect(() => db.prepare(" ")).toThrow(TableError);
     expect(() => db.prepare("")).toThrow(TableError);
+  });
+
+  test("prepares a SELECT builder with fixed parameters", async () => {
+    const UserSchema = z.object({
+      id: z.number().int(),
+      email: z.string(),
+    });
+
+    const users = db.table("users", UserSchema);
+    const execute = users.where({ id: 1 }).prepare();
+
+    const first = await execute();
+    const second = await execute();
+
+    expect(first).toEqual([{ id: 1, email: "ada@example.com" }]);
+    expect(second).toEqual(first);
   });
 });

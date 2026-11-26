@@ -116,9 +116,9 @@ ArkType, or another library. Output and input types are inferred from the
 schema.
 
 Both adapter paths support core CRUD and query chaining, including
-`where`/`orderBy`/`select`/`cursor`, writes, counts, and `toSQL`. They do not
-support relations, joins, aggregates, computed fields, or schema-derived
-projections yet.
+`where`/`orderBy`/`select`/`cursor`, writes, counts, `toSQL`, joins, aggregates,
+grouped queries, computed projections, and `omit`. Relations and
+schema-derived projections remain Zod-only.
 
 ## Filtering
 
@@ -496,6 +496,16 @@ const { text, parameters } = users
 `toSQL()` covers SELECT builders, including `selectExpr`; mutations and frozen
 queries are still executed immediately at their terminal call.
 
+`prepare()` builds a reusable prepared SELECT executor from the current builder.
+Parameters are fixed to that builder state; build another executor to reuse the
+same plan with different values:
+
+```ts
+const findActive = users.where({ status: "active" }).prepare();
+const first = await findActive();
+const second = await findActive();
+```
+
 ## Row locking
 
 ```ts
@@ -692,8 +702,10 @@ a schema toolkit or a full SQL AST.
   projections.
 - [x] **Raw prepared statements.** `db.prepare(text)` returns a reusable
   executor using postgres.js named preparation.
-- [ ] **Builder-level prepared plans and true protocol batch.** These need a
-  deferred query object; the raw helper covers the immediate use case.
+- [x] **Builder-level prepared SELECT plans.** `Table.prepare()` returns a
+  reusable executor with fixed parameters.
+- [ ] **True protocol batch** — postgres.js has no portable v3/v4 batch API;
+  `db.batch` remains sequential and transactional.
 
 ### P2 — useful, but raw SQL is acceptable
 
@@ -713,11 +725,9 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Builder-level prepared plans and true protocol batch** — the remaining
-   deferred-query work.
-2. **Relation/join codec mapping** — extend `columnMap`/`columnCodecs` to those
-   paths.
-3. **Adapter parity** — relations/joins/aggregates for non-Zod validators.
+1. **True protocol batch** — driver-level batching across v3/v4.
+2. **Hosted PostgreSQL 16 CI evidence** — local verification is complete.
+3. **Adapter relations parity** — relation support for non-Zod validators.
 
 ## Compatibility
 
