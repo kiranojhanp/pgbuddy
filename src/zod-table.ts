@@ -9,6 +9,7 @@ import {
   type WhereInput,
 } from "./predicates";
 import {
+  type AggregateSpec,
   type CountSpec,
   type IncludeSpec,
   type NormalizedRelation,
@@ -411,6 +412,85 @@ function normalizeIncludes(includes: readonly unknown[] | undefined): IncludeSpe
 
     throw new QueryError("Invalid include specification");
   });
+}
+
+/** Per-relation aggregate specification accepted by `withAggregate`. */
+export type RelationAggregate<C extends ZodRelationConfig> = {
+  count?: boolean;
+  sum?: readonly (keyof RelationRow<C> & string)[];
+  avg?: readonly (keyof RelationRow<C> & string)[];
+  min?: readonly (keyof RelationRow<C> & string)[];
+  max?: readonly (keyof RelationRow<C> & string)[];
+};
+
+/** Correlated related aggregate ordering accepted by `orderByRelated`. */
+export type RelatedOrder<C extends ZodRelationConfig> = {
+  aggregate: "count" | "sum" | "avg" | "min" | "max";
+  column?: keyof RelationRow<C> & string;
+  direction: "ASC" | "DESC";
+  nulls?: "first" | "last";
+};
+
+type AggregateColumnValue<C extends ZodRelationConfig, K> = K extends keyof RelationRow<C>
+  ? RelationRow<C>[K]
+  : never;
+
+type AggregateFields<
+  Name extends string,
+  C extends ZodRelationConfig,
+  Spec extends RelationAggregate<C>,
+> = (Spec["count"] extends true ? { [P in `${Name}_count`]: number } : Record<never, never>) &
+  (Spec["sum"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_sum_${K}`]: number | null }
+    : Record<never, never>) &
+  (Spec["avg"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_avg_${K}`]: number | null }
+    : Record<never, never>) &
+  (Spec["min"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_min_${K}`]: AggregateColumnValue<C, K> | null }
+    : Record<never, never>) &
+  (Spec["max"] extends readonly (infer K extends keyof RelationRow<C> & string)[]
+    ? { [P in `${Name}_max_${K}`]: AggregateColumnValue<C, K> | null }
+    : Record<never, never>);
+
+function normalizeAggregate<C extends ZodRelationConfig>(
+  config: C,
+  raw: RelationAggregate<C>
+): AggregateSpec["aggregate"] {
+  if (!isPlainObject(raw)) {
+    throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+  }
+
+  const shape = config.schema.shape as unknown as ZodShape;
+  const normalized: AggregateSpec["aggregate"] = {};
+
+  if (raw.count !== undefined) {
+    if (typeof raw.count !== "boolean") {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+    if (raw.count) normalized.count = true;
+  }
+
+  for (const kind of ["sum", "avg", "min", "max"] as const) {
+    const columns = raw[kind];
+    if (columns === undefined) continue;
+    if (!Array.isArray(columns) || columns.some((column) => !Object.hasOwn(shape, column))) {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+    normalized[kind] = [...columns];
+  }
+
+  if (
+    !normalized.count &&
+    !normalized.sum?.length &&
+    !normalized.avg?.length &&
+    !normalized.min?.length &&
+    !normalized.max?.length
+  ) {
+    throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+  }
+
+  return normalized;
 }
 
 type NameOptions = { strictNames: boolean; allowSchema: boolean };
@@ -998,6 +1078,118 @@ export class ZodTable<
   }
 
   /**
+   * Add per-relation aggregate fields. Aggregates are computed over the
+   * related rows, optionally filtered by a relation refinement.
+   */
+  withAggregate<Name extends keyof R, Spec extends RelationAggregate<R[Name]>>(
+    name: Name,
+    aggregate: Spec,
+    refine?: (relation: RelationBuilder<R[Name]>) => RelationBuilder<R[Name]>
+  ): ZodAggregatedQuery<S, K, I, R, Inc, Sel, Cnt, Name, Spec> {
+    const relation = this.getRelation(name);
+    const normalized = normalizeAggregate(relation.config as R[Name], aggregate);
+    const refinement = refine
+      ? this.buildRefinement(relation.config as R[Name], refine)
+      : undefined;
+
+    const spec: AggregateSpec = {
+      name: String(name),
+      aggregate: normalized,
+      refinement,
+    };
+
+    return new ZodAggregatedQuery<S, K, I, R, Inc, Sel, Cnt, Name, Spec>(this, [spec]);
+  }
+
+  /** @internal Terminal query used by `withAggregate`. */
+  async findManyWithAggregates(
+    specs: readonly AggregateSpec[]
+  ): Promise<Array<Record<string, unknown>>> {
+    const keys = specs.flatMap((spec) => this.getRelation(spec.name).localKeys);
+    const prepared = this.prepareQuery(keys);
+    const rows = (await prepared.table.findMany()) as Array<Record<string, unknown>>;
+    return this.finalize(rows, prepared.stripKeys, specs);
+  }
+
+  /**
+   * Order parent rows by a correlated aggregate over a relation.
+   */
+  orderByRelated<Name extends keyof R>(
+    name: Name,
+    spec: RelatedOrder<R[Name]>
+  ): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    const relation = this.getRelation(name);
+    return this.wrap(this.table.orderByRaw(this.buildRelatedOrder(relation, spec)));
+  }
+
+  private buildRelatedOrder(
+    relation: NormalizedRelation,
+    spec: RelatedOrder<ZodRelationConfig>
+  ): SqlFragment {
+    const sql = this.table.getSql();
+    const aggregate = spec.aggregate;
+    const direction = spec.direction;
+    const nulls = spec.nulls;
+
+    if (direction !== "ASC" && direction !== "DESC") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    if (nulls !== undefined && nulls !== "first" && nulls !== "last") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+
+    const shape = getShape(relation.config.schema as unknown as ZodSchema);
+    if (aggregate === "count") {
+      if (spec.column !== undefined) {
+        throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+      }
+    } else if (typeof spec.column !== "string" || !Object.hasOwn(shape, spec.column)) {
+      throw new QueryError(Errors.SELECT.INVALID_AGGREGATE, { code: "INVALID_AGGREGATE" });
+    }
+
+    const parentTable = getParentTableName(this.table);
+    const functionName = sql.unsafe(aggregate.toUpperCase());
+    const through = relation.through;
+
+    let from: SqlFragment;
+    let link: SqlFragment;
+    let aggregateColumn: SqlFragment;
+
+    if (through) {
+      const junction = sql("__pgbuddy_order_through");
+      const related = sql("__pgbuddy_order_related");
+      const join = through.targetKeys.reduce((acc, targetKey, index) => {
+        const relatedKey = through.relatedKeys[index];
+        if (!relatedKey) throw new QueryError("Invalid relation configuration");
+        const condition = sql`${related}.${sql(targetKey)} = ${junction}.${sql(relatedKey)}`;
+        return index === 0 ? condition : sql`${acc} AND ${condition}`;
+      }, sql``);
+      from = sql`FROM ${sql(through.table)} AS ${junction} JOIN ${sql(relation.config.table)} AS ${related} ON ${join}`;
+      link = relation.localKeys.reduce((acc, localKey, index) => {
+        const junctionKey = through.parentKeys[index];
+        if (!junctionKey) throw new QueryError("Invalid relation configuration");
+        const condition = sql`${sql(parentTable)}.${sql(localKey)} = ${junction}.${sql(junctionKey)}`;
+        return index === 0 ? condition : sql`${acc} AND ${condition}`;
+      }, sql``);
+      aggregateColumn =
+        aggregate === "count"
+          ? sql`COUNT(*)::int`
+          : sql`${functionName}(${related}.${sql(spec.column as string)})`;
+    } else {
+      from = sql`FROM ${sql(relation.config.table)}`;
+      link = buildKeyLink(sql, parentTable, relation);
+      aggregateColumn =
+        aggregate === "count"
+          ? sql`COUNT(*)::int`
+          : sql`${functionName}(${sql(relation.config.table)}.${sql(spec.column as string)})`;
+    }
+
+    return sql`(SELECT ${aggregateColumn} ${from} WHERE ${link}) ${sql.unsafe(direction)}${
+      nulls ? sql` NULLS ${sql.unsafe(nulls.toUpperCase())}` : sql``
+    }`;
+  }
+
+  /**
    * Filter parent rows to those with at least one related row matching the
    * optional relation filter. Compiles to a parameterized `EXISTS` subquery
    * and composes with other `where` inputs.
@@ -1164,8 +1356,8 @@ export class ZodTable<
     return [...selected];
   }
 
-  private requiredLocalKeys(): string[] {
-    const keys = new Set<string>();
+  private requiredLocalKeys(extra: readonly string[] = []): string[] {
+    const keys = new Set<string>(extra);
 
     for (const include of this.includes) {
       const relation = this.getRelation(include.name);
@@ -1180,7 +1372,7 @@ export class ZodTable<
     return [...keys];
   }
 
-  private prepareQuery(): {
+  private prepareQuery(extraKeys: readonly string[] = []): {
     table: Table<RowFromSchema<S>, SelectKeys<RowFromSchema<S>>, I>;
     stripKeys: readonly string[];
   } {
@@ -1195,7 +1387,7 @@ export class ZodTable<
     }
 
     const projection = this.projectedFields();
-    const missing = this.requiredLocalKeys().filter((key) => !projection.includes(key));
+    const missing = this.requiredLocalKeys(extraKeys).filter((key) => !projection.includes(key));
     if (missing.length === 0) {
       return { table: prepared, stripKeys: [] };
     }
@@ -1213,10 +1405,16 @@ export class ZodTable<
 
   private async finalize(
     rows: Array<Record<string, unknown>>,
-    stripKeys: readonly string[]
+    stripKeys: readonly string[],
+    aggregateSpecs: readonly AggregateSpec[] = []
   ): Promise<Array<Record<string, unknown>>> {
     const result = rows.map((row) => ({ ...row }));
     await this.loadRelations(result);
+
+    if (aggregateSpecs.length > 0) {
+      const loader = new RelationLoader(this.table.getSql());
+      await loader.aggregate(result, this.relationInfo, aggregateSpecs);
+    }
 
     if (stripKeys.length > 0) {
       const protectedKeys = new Set<string>([
@@ -1717,6 +1915,77 @@ export class ZodTable<
         ? this.table.delete({ returning: false })
         : this.table.delete({ computed: options?.computed })
     ) as Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number>;
+  }
+}
+
+/**
+ * Terminal query returned by `withAggregate`. Aggregate fields are added on
+ * top of the normal relation selection.
+ */
+export class ZodAggregatedQuery<
+  S extends ZodSchema,
+  K extends SelectKeys<RowFromSchema<S>>,
+  I extends Row,
+  R extends ZodRelations,
+  Inc extends keyof R,
+  Sel extends RelationSelection<R>,
+  Cnt extends keyof R,
+  Name extends keyof R,
+  Spec extends RelationAggregate<R[Name]>,
+> {
+  private readonly table: ZodTable<S, K, I, R, Inc, Sel, Cnt>;
+  private readonly specs: readonly AggregateSpec[];
+
+  constructor(table: ZodTable<S, K, I, R, Inc, Sel, Cnt>, specs: readonly AggregateSpec[]) {
+    this.table = table;
+    this.specs = specs;
+  }
+
+  findMany(): Promise<
+    Array<
+      WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+        AggregateFields<Name & string, R[Name], Spec>
+    >
+  > {
+    return this.table.findManyWithAggregates(this.specs) as Promise<
+      Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+          AggregateFields<Name & string, R[Name], Spec>
+      >
+    >;
+  }
+
+  async findFirst(): Promise<
+    | (WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+        AggregateFields<Name & string, R[Name], Spec>)
+    | null
+  > {
+    const rows = await this.table.take(1).findManyWithAggregates(this.specs);
+    return (
+      (rows[0] as
+        | (WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+            AggregateFields<Name & string, R[Name], Spec>)
+        | undefined) ?? null
+    );
+  }
+
+  async findFirstOrThrow(): Promise<
+    WithRelations<SelectFields<RowFromSchema<S>, K>[0], R, Inc, Sel, Cnt> &
+      AggregateFields<Name & string, R[Name], Spec>
+  > {
+    const row = await this.findFirst();
+    if (!row) {
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
+    }
+    return row;
+  }
+
+  count(): Promise<number> {
+    return this.table.count();
+  }
+
+  exists(): Promise<boolean> {
+    return this.table.exists();
   }
 }
 

@@ -326,6 +326,44 @@ const tagged = await posts.include("tags").withCount("tags").findMany();
 Through relations support the same `include` refinement, `withCount`, and
 `whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
 
+Per-relation aggregates are available with `withAggregate`:
+
+```ts
+const rows = await users
+  .withAggregate("orders", {
+    count: true,
+    sum: ["total_cents"],
+    avg: ["total_cents"],
+    min: ["total_cents"],
+    max: ["total_cents"],
+  })
+  .findMany();
+// orders_count, orders_sum_total_cents, orders_avg_total_cents, ...
+```
+
+`withAggregate` accepts the same refinement callback as `withCount`; aggregate
+refinements use only `where`. It is a terminal query, so apply `where`/`orderBy`
+before calling it.
+
+Order parent rows by a related aggregate:
+
+```ts
+const usersByPosts = await users
+  .orderByRelated("posts", { aggregate: "count", direction: "DESC" })
+  .findMany();
+
+const usersBySpend = await users
+  .orderByRelated("orders", {
+    aggregate: "sum",
+    column: "total_cents",
+    direction: "DESC",
+  })
+  .findMany();
+```
+
+`orderByRelated` supports `count`, `sum`, `avg`, `min`, and `max`, for direct
+and through relations.
+
 Nested relations are declared on the relation config and load automatically
 when the parent relation is included:
 
@@ -534,8 +572,10 @@ a schema toolkit or a full SQL AST.
 - [ ] **Validator adapter for non-Zod libraries.** Zod is required today; a
   small adapter interface should be designed before a second validator is
   added, without weakening validation.
-- [ ] **Relation ordering and per-relation aggregates.** Order by a related
-  field and support `count`/`sum`/`avg` per relation beyond `withCount`.
+- [x] **Per-relation aggregates.** `withAggregate` supports count/sum/avg/min/max
+  for direct and through relations, with an optional `where` refinement.
+- [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
+  related aggregate.
 - [ ] **Prepared statements, true batch, and `toSQL()`.** These all need a
   deferred query object; postgres.js already prepares automatically, so this
   is performance/tooling work rather than a correctness gap.
@@ -560,8 +600,7 @@ a schema toolkit or a full SQL AST.
 
 1. **Validator adapter** — prepare for validation libraries beyond Zod.
 2. **Per-column custom serialization** — codecs for custom DB types.
-3. **Relation ordering and per-relation aggregates** — rounds out the relation
-   API before lifecycle work.
+3. **Prepared statements / batch / `toSQL()`** — the remaining lifecycle work.
 
 ## Compatibility
 

@@ -41,6 +41,20 @@ export type CountSpec = {
   refinement?: RelationRefinement;
 };
 
+export type RelationAggregateSpec = {
+  count?: boolean;
+  sum?: readonly string[];
+  avg?: readonly string[];
+  min?: readonly string[];
+  max?: readonly string[];
+};
+
+export type AggregateSpec = {
+  name: string;
+  aggregate: RelationAggregateSpec;
+  refinement?: RelationRefinement;
+};
+
 function serializeKey(values: readonly unknown[]): string | null {
   const parts: string[] = [];
 
@@ -162,6 +176,57 @@ function resolveRelationFields(
   }
 
   return { requested, queryFields };
+}
+
+function emptyAggregate(name: string, spec: RelationAggregateSpec): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  if (spec.count) values[`${name}_count`] = 0;
+  for (const kind of ["sum", "avg", "min", "max"] as const) {
+    for (const column of spec[kind] ?? []) {
+      values[`${name}_${kind}_${column}`] = null;
+    }
+  }
+  return values;
+}
+
+function aggregateRows(
+  children: Array<Record<string, unknown>>,
+  spec: AggregateSpec
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  if (spec.aggregate.count) {
+    values[`${spec.name}_count`] = children.length;
+  }
+
+  for (const kind of ["sum", "avg", "min", "max"] as const) {
+    for (const column of spec.aggregate[kind] ?? []) {
+      const present = children
+        .map((child) => child[column])
+        .filter((value) => value !== null && value !== undefined);
+
+      if (present.length === 0) {
+        values[`${spec.name}_${kind}_${column}`] = null;
+        continue;
+      }
+
+      if (kind === "sum" || kind === "avg") {
+        const total = present.reduce<number>((sum, value) => sum + Number(value), 0);
+        values[`${spec.name}_${kind}_${column}`] = kind === "avg" ? total / present.length : total;
+      } else {
+        const sorted = [...present].sort((left, right) =>
+          typeof left === "number" && typeof right === "number"
+            ? left - right
+            : String(left) < String(right)
+              ? -1
+              : 1
+        );
+        values[`${spec.name}_${kind}_${column}`] =
+          kind === "min" ? sorted[0] : sorted[sorted.length - 1];
+      }
+    }
+  }
+
+  return values;
 }
 
 /**
@@ -300,6 +365,43 @@ export class RelationLoader {
       rows.forEach((row, index) => {
         const serialized = parentKeys[index]?.serialized ?? null;
         setRowValue(row, `${spec.name}_count`, serialized ? (countsByKey.get(serialized) ?? 0) : 0);
+      });
+    }
+  }
+
+  async aggregate(
+    rows: Array<Record<string, unknown>>,
+    relations: Map<string, NormalizedRelation>,
+    specs: readonly AggregateSpec[]
+  ): Promise<void> {
+    for (const spec of specs) {
+      const relation = relations.get(spec.name);
+      if (!relation) {
+        throw new QueryError(Errors.SELECT.INVALID_RELATION(spec.name), {
+          code: "INVALID_RELATION",
+        });
+      }
+
+      const parentKeys = this.collectParentKeys(rows, relation, spec.name);
+      const uniqueKeys = new Map<string, readonly unknown[]>();
+      for (const key of parentKeys) {
+        if (key.serialized && !uniqueKeys.has(key.serialized)) {
+          uniqueKeys.set(key.serialized, key.values);
+        }
+      }
+
+      const values =
+        uniqueKeys.size === 0
+          ? new Map<string, Record<string, unknown>>()
+          : await this.fetchAggregates(relation, spec, [...uniqueKeys.values()]);
+
+      rows.forEach((row, index) => {
+        const serialized = parentKeys[index]?.serialized ?? null;
+        const aggregate = serialized ? values.get(serialized) : undefined;
+        const resolved = aggregate ?? emptyAggregate(spec.name, spec.aggregate);
+        for (const [field, value] of Object.entries(resolved)) {
+          setRowValue(row, field, value);
+        }
       });
     }
   }
@@ -462,6 +564,108 @@ export class RelationLoader {
       WHERE ${sql(RELATION_ROW_NUMBER)} <= ${take}
       ORDER BY ${foreignKeyOrder}, ${sql(RELATION_ROW_NUMBER)} ASC
     `;
+  }
+
+  private async fetchAggregates(
+    relation: NormalizedRelation,
+    spec: AggregateSpec,
+    keys: readonly (readonly unknown[])[]
+  ): Promise<Map<string, Record<string, unknown>>> {
+    if (relation.through) {
+      const queryFields = [
+        ...new Set([
+          ...(spec.aggregate.sum ?? []),
+          ...(spec.aggregate.avg ?? []),
+          ...(spec.aggregate.min ?? []),
+          ...(spec.aggregate.max ?? []),
+          ...relation.through.targetKeys,
+        ]),
+      ];
+      const entries = await this.fetchThroughRelated(
+        relation,
+        { whereInputs: spec.refinement?.whereInputs },
+        keys,
+        queryFields
+      );
+      const perParent = new Map<string, Array<Record<string, unknown>>>();
+      for (const entry of entries) {
+        const bucket = perParent.get(entry.parentSerialized);
+        if (bucket) bucket.push(entry.child);
+        else perParent.set(entry.parentSerialized, [entry.child]);
+      }
+
+      const result = new Map<string, Record<string, unknown>>();
+      for (const [parentSerialized, children] of perParent) {
+        result.set(parentSerialized, aggregateRows(children, spec));
+      }
+      return result;
+    }
+
+    const sql = this.sql;
+    const parts: SqlFragment[] = [];
+    const valueColumns: Array<{ kind: "count" | "sum" | "avg" | "min" | "max"; column?: string }> =
+      [];
+
+    if (spec.aggregate.count) {
+      parts.push(sql`COUNT(*)::int`);
+      valueColumns.push({ kind: "count" });
+    }
+    for (const kind of ["sum", "avg", "min", "max"] as const) {
+      for (const column of spec.aggregate[kind] ?? []) {
+        const mapped = sql(column);
+        const expression = sql`${sql.unsafe(kind.toUpperCase())}(${mapped})`;
+        parts.push(expression);
+        valueColumns.push({ kind, column });
+      }
+    }
+
+    if (parts.length === 0) return new Map();
+
+    const where = buildWhereInputs(sql, [
+      ...((spec.refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
+      rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys)),
+    ]);
+    const selection = parts.reduce(
+      (acc, part, index) => (index === 0 ? part : sql`${acc}, ${part}`),
+      sql``
+    );
+    const query = sql`
+      SELECT ${sql(relation.foreignKeys as string[])}, ${selection}
+      FROM ${sql(relation.config.table)}
+      ${where}
+      GROUP BY ${sql(relation.foreignKeys as string[])}
+    `;
+    const resultRows = (await (
+      query as unknown as { values(): Promise<unknown[][]> }
+    ).values()) as unknown[][];
+    const result = new Map<string, Record<string, unknown>>();
+
+    for (const row of resultRows) {
+      const serialized = serializeKey(relation.foreignKeys.map((_key, index) => row[index]));
+      if (!serialized) continue;
+
+      const values: Record<string, unknown> = {};
+      let index = relation.foreignKeys.length;
+      for (const entry of valueColumns) {
+        const field =
+          entry.kind === "count"
+            ? `${spec.name}_count`
+            : `${spec.name}_${entry.kind}_${entry.column}`;
+        const value = row[index];
+        values[field] =
+          entry.kind === "min" || entry.kind === "max"
+            ? (value ?? null)
+            : value === null || value === undefined
+              ? entry.kind === "count"
+                ? 0
+                : null
+              : Number(value);
+        index += 1;
+      }
+      result.set(serialized, values);
+    }
+
+    return result;
   }
 
   private async fetchCounts(

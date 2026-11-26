@@ -150,6 +150,11 @@ const rows = await users
 - `withCount("posts")` adds `posts_count: number` to each row. It accepts a
   refinement: `withCount("posts", (posts) => posts.where({ published: true }))`
   counts matching rows only (order/take/select are ignored for counts).
+- `withAggregate("posts", { count, sum, avg, min, max })` adds per-relation
+  aggregate fields such as `posts_count` and `posts_sum_id`. It accepts the same
+  `where` refinement and is a terminal query (`withAggregate(...).findMany()`).
+- `orderByRelated("posts", { aggregate, column?, direction, nulls? })` orders
+  parent rows by a correlated aggregate over a direct or through relation.
 - `whereRelated("posts", (posts) => posts.where(...))` filters parents with
   `EXISTS`; `whereMissing("posts")` uses `NOT EXISTS`; `whereEvery(...)` uses
   `NOT EXISTS (... WHERE NOT (refinement))`. `whereEvery("posts")` without a
@@ -173,6 +178,8 @@ const rows = await users
 - Nested relations are declared with a child `relations` map on the relation
   config and load automatically when the parent relation is included.
 - Mutations do not populate includes or relation writes; use `db.sql` for those.
+- Relation aggregates use `withAggregate(name, { count, sum, avg, min, max }, refine?)`
+  and support direct and through relations.
 
 ---
 

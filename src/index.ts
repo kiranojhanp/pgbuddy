@@ -84,7 +84,7 @@ import type {
 } from "./types";
 // Re-export types for external use
 import { sqlExpr } from "./types";
-import { ZodJoinQuery, ZodProjectedQuery, ZodTable } from "./zod-table";
+import { ZodAggregatedQuery, ZodJoinQuery, ZodProjectedQuery, ZodTable } from "./zod-table";
 
 // Export the new client and related classes/types
 export {
@@ -93,6 +93,7 @@ export {
   ProjectedQuery,
   GroupedQuery,
   JoinQuery,
+  ZodAggregatedQuery,
   ZodJoinQuery,
   ZodProjectedQuery,
   Errors,
@@ -138,6 +139,7 @@ export {
 export type { GroupedRow, JoinOptions, JoinResult, JoinValue, Table } from "./table";
 export type {
   IncludedRelations,
+  RelationAggregate,
   RowFromSchema,
   WithRelations,
   ZodRelationConfig,

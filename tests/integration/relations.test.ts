@@ -870,4 +870,72 @@ describe("relations", () => {
     expect(rows[0]?.posts[1]?.comments.map((comment) => comment.body)).toEqual(["three"]);
     expect(rows[0]?.posts[1]?.tags).toEqual([]);
   });
+
+  test("withAggregate computes per-relation aggregates", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second'), (12, 1, 'Third')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript'), (2, 'postgres')`;
+    await sql`
+      INSERT INTO post_tags (post_id, tag_id)
+      VALUES (10, 1), (10, 2), (11, 2)
+    `;
+
+    const direct = await users()
+      .withAggregate("posts", {
+        count: true,
+        sum: ["id"],
+        avg: ["id"],
+        min: ["id"],
+        max: ["id"],
+      })
+      .findMany();
+
+    expect(direct[0]?.posts_count).toBe(3);
+    expect(direct[0]?.posts_sum_id).toBe(33);
+    expect(direct[0]?.posts_avg_id).toBe(11);
+
+    const filtered = await users()
+      .withAggregate("posts", { count: true }, (posts) => posts.where({ title: "First" }))
+      .findMany();
+
+    expect(filtered[0]?.posts_count).toBe(1);
+
+    const through = await posts()
+      .orderBy([{ column: "id", direction: "ASC" }])
+      .withAggregate("tags", { count: true, min: ["id"], max: ["id"] })
+      .findMany();
+
+    expect(through[0]?.tags_count).toBe(2);
+    expect(through[0]?.tags_min_id).toBe(1);
+    expect(through[0]?.tags_max_id).toBe(2);
+    expect(through[2]?.tags_count).toBe(0);
+    expect(through[2]?.tags_min_id).toBeNull();
+  });
+
+  test("orderByRelated orders parents by related aggregates", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title)
+      VALUES (10, 1, 'First'), (11, 1, 'Second'), (12, 2, 'Third')
+    `;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript'), (2, 'postgres')`;
+    await sql`
+      INSERT INTO post_tags (post_id, tag_id)
+      VALUES (10, 1), (10, 2), (11, 2)
+    `;
+
+    const byPosts = await users()
+      .orderByRelated("posts", { aggregate: "count", direction: "DESC" })
+      .findMany();
+    expect(byPosts.map((user) => user.id)).toEqual([1, 2]);
+
+    const byTags = await posts()
+      .orderByRelated("tags", { aggregate: "count", direction: "DESC" })
+      .findMany();
+    expect(byTags[0]?.id).toBe(10);
+    expect(byTags[0]?.title).toBe("First");
+  });
 });
