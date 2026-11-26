@@ -397,6 +397,12 @@ const UserSchema = z.object({
 `fullName` maps to `full_name` across inserts, filters, ordering, projections,
 aggregates, and results.
 
+## Kitchen sink
+
+A runnable ecommerce example exercises the full API end to end:
+[`examples/ecommerce-kitchen-sink.ts`](examples/ecommerce-kitchen-sink.ts).
+See [docs/kitchen-sink.md](docs/kitchen-sink.md) for the walkthrough.
+
 ## Remaining TODOs
 
 ### Query surface
@@ -446,6 +452,7 @@ Not planned: multi-dialect support (Postgres-only by design).
 - [Chainable API](docs/chainable-api.md)
 - [Data transformation](docs/data-transformation.md)
 - [API reference](docs/api-reference.md)
+- [Ecommerce kitchen sink](docs/kitchen-sink.md)
 - [Examples](docs/examples.md)
 
 ---

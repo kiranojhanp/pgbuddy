@@ -25,7 +25,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
-    "test:types": "tsc -p tsconfig.types.json --noEmit"
+    "test:types": "tsc -p tsconfig.types.json --noEmit",
+    "example:kitchen-sink": "bun run examples/ecommerce-kitchen-sink.ts"
   },
   "publishConfig": {
     "provenance": true

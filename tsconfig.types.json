@@ -3,6 +3,6 @@
   "compilerOptions": {
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "tests/types/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/types/**/*.ts", "examples/ecommerce-kitchen-sink.ts"],
   "exclude": ["node_modules"]
 }

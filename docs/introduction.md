@@ -129,4 +129,5 @@ See the [API reference](api-reference.md#options) for `allowedColumns`,
 - [Data Transformation](data-transformation.md)
 - [API Reference](api-reference.md)
 - [Examples](examples.md)
+- [Ecommerce kitchen sink](kitchen-sink.md)
 - [postgres.js documentation](https://github.com/porsager/postgres)

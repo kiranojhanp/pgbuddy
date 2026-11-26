@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `orderBy`/`take` composition.
 - `include` accepts a declarative `{ where, orderBy, take, select }` options
   object in addition to the builder callback.
+- Added a runnable ecommerce kitchen-sink example covering the full public API.
 - Added narrow `innerJoin`/`leftJoin` with nested right-side rows and typed
   nullable results; schema-derived columns for ZodTable.
 - `createMany` accepts `computed` `RETURNING`; `whereEvery` is optional; relation
