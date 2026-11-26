@@ -24,6 +24,7 @@ import type {
   SortSpec,
   SqlExpression,
   SqlFragment,
+  UpdateData,
   UpsertOptions,
   WhereCondition,
 } from "./types";
@@ -56,6 +57,16 @@ function formatIssues(issues: ZodIssue[]): string {
       return `${path}: ${issue.message}`;
     })
     .join("; ");
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return (
+    typeof value === "function" ||
+    (typeof value === "object" &&
+      value !== null &&
+      Array.isArray((value as { strings?: unknown }).strings) &&
+      Array.isArray((value as { args?: unknown }).args))
+  );
 }
 
 function invalidDataError(context: string, issues: ZodIssue[]): QueryError {
@@ -1587,7 +1598,7 @@ export class ZodTable<
   > {
     const row = await this.findFirst(options);
     if (!row) {
-      throw new QueryError(Errors.QUERY.NO_ROWS);
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     }
     return row;
   }
@@ -1599,7 +1610,7 @@ export class ZodTable<
   > {
     const row = await this.findUnique(options);
     if (!row) {
-      throw new QueryError(Errors.QUERY.NO_ROWS);
+      throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     }
     return row;
   }
@@ -1761,20 +1772,33 @@ export class ZodTable<
   }
 
   async update<X extends ComputedMap = Record<never, never>>(
-    data: Partial<InsertFromSchema<S>>,
+    data: UpdateData<RowFromSchema<S>>,
     options?: { returning?: true; computed?: X }
   ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>>>;
-  async update(data: Partial<InsertFromSchema<S>>, options: { returning: false }): Promise<number>;
+  async update(data: UpdateData<RowFromSchema<S>>, options: { returning: false }): Promise<number>;
   async update<X extends ComputedMap = Record<never, never>>(
-    data: Partial<InsertFromSchema<S>>,
+    data: UpdateData<RowFromSchema<S>>,
     options?: { returning?: boolean; computed?: X }
   ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    const shape = getShape(this.schema);
+    const plain: Record<string, unknown> = {};
+    const fragments: Record<string, SqlFragment> = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (isSqlFragment(value)) {
+        ensureFieldExists(shape, key, Errors.WHERE.INVALID_FIELD, "INVALID_WHERE");
+        fragments[key] = value;
+      } else {
+        plain[key] = value;
+      }
+    }
+
     const partialSchema = this.schema.partial();
-    const result = partialSchema.safeParse(data);
+    const result = partialSchema.safeParse(plain);
     if (!result.success) {
       throw invalidDataError("update data", getIssues(result));
     }
-    const parsed = result.data as Partial<RowFromSchema<S>>;
+    const parsed = { ...result.data, ...fragments } as UpdateData<RowFromSchema<S>>;
 
     return (
       options?.returning === false

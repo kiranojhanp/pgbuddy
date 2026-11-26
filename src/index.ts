@@ -15,7 +15,8 @@
  * @example
  * ```typescript
  * import postgres from "postgres";
- * import { PgBuddyClient, type Insertable } from "pgbuddy";
+ * import { z } from "zod";
+ * import { PgBuddyClient } from "pgbuddy";
  *
  * // Create postgres.js connection
  * const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -23,18 +24,16 @@
  * // Create PgBuddyClient instance
  * const db = new PgBuddyClient(sql);
  *
- * // Define your table type
- * interface User {
- *   id: number;
- *   name: string;
- *   email: string;
- *   status: "active" | "inactive";
- *   created_at: Date;
- * }
+ * // Define the table with a Zod schema
+ * const UserSchema = z.object({
+ *   id: z.number().int(),
+ *   name: z.string(),
+ *   email: z.string().email(),
+ *   status: z.enum(["active", "inactive"]),
+ *   created_at: z.date(),
+ * });
  *
- * // Define table
- * type UserInsert = Insertable<User, "id">;
- * const users = db.table<User, UserInsert>("users");
+ * const users = db.table("users", UserSchema);
  *
  * // Use the chainable API
  * async function example() {
@@ -61,7 +60,7 @@
 import type { PgBuddyClientOptions, TransactionOptions } from "./client";
 import { PgBuddyClient } from "./client";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
-import { GroupedQuery, JoinQuery, ProjectedQuery, Table } from "./table";
+import { GroupedQuery, JoinQuery, ProjectedQuery } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
@@ -69,11 +68,8 @@ import type {
   ComputedOptions,
   ComputedResult,
   CreateManyOptions,
-  Insertable,
   LikePattern,
-  Model,
   PickFields,
-  Selectable,
   SelectFields,
   SelectKeys,
   SortDirection,
@@ -81,7 +77,6 @@ import type {
   SqlExpression,
   SqlFragment,
   SqlOperator,
-  Updatable,
   UpdateData,
   UpsertOptions,
   WhereCondition,
@@ -93,7 +88,6 @@ import { ZodProjectedQuery, ZodTable } from "./zod-table";
 // Export the new client and related classes/types
 export {
   PgBuddyClient,
-  Table,
   ZodTable,
   ProjectedQuery,
   GroupedQuery,
@@ -139,7 +133,7 @@ export {
   or,
   startsWith,
 } from "./predicates";
-export type { GroupedRow, JoinResult, JoinValue } from "./table";
+export type { GroupedRow, JoinResult, JoinValue, Table } from "./table";
 export type {
   IncludedRelations,
   RowFromSchema,
@@ -158,11 +152,7 @@ export type {
   WhereCondition,
   SortSpec,
   LikePattern,
-  Insertable,
   UpdateData,
-  Updatable,
-  Selectable,
-  Model,
   PgBuddyClientOptions,
   TransactionOptions,
   CreateManyOptions,

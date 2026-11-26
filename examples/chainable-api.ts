@@ -1,5 +1,6 @@
 import postgres from "postgres";
-import { type Insertable, type Model, PgBuddyClient } from "../src";
+import { z } from "zod";
+import { PgBuddyClient } from "../src";
 
 // PostgreSQL connection
 const sql = postgres("postgres://username:password@localhost:5432/dbname");
@@ -7,22 +8,16 @@ const sql = postgres("postgres://username:password@localhost:5432/dbname");
 // Create PgBuddyClient instance
 const db = new PgBuddyClient(sql);
 
-// Define your table type
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  status: "active" | "inactive";
-  created_at: Date;
-}
+// Define the table with a Zod schema
+const UserSchema = z.object({
+  id: z.number().int().optional(),
+  name: z.string(),
+  email: z.string().email(),
+  status: z.enum(["active", "inactive"]),
+  created_at: z.date(),
+});
 
-// Define table
-type UserInsert = Insertable<User, "id">;
-const users = db.table<User, UserInsert>("users");
-
-// Or Prisma-like grouped types
-type UserModel = Model<User, "id">;
-const _users2 = db.table<User, UserModel["Insert"]>("users");
+const users = db.table("users", UserSchema);
 
 // Usage examples
 async function examples() {

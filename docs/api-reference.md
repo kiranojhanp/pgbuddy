@@ -22,7 +22,6 @@ All options can be set on the client and overridden per table:
 | `maxTake` | `10000` | Upper bound for `take()`. A larger value throws a `QueryError`. |
 | `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
 | `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
-| `columns` | `undefined` | Explicit column list for a plain `Table`. Avoids `SELECT *` and enables `omit()`. |
 | `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
 
 ### sql
@@ -53,8 +52,8 @@ throws. Nested calls use savepoints.
 
 ```typescript
 await db.transaction(async (tx) => {
-  const users = tx.table<User>("users");
-  await users.create({ email });
+  const users = tx.table("users", UserSchema);
+  await users.create({ email, name });
 });
 ```
 
@@ -91,46 +90,11 @@ Creates a chainable table query builder with Zod validation.
 - `options` — optional `PgBuddyClientOptions`
 - Returns `ZodTable<S>`
 
-### table(tableName, options?)
-
-```typescript
-table<T extends Row, I extends Row = T>(
-  tableName: string,
-  options?: PgBuddyClientOptions
-)
-```
-
-Creates a chainable table query builder without Zod validation.
-
-- `tableName` — table name
-- `T` — full row type
-- `I` — insertable row type (defaults to `T`)
-- `options` — optional `PgBuddyClientOptions`
-- Returns `Table<T, ["*"], I>`
-
-### tableWithInsert(tableName, options?)
-
-```typescript
-tableWithInsert<T extends Row, AutoKeys extends keyof T>(
-  tableName: string,
-  options?: PgBuddyClientOptions
-)
-```
-
-Creates a table query builder where auto-generated keys are optional on insert.
-
-- `tableName` — table name
-- `T` — full row type
-- `AutoKeys` — keys in `T` that are auto-generated and optional on insert
-- `options` — optional `PgBuddyClientOptions`
-- Returns `Table<T, ["*"], Insertable<T, AutoKeys>>`
-- Throws `TableError` if the table name is invalid
-
 ---
 
 ## ZodTable\<S\>
 
-`ZodTable` has the same chainable API as `Table`, with runtime validation added:
+`ZodTable` is the only table builder, with runtime validation built in:
 
 - `where` validates field names and values against the schema
 - `select` validates projected columns against the schema; `"*"` means every
@@ -204,9 +168,12 @@ const rows = await users
 
 ---
 
-## Table\<T\>
+## Table methods
 
-The `Table` API is chainable. Build up query state with `select`, `where`, `skip`, `take`, and `orderBy`, then execute with `findMany`, `findFirst`, `findUnique`, or `count`. Mutations are `create`, `createMany`, `update`, and `delete`.
+Every table builder is a `ZodTable`; the methods below are the shared chainable
+surface. Build up query state with `select`, `where`, `skip`, `take`, and
+`orderBy`, then execute with `findMany`, `findFirst`, `findUnique`, or `count`.
+Mutations are `create`, `createMany`, `update`, and `delete`.
 
 ### Chainable query methods
 
@@ -252,7 +219,7 @@ Filter by a unique column set declared in the `unique` table option. Throws
 unique option is configured). `findUnique()` then fetches a single row.
 
 ```typescript
-const users = db.table<User>("users", { unique: [["email"]] });
+const users = db.table("users", UserSchema, { unique: [["email"]] });
 const user = await users.whereUnique({ email }).findUnique();
 ```
 
@@ -492,8 +459,9 @@ createMany(
 )
 ```
 
-Insert multiple records and return them (respects `select`). Use
-`Insertable<T, AutoKeys>` to mark auto-generated keys as optional.
+Insert multiple records and return them (respects `select`). Make
+auto-generated keys optional in the Zod schema (for example
+`id: z.number().int().optional()`).
 `skipDuplicates` adds `ON CONFLICT DO NOTHING`; `onConflict` updates the named
 columns from `EXCLUDED` and/or applies arbitrary `set` expressions. Large
 batches are chunked automatically.
@@ -554,60 +522,6 @@ Delete records matching `where` and return the deleted rows (respects
 ---
 
 ## Types
-
-### Insertable\<T, AutoKeys\>
-
-```typescript
-type Insertable<T extends Row, AutoKeys extends keyof T = never> =
-  Omit<T, AutoKeys> & Partial<Pick<T, AutoKeys>>;
-```
-
-Marks auto-generated columns as optional when using `create`/`createMany` without Zod.
-
-### Updatable\<T\>
-
-```typescript
-type Updatable<T extends Row> = Partial<T>;
-```
-
-Type for update payloads.
-
-### Model\<T, AutoKeys\>
-
-```typescript
-type Model<T extends Row, AutoKeys extends keyof T = never> = {
-  Insert: Insertable<T, AutoKeys>;
-  Update: Updatable<T>;
-  Select: T;
-};
-```
-
-Groups `Insert`, `Update`, and `Select` types — a Prisma-style type bundle without Zod.
-
-### CreateManyOptions
-
-```typescript
-type CreateManyOptions = {
-  skipDuplicates?: boolean;
-  onConflict?: {
-    target: readonly string[];
-    update?: readonly string[];
-    set?: Readonly<Record<string, SqlFragment>>;
-  };
-};
-```
-
-### UpsertOptions\<T, I\>
-
-```typescript
-type UpsertOptions<T extends Row, I extends Row = T> = {
-  where: Partial<T>;
-  create: I;
-  update?: Partial<T>;
-  targetWhere?: SqlFragment;
-  setWhere?: SqlFragment;
-};
-```
 
 ### WhereCondition\<T\>
 

@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { PgBuddyClient } from "../../src";
 import { startPglite } from "../helpers/pglite";
+import { UserSchema } from "../helpers/schemas";
 
 interface User {
   id: number;
@@ -48,7 +49,7 @@ describe("Table - update and delete", () => {
 
   test("update modifies matching records and returns them", async () => {
     const updated = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where({ email: "ada@example.com" })
       .update({ status: "inactive" });
 
@@ -58,7 +59,7 @@ describe("Table - update and delete", () => {
 
   test("update respects select projection", async () => {
     const updated = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where({ email: "ada@example.com" })
       .select(["id", "status"])
       .update({ status: "inactive" });
@@ -68,30 +69,33 @@ describe("Table - update and delete", () => {
   });
 
   test("update without where throws", async () => {
-    await expect(db.table<User>("users").update({ status: "inactive" })).rejects.toThrow();
+    await expect(db.table("users", UserSchema).update({ status: "inactive" })).rejects.toThrow();
   });
 
   test("update with empty data throws", async () => {
     await expect(
       db
-        .table<User>("users")
+        .table("users", UserSchema)
         .where({ email: "ada@example.com" })
         .update({} as Partial<User>)
     ).rejects.toThrow();
   });
 
   test("delete removes matching records and returns them", async () => {
-    const deleted = await db.table<User>("users").where({ email: "ada@example.com" }).delete();
+    const deleted = await db
+      .table("users", UserSchema)
+      .where({ email: "ada@example.com" })
+      .delete();
 
     expect(deleted).toHaveLength(1);
 
-    const remaining = await db.table<User>("users").count();
+    const remaining = await db.table("users", UserSchema).count();
     expect(remaining).toBe(1);
   });
 
   test("delete respects select projection", async () => {
     const deleted = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .where({ email: "ada@example.com" })
       .select(["id"])
       .delete();
@@ -100,6 +104,6 @@ describe("Table - update and delete", () => {
   });
 
   test("delete without where throws", async () => {
-    await expect(db.table<User>("users").delete()).rejects.toThrow();
+    await expect(db.table("users", UserSchema).delete()).rejects.toThrow();
   });
 });

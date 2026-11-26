@@ -364,7 +364,7 @@ export class JoinQuery<
  * }
  *
  * // Create a table instance
- * const users = db.table<User>("users");
+ * const users = db.table("users", UserSchema);
  *
  * // Chain methods to build and execute queries
  * const activeUsers = await users
@@ -764,7 +764,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
 
   /**
    * Remove columns from the current projection. Requires an explicit
-   * projection or the table `columns` option.
+   * projection.
    */
   omit<K2 extends readonly (keyof T & string)[]>(
     columns: K2
@@ -1271,8 +1271,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * ```typescript
    * // Create a new user
    * // If id is auto-generated:
-   * type UserInsert = Insertable<User, "id">;
-   * const users = db.table<User, UserInsert>("users");
+   * const users = db.table("users", UserSchema);
    *
    * const newUser = await users.create({
    *   name: "John Doe",

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Zod is now a required peer dependency. `db.table()` requires a
+  Zod object schema, and the plain TypeScript-only table API
+  (`db.table<T>()`, `tableWithInsert`, the `columns` option, and the
+  `Insertable`/`Model`/`Updatable`/`Selectable` helpers) has been removed.
+  `.selectExpr()` and updates can still use SQL fragments; Zod update
+  validation skips fragment-valued fields.
+- `findFirstOrThrow()` / `findUniqueOrThrow()` now set
+  `QueryError.code = "NO_ROWS"`.
+
 ### Added
 - `allowedColumns` client/table option: an allowlist for `create`, `createMany`
   and `update` payload keys, rejected with a `QueryError` when a key is not

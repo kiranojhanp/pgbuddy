@@ -17,7 +17,7 @@ A no-nonsense, type-safe, tiny query builder wrapping [postgres.js](https://gith
 npm install pgbuddy postgres zod
 ```
 
-Zod is optional if you use the plain `Table` API.
+Zod is required. Every table is created from a Zod schema so inputs are validated before they reach PostgreSQL.
 
 ---
 
@@ -430,6 +430,10 @@ See [docs/kitchen-sink.md](docs/kitchen-sink.md) for the walkthrough.
 - [ ] Per-column name mapping and custom serialization (`mapWith`/`$type` equivalents).
 - [ ] Views, enums, domains, RLS, generated columns, and constraints as metadata.
 - [ ] Migrations, introspection, and code generation.
+
+### Validation
+
+- [ ] Validator adapter for libraries other than Zod (Zod is required today).
 
 ### Structure and verification
 

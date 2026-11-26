@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { PgBuddyClient } from "../../src";
 import { startPglite } from "../helpers/pglite";
+import { UserSchema } from "../helpers/schemas";
 
 interface User {
   id: number;
@@ -41,7 +42,7 @@ describe("Table - create", () => {
   });
 
   test("creates a single record and returns it", async () => {
-    const user = await db.table<User>("users").create({
+    const user = await db.table("users", UserSchema).create({
       id: 1001,
       email: "ada@example.com",
       status: "active",
@@ -55,7 +56,7 @@ describe("Table - create", () => {
 
   test("create respects select projection", async () => {
     const user = await db
-      .table<User>("users")
+      .table("users", UserSchema)
       .select(["id", "email"])
       .create({ id: 1002, email: "ada@example.com", status: "active", last_login: null });
 
@@ -64,7 +65,7 @@ describe("Table - create", () => {
   });
 
   test("createMany inserts multiple records and returns them", async () => {
-    const users = await db.table<User>("users").createMany([
+    const users = await db.table("users", UserSchema).createMany([
       { id: 1003, email: "ada@example.com", status: "active", last_login: null },
       { id: 1004, email: "grace@example.com", status: "inactive", last_login: null },
     ]);
@@ -74,10 +75,10 @@ describe("Table - create", () => {
   });
 
   test("create rejects empty data", async () => {
-    await expect(db.table<User>("users").create({} as unknown as User)).rejects.toThrow();
+    await expect(db.table("users", UserSchema).create({} as unknown as User)).rejects.toThrow();
   });
 
   test("createMany rejects empty array", async () => {
-    await expect(db.table<User>("users").createMany([] as User[])).rejects.toThrow();
+    await expect(db.table("users", UserSchema).createMany([] as User[])).rejects.toThrow();
   });
 });

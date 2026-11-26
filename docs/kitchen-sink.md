@@ -28,8 +28,8 @@ The scenario has the usual ecommerce tables:
 - `orders`
 - `order_items`
 - `reviews`
-- `inventory` (plain `Table`)
-- `audit_log` (plain `Table` with an auto-generated id)
+- `inventory`
+- `audit_log` (auto-generated id)
 
 It declares one-hop relations in both directions:
 
@@ -53,7 +53,7 @@ It declares one-hop relations in both directions:
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max` |
 | Transactions | isolation level, read-only/deferrable, nested-capable `transaction`, row locking |
 | Writes | `create`, `createMany`, `upsert`, `update`, `delete`; conflict handling; computed `RETURNING`; count mode |
-| Plain tables | `table`, `tableWithInsert`, `columns`, `omit`, `whereUnique`, `groupBy` |
+| Zod schemas | `table` for inventory/audit, `omit`, `whereUnique`, `groupBy` |
 | Errors | `QueryError.code`, `TableError`, all PostgreSQL error helpers |
 | Computed writes | `create`/`update`/`delete`/`upsert` with `computed` |
 

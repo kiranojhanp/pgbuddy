@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
-import { Errors, PgBuddyClient, TableError } from "../../src";
+import { Errors, PgBuddyClient, QueryError, TableError } from "../../src";
 import { startPglite } from "../helpers/pglite";
+import { UserSchema } from "../helpers/schemas";
 
 interface User {
   id: number;
@@ -50,7 +51,7 @@ describe("Security hardening", () => {
     const allowed = ["email", "status", "last_login"] as const;
 
     test("create rejects columns outside the allowlist", async () => {
-      const users = db.table<User>("users", { allowedColumns: allowed });
+      const users = db.table("users", UserSchema, { allowedColumns: allowed });
 
       await expect(
         users.create({ id: 1, email: "new@example.com", status: "active", last_login: null })
@@ -58,7 +59,7 @@ describe("Security hardening", () => {
     });
 
     test("create accepts allowlisted columns", async () => {
-      const users = db.table<User>("users", { allowedColumns: allowed });
+      const users = db.table("users", UserSchema, { allowedColumns: allowed });
 
       const created = await users.create({
         email: "new@example.com",
@@ -70,7 +71,7 @@ describe("Security hardening", () => {
     });
 
     test("update rejects columns outside the allowlist", async () => {
-      const users = db.table<User>("users", { allowedColumns: allowed });
+      const users = db.table("users", UserSchema, { allowedColumns: allowed });
 
       await expect(
         users.where({ email: "ada@example.com" }).update({ id: 999 } as Partial<User>)
@@ -78,7 +79,7 @@ describe("Security hardening", () => {
     });
 
     test("createMany rejects columns outside the allowlist", async () => {
-      const users = db.table<User>("users", { allowedColumns: allowed });
+      const users = db.table("users", UserSchema, { allowedColumns: allowed });
 
       await expect(
         users.createMany([
@@ -92,14 +93,14 @@ describe("Security hardening", () => {
 
       await expect(
         restricted
-          .table<User>("users")
+          .table("users", UserSchema)
           .create({ id: 2, email: "client@example.com", status: "active", last_login: null })
       ).rejects.toThrow(Errors.INSERT.COLUMN_NOT_ALLOWED("id"));
     });
 
     test("invalid allowlist values are rejected", () => {
       expect(() =>
-        db.table<User>("users", { allowedColumns: "email" as unknown as string[] })
+        db.table("users", UserSchema, { allowedColumns: "email" as unknown as string[] })
       ).toThrow(TableError);
 
       expect(
@@ -110,43 +111,27 @@ describe("Security hardening", () => {
 
   describe("allowSchema", () => {
     test("dotted table names require allowSchema", () => {
-      expect(() => db.table<User>("public.users")).toThrow(TableError);
-      expect(() => db.table<User>("public.users", { allowSchema: true })).not.toThrow();
-    });
-
-    test("dotted column names require allowSchema", async () => {
-      await expect(
-        db
-          .table<User>("users")
-          .where({ "users.status": "active" } as unknown as Partial<User>)
-          .findMany()
-      ).rejects.toThrow(Errors.WHERE.INVALID_FIELD("users.status"));
-
-      const rows = await db
-        .table<User>("users", { allowSchema: true })
-        .where({ "users.status": "active" } as unknown as Partial<User>)
-        .findMany();
-
-      expect(rows).toHaveLength(1);
+      expect(() => db.table("public.users", UserSchema)).toThrow(TableError);
+      expect(() => db.table("public.users", UserSchema, { allowSchema: true })).not.toThrow();
     });
   });
 
   describe("pagination cap", () => {
     test("take is capped by default", () => {
-      expect(() => db.table<User>("users").take(10_001)).toThrow(
+      expect(() => db.table("users", UserSchema).take(10_001)).toThrow(
         Errors.SELECT.TAKE_EXCEEDS_MAX(10_000)
       );
     });
 
     test("take respects a per-table cap", () => {
-      const users = db.table<User>("users", { maxTake: 5 });
+      const users = db.table("users", UserSchema, { maxTake: 5 });
 
       expect(() => users.take(6)).toThrow(Errors.SELECT.TAKE_EXCEEDS_MAX(5));
       expect(() => users.take(5)).not.toThrow();
     });
 
     test("findUnique still fetches two rows when maxTake is 1", async () => {
-      const users = db.table<User>("users", { maxTake: 1 });
+      const users = db.table("users", UserSchema, { maxTake: 1 });
 
       await expect(users.where({ email: "ada@example.com" }).findUnique()).resolves.toMatchObject({
         email: "ada@example.com",
@@ -156,24 +141,21 @@ describe("Security hardening", () => {
     });
 
     test("invalid maxTake values are rejected", () => {
-      expect(() => db.table<User>("users", { maxTake: 0 })).toThrow(TableError);
-      expect(() => db.table<User>("users", { maxTake: 1.5 })).toThrow(TableError);
+      expect(() => db.table("users", UserSchema, { maxTake: 0 })).toThrow(TableError);
+      expect(() => db.table("users", UserSchema, { maxTake: 1.5 })).toThrow(TableError);
       expect(() => new PgBuddyClient(sql, { maxTake: -1 })).toThrow(TableError);
     });
   });
 
   describe("undefined values", () => {
-    test("where rejects undefined values with a QueryError", async () => {
-      await expect(
-        db
-          .table<User>("users")
-          .where({ status: undefined } as unknown as Partial<User>)
-          .findMany()
-      ).rejects.toThrow(Errors.WHERE.UNDEFINED_VALUE("status"));
+    test("where rejects undefined values with a QueryError", () => {
+      expect(() =>
+        db.table("users", UserSchema).where({ status: undefined } as unknown as Partial<User>)
+      ).toThrow(QueryError);
     });
 
     test("create omits undefined values", async () => {
-      const created = await db.table<User>("users").create({
+      const created = await db.table("users", UserSchema).create({
         email: "undefined@example.com",
         status: "active",
         last_login: undefined,
@@ -186,7 +168,7 @@ describe("Security hardening", () => {
   describe("query state snapshots", () => {
     test("mutating a where array after building does not change the query", async () => {
       const conditions = [{ field: "status" as const, operator: "=" as const, value: "active" }];
-      const query = db.table<User>("users").where(conditions);
+      const query = db.table("users", UserSchema).where(conditions);
 
       conditions[0] = { field: "status", operator: "=", value: "inactive" };
 

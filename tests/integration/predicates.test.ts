@@ -21,13 +21,7 @@ import {
   startsWith,
 } from "../../src";
 import { startPglite } from "../helpers/pglite";
-
-interface User {
-  id: number;
-  email: string;
-  status: "active" | "inactive";
-  last_login: Date | null;
-}
+import { UserSchema } from "../helpers/schemas";
 
 describe("predicates", () => {
   let sql: Sql<Record<string, unknown>>;
@@ -68,7 +62,7 @@ describe("predicates", () => {
     `;
   });
 
-  const users = () => db.table<User>("users");
+  const users = () => db.table("users", UserSchema);
 
   test("eq / or", async () => {
     const rows = await users()

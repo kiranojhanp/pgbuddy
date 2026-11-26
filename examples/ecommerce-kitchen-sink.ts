@@ -109,17 +109,17 @@ const ReviewSchema = z.object({
 
 type User = z.infer<typeof UserSchema>;
 
-interface Inventory {
-  product_id: number;
-  quantity: number;
-}
+const InventorySchema = z.object({
+  product_id: z.number().int(),
+  quantity: z.number().int(),
+});
 
-interface AuditLog {
-  id: number;
-  actor: string;
-  action: string;
-  created_at: Date;
-}
+const AuditLogSchema = z.object({
+  id: z.number().int().optional(),
+  actor: z.string(),
+  action: z.string().nullable(),
+  created_at: z.date(),
+});
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -347,14 +347,11 @@ function createTables(db: PgBuddyClient) {
 
   const reviews = db.table("reviews", ReviewSchema);
 
-  const inventory = db.table<Inventory>("inventory", {
-    columns: ["product_id", "quantity"],
+  const inventory = db.table("inventory", InventorySchema, {
     unique: [["product_id"]],
   });
 
-  const auditLog = db.tableWithInsert<AuditLog, "id">("audit_log", {
-    columns: ["id", "actor", "action", "created_at"],
-  });
+  const auditLog = db.table("audit_log", AuditLogSchema);
 
   return { users, categories, products, orders, orderItems, reviews, inventory, auditLog };
 }
@@ -966,7 +963,7 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
   }
 
   try {
-    db.table("bad name");
+    db.table("bad name", UserSchema);
   } catch (error) {
     if (error instanceof TableError) {
       console.log("table error", error.message);

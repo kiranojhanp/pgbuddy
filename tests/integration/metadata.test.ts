@@ -1,14 +1,7 @@
 import type { Sql } from "postgres";
 import { z } from "zod";
-import { Errors, PgBuddyClient } from "../../src";
+import { PgBuddyClient } from "../../src";
 import { startPglite } from "../helpers/pglite";
-
-interface Account {
-  id: number;
-  email: string;
-  password_hash: string;
-  internal_note: string | null;
-}
 
 const AccountSchema = z.object({
   id: z.number(),
@@ -94,52 +87,17 @@ describe("schema-derived projection", () => {
     expect(() => accounts().omit(["missing" as unknown as "password_hash"])).toThrow();
   });
 
-  test("plain Table still uses SELECT *", async () => {
+  test("columns outside the schema are never selected", async () => {
     await accounts().create({
       id: 4,
-      email: "plain@example.com",
+      email: "unmapped@example.com",
       password_hash: "hash",
     });
 
-    const rows = await db.table<Account>("accounts").findMany();
-
-    expect(rows[0]).toHaveProperty("internal_note");
-  });
-
-  test("columns option gives a plain Table an explicit projection", async () => {
-    await accounts().create({
-      id: 5,
-      email: "columns@example.com",
-      password_hash: "hash",
-    });
-
-    const rows = await db
-      .table<Account>("accounts", { columns: ["id", "email", "password_hash"] })
-      .findMany();
+    const rows = await accounts().select(["*"]).findMany();
 
     expect(rows[0]).not.toHaveProperty("internal_note");
     expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["email", "id", "password_hash"]);
-  });
-
-  test("plain Table omit removes columns from an explicit projection", async () => {
-    await accounts().create({
-      id: 6,
-      email: "omit-plain@example.com",
-      password_hash: "hash",
-    });
-
-    const rows = await db
-      .table<Account>("accounts", { columns: ["id", "email", "password_hash"] })
-      .omit(["password_hash"])
-      .findMany();
-
-    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["email", "id"]);
-  });
-
-  test("plain Table omit requires explicit columns", () => {
-    expect(() => db.table<Account>("accounts").omit(["password_hash"])).toThrow(
-      Errors.SELECT.CANNOT_OMIT_STAR
-    );
   });
 
   test("orderByRaw orders by an expression", async () => {
@@ -148,8 +106,8 @@ describe("schema-derived projection", () => {
       { id: 8, email: "a@example.com", password_hash: "hash" },
     ]);
 
-    const rows = await db
-      .table<Account>("accounts", { columns: ["id", "email"] })
+    const rows = await accounts()
+      .select(["id", "email"])
       .orderByRaw(sql`lower(email) ASC`)
       .findMany();
 
