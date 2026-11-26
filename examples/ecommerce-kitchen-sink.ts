@@ -2,8 +2,8 @@
  * Ecommerce kitchen sink.
  *
  * Runs the full pgbuddy surface against a real PostgreSQL database:
- * schemas, relations, joins, aggregates, computed fields, locking, writes,
- * predicates, cursors, and error helpers.
+ * schemas, relations, joins, aggregates, grouped expressions, computed fields,
+ * true batch, streaming, locking, writes, predicates, cursors, and error helpers.
  *
  * Usage:
  *   DATABASE_URL=postgres://postgres:postgres@localhost:5432/pgbuddy \
@@ -51,6 +51,7 @@ import {
   startsWith,
   TableError,
   type WhereCondition,
+  zodValidator,
 } from "../src";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,11 @@ const InventorySchema = z.object({
   quantity: z.number().int(),
 });
 
+const PriceOverrideSchema = z.object({
+  product_id: z.number().int(),
+  price_cents: z.number().int(),
+});
+
 const AuditLogSchema = z.object({
   id: z.number().int().optional(),
   actor: z.string(),
@@ -128,7 +134,7 @@ const AuditLogSchema = z.object({
 async function createSchema(sql: Sql<Record<string, unknown>>): Promise<void> {
   await sql`
     DROP TABLE IF EXISTS
-      audit_log, order_items, reviews, inventory, orders, products, categories, users
+      price_overrides, audit_log, order_items, reviews, inventory, orders, products, categories, users
     CASCADE
   `;
 
@@ -199,6 +205,13 @@ async function createSchema(sql: Sql<Record<string, unknown>>): Promise<void> {
     CREATE TABLE inventory (
       product_id INTEGER PRIMARY KEY REFERENCES products(id),
       quantity INTEGER NOT NULL CHECK (quantity >= 0)
+    )
+  `;
+
+  await sql`
+    CREATE TABLE price_overrides (
+      product_id INTEGER PRIMARY KEY REFERENCES products(id),
+      price_cents INTEGER NOT NULL CHECK (price_cents >= 0)
     )
   `;
 
@@ -353,7 +366,19 @@ function createTables(db: PgBuddyClient) {
 
   const auditLog = db.table("audit_log", AuditLogSchema);
 
-  return { users, categories, products, orders, orderItems, reviews, inventory, auditLog };
+  const priceOverrides = db.table("price_overrides", PriceOverrideSchema);
+
+  return {
+    users,
+    categories,
+    products,
+    orders,
+    orderItems,
+    reviews,
+    inventory,
+    auditLog,
+    priceOverrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -363,8 +388,17 @@ function createTables(db: PgBuddyClient) {
 export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient): Promise<void> {
   await createSchema(sql);
 
-  const { users, categories, products, orders, orderItems, reviews, inventory, auditLog } =
-    createTables(db);
+  const {
+    users,
+    categories,
+    products,
+    orders,
+    orderItems,
+    reviews,
+    inventory,
+    auditLog,
+    priceOverrides,
+  } = createTables(db);
 
   // --- Basic reads ---------------------------------------------------------
   const allUsers = await users.findMany();
@@ -389,6 +423,19 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     hasGrace,
     firstActive,
   });
+
+  // --- True batch + streaming ---------------------------------------------
+  const [batchOrders, batchCount] = await db.batch((tx) => [
+    tx.sql`SELECT id, status FROM orders ORDER BY id`,
+    tx.sql`SELECT count(*)::int AS count FROM orders`,
+  ]);
+
+  const streamedUsers: User[] = [];
+  for await (const batch of users.orderBy([{ column: "id", direction: "ASC" }]).stream(2)) {
+    streamedUsers.push(...batch);
+  }
+
+  console.log("batch", { batchOrders, batchCount, streamedUsers });
 
   // --- Filtering -----------------------------------------------------------
   const conditions: WhereCondition<User>[] = [
@@ -689,7 +736,16 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     .take(2)
     .findMany();
 
-  console.log("grouped", { grouped, groupedFirst, groupedOrThrow, groupedPage });
+  const groupedExpr = await orders
+    .groupByExpr(
+      { statusLower: sqlExpr<string>(sql`lower(status)`) },
+      { count: sqlExpr<number>(sql`count(*)::int`) }
+    )
+    .having({ count: { gt: 1 } })
+    .orderByRaw(sql`lower(status) ASC`)
+    .findMany();
+
+  console.log("grouped", { grouped, groupedFirst, groupedOrThrow, groupedPage, groupedExpr });
 
   // --- Aggregate helpers ---------------------------------------------------
   const aggregate = await orders.aggregate({
@@ -862,6 +918,19 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
   const auditUpdated = await auditLog.where({ id: auditEntry.id }).update({ action: "finished" });
   const auditDeleted = await auditLog.where({ id: auditEntry.id }).delete();
 
+  const insertedFromSelect = await priceOverrides.insertFrom(
+    sql`SELECT id, price_cents + 100 FROM products WHERE id = 1`,
+    { columns: ["product_id", "price_cents"] }
+  );
+  const updatedFrom = await products
+    .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+    .updateFrom({ price_cents: sql`"price_overrides"."price_cents"` }, sql`price_overrides`, {
+      returning: false,
+    });
+  const deletedUsing = await priceOverrides
+    .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+    .deleteUsing(sql`products`, { returning: false });
+
   console.log("writes", {
     created,
     skipped,
@@ -879,6 +948,9 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     auditRows,
     auditUpdated,
     auditDeleted,
+    insertedFromSelect,
+    updatedFrom,
+    deletedUsing,
   });
 
   // --- Error helpers -------------------------------------------------------
@@ -986,6 +1058,7 @@ async function main(): Promise<void> {
 
   const sql = postgres(databaseUrl);
   const db = new PgBuddyClient(sql, {
+    adapter: zodValidator,
     strictNames: true,
     maxTake: 1000,
     defaultTake: 100,

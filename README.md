@@ -529,6 +529,23 @@ const first = await findActive();
 const second = await findActive();
 ```
 
+## Streaming and cancellation
+
+```ts
+const controller = new AbortController();
+
+for await (const batch of users
+  .where({ status: "active" })
+  .signal(controller.signal)
+  .stream(100)) {
+  // batch is an array of rows
+}
+```
+
+`stream(batchSize)` returns batches from the base SELECT. Relation includes are
+not hydrated on streamed rows; use `findMany()` when you need relations.
+`signal()` also applies to normal SELECT execution.
+
 ## Row locking
 
 ```ts
@@ -551,12 +568,23 @@ with `skipLocked` or `noWait`.
 const rows = await users
   .where({ status: "active" })
   .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
-  .having(sql`count(*) > 1`)
+  .having({ count: { gt: 1 } })
   .orderBy([{ column: "status", direction: "ASC" }])
   .findMany();
 ```
 
-`having` is raw SQL; cast aggregates such as `count(*)::int` for JS numbers.
+`having` accepts aggregate conditions (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`)
+or a raw SQL fragment. Group by expressions with `groupByExpr`:
+
+```ts
+const byDomain = await users
+  .groupByExpr(
+    { domain: sqlExpr<string>(sql`split_part(email, '@', 2)`) },
+    { count: sqlExpr<number>(sql`count(*)::int`) }
+  )
+  .having({ count: { gt: 1 } })
+  .findMany();
+```
 
 ## Errors
 
@@ -675,10 +703,36 @@ const products = db.table("products", ProductSchema, {
 ```
 
 Codecs apply to write payloads, filter values, cursors, and decoded result rows.
-SQL-fragment values bypass encoding. Relation configs, right-side join columns,
-and relation-loaded child rows do not read table codecs yet.
+SQL-fragment values bypass encoding. Relation configs and right-side join options
+accept their own `columnCodecs`; relation-loaded child rows use them.
 
 `columnMap` and `columnCodecs` are independent; use one or both.
+
+## SQL write helpers
+
+Use these when the source or join is SQL rather than a JS payload:
+
+```ts
+// INSERT ... SELECT
+await users.insertFrom(
+  sql`SELECT id, email, full_name, status, deleted_at, created_at FROM staging_users`,
+  { columns: ["id", "email", "full_name", "status", "deleted_at", "created_at"] }
+);
+
+// UPDATE ... FROM
+await products
+  .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+  .updateFrom({ price_cents: sql`"price_overrides"."price_cents"` }, sql`price_overrides`);
+
+// DELETE ... USING
+await priceOverrides
+  .whereRaw(sql`"price_overrides"."product_id" = "products"."id"`)
+  .deleteUsing(sql`products`);
+```
+
+`updateFrom` and `deleteUsing` require existing where conditions. The SELECT,
+FROM, and USING fragments are raw SQL; identifiers are still escaped by
+postgres.js.
 
 ## Kitchen sink
 
