@@ -3,8 +3,19 @@
 These examples assume `db` is a `PgBuddyClient` instance. See the [Introduction](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/introduction.md) for setup.
 
 ```typescript
+import postgres from 'postgres';
 import { z } from 'zod';
-import { contains, sqlExpr } from 'pgbuddy';
+import {
+  arrayContains,
+  contains,
+  jsonContains,
+  PgBuddyClient,
+  sqlExpr,
+  type WhereCondition,
+} from 'pgbuddy';
+
+const sql = postgres(process.env.DATABASE_URL!);
+const db = new PgBuddyClient(sql);
 
 const UserSchema = z.object({
   id: z.number().int(),
@@ -94,6 +105,59 @@ async function getPublishedPosts(page: number, pageSize: number) {
     .take(pageSize)
     .skip((page - 1) * pageSize)
     .findMany();
+}
+
+async function getPublishedPostsPage(page: number, pageSize: number) {
+  const { rows, total } = await postTable
+    .where({ status: 'published' })
+    .orderBy([{ column: 'publish_date', direction: 'DESC' }])
+    .take(pageSize)
+    .skip((page - 1) * pageSize)
+    .findManyAndCount();
+
+  return {
+    rows,
+    total,
+    page,
+    pageSize,
+    pageCount: Math.ceil(total / pageSize),
+  };
+}
+
+async function getPost(id: number) {
+  const findPost = postTable
+    .where({ id: db.param<number>('id') })
+    .prepareParams<{ id: number }>();
+
+  return findPost({ id });
+}
+
+async function getAuthorDashboard(authorId: number) {
+  return db.batch([
+    postTable.where({ author_id: authorId }).findMany(),
+    postTable.where({ author_id: authorId }).count(),
+  ]);
+}
+
+async function streamPublishedPosts() {
+  const controller = new AbortController();
+  const batches: Array<Array<Post>> = [];
+
+  for await (const batch of postTable
+    .where({ status: 'published' })
+    .signal(controller.signal)
+    .stream(100)) {
+    batches.push(batch);
+  }
+
+  return batches;
+}
+
+async function explainPublishedQuery() {
+  return postTable.where({ status: 'published' }).explain({
+    analyze: false,
+    format: 'text',
+  });
 }
 ```
 
@@ -215,7 +279,7 @@ const EventLogSchema = z.object({
   event_type: z.string(),
   severity: z.enum(['info', 'warning', 'error']),
   message: z.string(),
-  metadata: z.record(z.any()),
+  metadata: z.record(z.string(), z.any()),
   timestamp: z.date()
 });
 
@@ -236,6 +300,13 @@ async function logEvent(
     metadata,
     timestamp: new Date()
   });
+}
+
+async function getPremiumEvents() {
+  return eventLogTable
+    .where(jsonContains('metadata', { tier: 'premium' }))
+    .orderBy([{ column: 'timestamp', direction: 'DESC' }])
+    .findMany();
 }
 
 async function getRecentErrors(hours: number = 24) {
@@ -265,6 +336,26 @@ async function getEventStats(startDate: Date, endDate: Date) {
 }
 ```
 
+## Assets: arrays and JSONB
+
+```typescript
+const AssetSchema = z.object({
+  id: z.number().int(),
+  tags: z.array(z.string()),
+  metadata: z.record(z.string(), z.unknown()),
+});
+
+const assets = db.table('assets', AssetSchema);
+
+async function getTaggedAssets(tag: string) {
+  return assets.where(arrayContains('tags', [tag])).findMany();
+}
+
+async function getPremiumAssets() {
+  return assets.where(jsonContains('metadata', { tier: 'premium' })).findMany();
+}
+```
+
 ## Relationships, joins, and grouped reports
 
 ```typescript
@@ -288,7 +379,7 @@ const users = db.table('users', UserSchema, {
   },
 });
 
-// One hop, filtered and counted
+// Filtered, counted, and joined
 const authors = await users
   .include('posts', { where: { published: true }, take: 3 })
   .withCount('posts', (posts) => posts.where({ published: true }))

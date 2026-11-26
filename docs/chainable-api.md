@@ -126,12 +126,13 @@ const inserted = await users.createMany(records, {
 const rows = await users
   .where({ status: "active" })
   .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
-  .having(sql`count(*) > 1`)
+  .having({ count: { gt: 1 } })
   .findMany();
 ```
 
-`having` is raw SQL; `orderBy`, `skip`, and `take` compose with the grouped
-query. Relations are not available on grouped results.
+`having` accepts typed aggregate conditions such as `{ count: { gt: 1 } }` or a
+raw SQL fragment. `orderBy`, `skip`, and `take` compose with the grouped query.
+Relations are not available on grouped results.
 
 ## Computed fields
 
@@ -239,21 +240,17 @@ const rows = await users
 ## Joins
 
 ```typescript
-const rows = await db
-  .table<User>("users")
-  .innerJoin("posts", {
-    columns: ["id", "user_id", "title"],
-    on: sql`"posts"."user_id" = "users"."id"`,
-  })
+const rows = await users
+  .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
   .whereRaw(sql`"users"."status" = 'active'`)
   .findMany();
 
 // leftJoin: posts is {...} | null
 ```
 
-With a Zod table, pass the schema:
-`users.innerJoin("posts", PostSchema, on)`. Right-side rows are nested
-under the join name. Use qualified columns in `whereRaw`/`orderByRaw`.
+Right-side rows are nested under the join name. Use qualified columns in
+`whereRaw`/`orderByRaw`. Base tables can pass explicit `columns` instead of a
+schema.
 
 ## Counts, existence, and aggregates
 
@@ -302,6 +299,8 @@ const results = await users
   `endsWith` (wildcard characters are escaped)
 - Ranges: `between`, `notBetween`
 - Boolean: `and`, `or`, `not`
+- JSONB: `jsonContains`, `jsonHasKey`, `jsonHasAnyKey`, `jsonHasAllKeys`
+- Arrays: `arrayContains`, `arrayContainedBy`, `arrayOverlaps`
 
 For anything the helpers do not cover, `whereRaw` accepts a postgres.js
 fragment:
@@ -316,6 +315,70 @@ await users.whereRaw(sql`lower(email) = ${email}`).findMany();
 - `LIKE`, `ILIKE` — with optional patterns: `startsWith`, `endsWith`, `contains`, `exact`
 - `IN`
 - `IS NULL`, `IS NOT NULL`
+
+## Pagination and execution
+
+Page plus total in one batch:
+
+```typescript
+const { rows, total } = await users
+  .where({ status: "active" })
+  .orderBy([{ column: "created_at", direction: "DESC" }])
+  .skip(0)
+  .take(25)
+  .findManyAndCount();
+```
+
+Typed deferred batching:
+
+```typescript
+const [activeUsers, totalActive] = await db.batch([
+  users.where({ status: "active" }).findMany(),
+  users.where({ status: "active" }).count(),
+]);
+```
+
+Parameterized prepared SELECT:
+
+```typescript
+const findUser = users
+  .where({ id: db.param<number>("id") })
+  .prepareParams<{ id: number }>();
+
+const ada = await findUser({ id: 1 });
+```
+
+Streaming and cancellation:
+
+```typescript
+const controller = new AbortController();
+
+for await (const batch of users
+  .where({ status: "active" })
+  .signal(controller.signal)
+  .stream(100)) {
+  // batch is an array of rows
+}
+```
+
+Explain a SELECT:
+
+```typescript
+const plan = await users.where({ status: "active" }).explain();
+```
+
+Typed expressions:
+
+```typescript
+await users
+  .whereExpr(sqlExpr<boolean>(sql`lower(email) = ${email}`))
+  .orderByExpr(sqlExpr<string>(sql`lower(name)`), { direction: "ASC" })
+  .findMany();
+```
+
+See [Advanced execution](https://github.com/kiranojhanp/pgbuddy/blob/master/docs/advanced.md)
+for batchSQL, retries, SQL write helpers, JSONB/array predicates, and prepared
+plan details.
 
 ## Transactions and locking
 

@@ -33,7 +33,7 @@ The scenario has the usual ecommerce tables:
 - `price_overrides` (used by the SQL write helpers)
 - `audit_log` (auto-generated id)
 
-It declares one-hop relations in both directions:
+It declares direct relations in both directions:
 
 - user → orders, reviews
 - category → products
