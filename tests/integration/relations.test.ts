@@ -1017,6 +1017,12 @@ describe("relations", () => {
     expect(rows[0]?.tags[0]?.label).toBe("mapped:typescript");
     expect(rows[0]?.tags_count).toBe(1);
 
+    const [aggregated] = await postsMapped
+      .where({ id: 10 })
+      .withAggregate("tags", { min: ["label"] })
+      .findMany();
+    expect(aggregated?.tags_min_label).toBe("mapped:typescript");
+
     const related = await postsMapped
       .whereRelated("tags", (tags) => tags.where({ label: "typescript" }))
       .findMany();

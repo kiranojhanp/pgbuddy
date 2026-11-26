@@ -673,7 +673,7 @@ export class RelationLoader {
     }
     for (const kind of ["sum", "avg", "min", "max"] as const) {
       for (const column of spec.aggregate[kind] ?? []) {
-        const mapped = sql(column);
+        const mapped = sql(relation.config.columnMap?.[column] ?? column);
         const expression = sql`${sql.unsafe(kind.toUpperCase())}(${mapped})`;
         parts.push(expression);
         valueColumns.push({ kind, column });
@@ -682,19 +682,29 @@ export class RelationLoader {
 
     if (parts.length === 0) return new Map();
 
-    const where = buildWhereInputs(sql, [
-      ...((spec.refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
-      rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys)),
-    ]);
+    const nameOptions = relationNameOptions(relation);
+    const mappedForeignKeys = relation.foreignKeys.map(
+      (key) => relation.config.columnMap?.[key] ?? key
+    );
+    const where = buildWhereInputs(
+      sql,
+      [
+        ...((spec.refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
+        rawPredicate<Row>(
+          buildKeyFilter(sql, relation.foreignKeys, keys, relation.config.columnMap)
+        ),
+      ],
+      nameOptions
+    );
     const selection = parts.reduce(
       (acc, part, index) => (index === 0 ? part : sql`${acc}, ${part}`),
       sql``
     );
     const query = sql`
-      SELECT ${sql(relation.foreignKeys as string[])}, ${selection}
+      SELECT ${sql(mappedForeignKeys as string[])}, ${selection}
       FROM ${sql(relation.config.table)}
       ${where}
-      GROUP BY ${sql(relation.foreignKeys as string[])}
+      GROUP BY ${sql(mappedForeignKeys as string[])}
     `;
     const resultRows = (await (
       query as unknown as { values(): Promise<unknown[][]> }
@@ -702,7 +712,7 @@ export class RelationLoader {
     const result = new Map<string, Record<string, unknown>>();
 
     for (const row of resultRows) {
-      const serialized = serializeKey(relation.foreignKeys.map((_key, index) => row[index]));
+      const serialized = serializeKey(mappedForeignKeys.map((_key, index) => row[index]));
       if (!serialized) continue;
 
       const values: Record<string, unknown> = {};
