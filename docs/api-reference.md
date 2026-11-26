@@ -118,6 +118,42 @@ const [rows, count] = await db.batchSQL([
 ]);
 ```
 
+### insertFrom(select, options?)
+
+```typescript
+insertFrom(select: SqlFragment, options?: {
+  columns?: readonly (keyof T & string)[];
+  returning?: boolean;
+  computed?: ComputedMap;
+}): Promise<Array<T> | number>
+```
+
+Inserts from a raw `SELECT`; column names use the table mapping. The SELECT is
+not validated by pgbuddy.
+
+### updateFrom(data, from, options?)
+
+```typescript
+updateFrom(data, from: SqlFragment, options?: {
+  returning?: boolean;
+  computed?: ComputedMap;
+}): Promise<Array<T> | number>
+```
+
+Runs `UPDATE ... FROM` using the builder's existing where conditions. The FROM
+fragment is raw SQL.
+
+### deleteUsing(using, options?)
+
+```typescript
+deleteUsing(using: SqlFragment, options?: {
+  returning?: boolean;
+}): Promise<Array<T> | number>
+```
+
+Runs `DELETE ... USING` using the builder's existing where conditions. The USING
+fragment is raw SQL.
+
 ### Security: write payloads
 
 `create`, `createMany` and `update` insert or update **every key** in the

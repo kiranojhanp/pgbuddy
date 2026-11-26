@@ -731,8 +731,12 @@ a schema toolkit or a full SQL AST.
 
 ### P2 — useful, but raw SQL is acceptable
 
-- [ ] Expression columns in `groupBy`; typed `HAVING`.
-- [ ] `UPDATE … FROM`, `DELETE … USING`, and `INSERT … SELECT`.
+- [ ] Expression columns in `groupBy`.
+- [x] **Typed `HAVING`.** `GroupedQuery.having()` accepts aggregate conditions such
+  as `{ count: { gt: 1 } }`; raw fragments still work.
+- [x] **`INSERT … SELECT`.** `insertFrom(select, { columns, returning })`.
+- [x] **`UPDATE … FROM` / `DELETE … USING`.** `updateFrom(data, from)` and
+  `deleteUsing(using)` require existing where conditions.
 - [ ] Query cancellation and streaming access.
 
 ### P3 — out of scope / use raw SQL

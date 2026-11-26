@@ -156,6 +156,12 @@ describe("validation adapter table", () => {
       { status: "inactive", count: 1 },
     ]);
 
+    const having = await users()
+      .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
+      .having({ count: { gt: 1 } })
+      .findMany();
+    expect(having).toEqual([{ status: "active", count: 2 }]);
+
     const computed = await users()
       .where({ id: 1 })
       .selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })

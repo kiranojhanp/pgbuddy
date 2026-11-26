@@ -1969,6 +1969,32 @@ export class ZodTable<
     >;
   }
 
+  async updateFrom<X extends ComputedMap = Record<never, never>>(
+    data: UpdateData<RowFromSchema<S>>,
+    from: SqlFragment,
+    options?: { returning?: boolean; computed?: X }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    return this.table.updateFrom(data, from, options);
+  }
+
+  async deleteUsing(
+    using: SqlFragment,
+    options?: { returning?: boolean }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0]> | number> {
+    return this.table.deleteUsing(using, options);
+  }
+
+  async insertFrom<X extends ComputedMap = Record<never, never>>(
+    select: SqlFragment,
+    options?: {
+      columns?: readonly (keyof RowFromSchema<S> & string)[];
+      returning?: boolean;
+      computed?: X;
+    }
+  ): Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number> {
+    return this.table.insertFrom(select, options);
+  }
+
   async update<X extends ComputedMap = Record<never, never>>(
     data: UpdateData<RowFromSchema<S>>,
     options?: { returning?: true; computed?: X }

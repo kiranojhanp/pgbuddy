@@ -144,6 +144,69 @@ export type GroupedRow<
 /**
  * Result of `groupBy`: grouped rows plus typed aggregate aliases.
  */
+export type HavingOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte";
+
+export type HavingValue = number | Partial<Record<HavingOperator, number>>;
+
+export type HavingInput<X extends ComputedMap> = {
+  [K in keyof X]?: HavingValue;
+};
+
+const HAVING_OPERATORS: Record<HavingOperator, string> = {
+  eq: "=",
+  neq: "<>",
+  gt: ">",
+  gte: ">=",
+  lt: "<",
+  lte: "<=",
+};
+
+function buildHavingFragment<X extends ComputedMap>(
+  sql: Sql<Record<string, unknown>>,
+  aggregates: X,
+  conditions: HavingInput<X>
+): SqlFragment {
+  let result = sql``;
+  let first = true;
+
+  for (const [alias, condition] of Object.entries(conditions)) {
+    const expression = aggregates[alias];
+    if (!expression || condition === undefined) {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS(alias), { code: "INVALID_COLUMNS" });
+    }
+
+    const entries: Array<[HavingOperator, number]> =
+      typeof condition === "number"
+        ? [["eq", condition]]
+        : (Object.entries(condition) as Array<[HavingOperator, number]>);
+
+    for (const [operator, value] of entries) {
+      if (
+        !Object.hasOwn(HAVING_OPERATORS, operator) ||
+        typeof value !== "number" ||
+        !Number.isFinite(value)
+      ) {
+        throw new QueryError(Errors.SELECT.INVALID_COLUMNS(alias), { code: "INVALID_COLUMNS" });
+      }
+      const fragment = sql`${expression.fragment} ${sql.unsafe(HAVING_OPERATORS[operator])} ${value}`;
+      result = first ? fragment : sql`${result} AND ${fragment}`;
+      first = false;
+    }
+  }
+
+  return result;
+}
+
+function isSqlFragment(value: unknown): value is SqlFragment {
+  return (
+    typeof value === "function" ||
+    (typeof value === "object" &&
+      value !== null &&
+      Array.isArray((value as { strings?: unknown }).strings) &&
+      Array.isArray((value as { args?: unknown }).args))
+  );
+}
+
 export class GroupedQuery<
   T extends Row,
   K extends SelectKeys<T>,
@@ -155,28 +218,41 @@ export class GroupedQuery<
   private readonly columns: G;
   private readonly aggregates: X;
   private readonly havingValue?: SqlFragment;
+  private readonly havingConditions?: HavingInput<X>;
 
-  constructor(table: Table<T, K, I>, columns: G, aggregates: X, having?: SqlFragment) {
+  constructor(
+    table: Table<T, K, I>,
+    columns: G,
+    aggregates: X,
+    having?: SqlFragment,
+    havingConditions?: HavingInput<X>
+  ) {
     this.table = table;
     this.columns = columns;
     this.aggregates = aggregates;
     this.havingValue = having;
+    this.havingConditions = havingConditions;
   }
 
   private next(overrides: {
     table?: Table<T, K, I>;
     having?: SqlFragment;
+    havingConditions?: HavingInput<X>;
   }): GroupedQuery<T, K, I, G, X> {
     return new GroupedQuery(
       overrides.table ?? this.table,
       this.columns,
       this.aggregates,
-      overrides.having ?? this.havingValue
+      overrides.having ?? this.havingValue,
+      overrides.havingConditions ?? this.havingConditions
     );
   }
 
-  having(fragment: SqlFragment): GroupedQuery<T, K, I, G, X> {
-    return this.next({ having: fragment });
+  having(fragment: SqlFragment): GroupedQuery<T, K, I, G, X>;
+  having(conditions: HavingInput<X>): GroupedQuery<T, K, I, G, X>;
+  having(input: SqlFragment | HavingInput<X>): GroupedQuery<T, K, I, G, X> {
+    if (isSqlFragment(input)) return this.next({ having: input });
+    return this.next({ havingConditions: input as HavingInput<X> });
   }
 
   where(conditions: WhereInput<T>): GroupedQuery<T, K, I, G, X> {
@@ -204,7 +280,12 @@ export class GroupedQuery<
   }
 
   findMany(): Promise<Array<GroupedRow<T, G, X>>> {
-    return this.table.executeGrouped(this.columns, this.aggregates, this.havingValue);
+    const having =
+      this.havingValue ??
+      (this.havingConditions
+        ? buildHavingFragment(this.table.getSql(), this.aggregates, this.havingConditions)
+        : undefined);
+    return this.table.executeGrouped(this.columns, this.aggregates, having);
   }
 
   async findFirst(): Promise<GroupedRow<T, G, X> | null> {
@@ -1874,6 +1955,131 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    *   .update({ status: "inactive" });
    * ```
    */
+  /**
+   * Update rows using a raw FROM clause. Existing where conditions are
+   * required; the FROM fragment is raw SQL.
+   */
+  async updateFrom<X extends ComputedMap = Record<never, never>>(
+    data: UpdateData<T>,
+    from: SqlFragment,
+    options?: { returning?: boolean; computed?: X }
+  ): Promise<Array<SelectFields<T, K>[0] & ComputedResult<X>> | number> {
+    if (!this.hasWhereConditions()) {
+      throw new QueryError(Errors.UPDATE.NO_CONDITIONS, { code: "NO_CONDITIONS" });
+    }
+
+    const cleaned = omitUndefined(data);
+    if (!isValidData(cleaned)) {
+      throw new QueryError(Errors.UPDATE.INVALID_DATA, { code: "INVALID_DATA" });
+    }
+    this.assertAllowedColumns(Object.keys(cleaned), "update");
+
+    const assignments = Object.entries(cleaned).reduce((acc, [column, value], index) => {
+      const assignment = this
+        .sql`${this.sql(this.resolveColumn(column) as never)} = ${this.encodeValue(column, value)}`;
+      return index === 0 ? assignment : this.sql`${acc}, ${assignment}`;
+    }, this.sql``);
+
+    const where = buildWhereInputs(this.sql, this.whereInputs, this.nameOptions());
+
+    if (options?.returning === false) {
+      const result = await this.sql`
+        UPDATE ${this.sql(this.tableName)}
+        SET ${assignments}
+        FROM ${from}
+        ${where}
+      `;
+      return (result as unknown as { count?: number }).count ?? 0;
+    }
+
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
+      UPDATE ${this.sql(this.tableName)}
+      SET ${assignments}
+      FROM ${from}
+      ${where}
+      RETURNING ${this.buildSelection(options?.computed, this.tableName)}
+    `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+      SelectFields<T, K>[0] & ComputedResult<X>
+    >;
+  }
+
+  /**
+   * Delete rows using a raw USING clause. Existing where conditions are
+   * required; the USING fragment is raw SQL.
+   */
+  async deleteUsing(
+    using: SqlFragment,
+    options?: { returning?: boolean }
+  ): Promise<Array<SelectFields<T, K>[0]> | number> {
+    if (!this.hasWhereConditions()) {
+      throw new QueryError(Errors.DELETE.NO_CONDITIONS, { code: "NO_CONDITIONS" });
+    }
+
+    const where = buildWhereInputs(this.sql, this.whereInputs, this.nameOptions());
+
+    if (options?.returning === false) {
+      const result = await this.sql`
+        DELETE FROM ${this.sql(this.tableName)}
+        USING ${using}
+        ${where}
+      `;
+      return (result as unknown as { count?: number }).count ?? 0;
+    }
+
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
+      DELETE FROM ${this.sql(this.tableName)}
+      USING ${using}
+      ${where}
+      RETURNING ${this.buildSelection(undefined, this.tableName)}
+    `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<SelectFields<T, K>[0]>;
+  }
+
+  /**
+   * Insert rows from a SELECT statement. The SELECT is raw SQL and is not
+   * validated by pgbuddy.
+   */
+  async insertFrom<X extends ComputedMap = Record<never, never>>(
+    select: SqlFragment,
+    options?: {
+      columns?: readonly (keyof T & string)[];
+      returning?: boolean;
+      computed?: X;
+    }
+  ): Promise<Array<SelectFields<T, K>[0] & ComputedResult<X>> | number> {
+    const columns = options?.columns;
+    if (columns) {
+      if (
+        !Array.isArray(columns) ||
+        columns.length === 0 ||
+        columns.some((column) => typeof column !== "string")
+      ) {
+        throw new QueryError(Errors.INSERT.INVALID_DATA, { code: "INVALID_DATA" });
+      }
+      this.assertAllowedColumns(columns as string[], "insert");
+    }
+
+    const target = columns?.length
+      ? this.sql`(${this.sql(columns.map((column) => this.resolveColumn(column)) as string[])})`
+      : this.sql``;
+
+    if (options?.returning === false) {
+      const result = await this.sql`
+        INSERT INTO ${this.sql(this.tableName)} ${target} ${select}
+      `;
+      return (result as unknown as { count?: number }).count ?? 0;
+    }
+
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
+      INSERT INTO ${this.sql(this.tableName)} ${target} ${select}
+      RETURNING ${this.buildSelection(options?.computed)}
+    `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+      SelectFields<T, K>[0] & ComputedResult<X>
+    >;
+  }
+
   async update<X extends ComputedMap = Record<never, never>>(
     data: UpdateData<T>,
     options?: { returning?: true; computed?: X }
@@ -2088,7 +2294,10 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * @returns Promise resolving to the query results
    * @private
    */
-  private buildSelection(computed?: Record<string, SqlExpression<unknown>>): SqlFragment {
+  private buildSelection(
+    computed?: Record<string, SqlExpression<unknown>>,
+    qualifier?: string
+  ): SqlFragment {
     const selected = this.selectedFields as readonly string[];
     const wildcard = selected.length === 0 || selected[0] === "*";
 
@@ -2097,17 +2306,22 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }
 
     const base = wildcard
-      ? this.sql`*`
+      ? qualifier
+        ? this.sql`${this.sql(qualifier)}.*`
+        : this.sql`*`
       : selected.reduce((acc, field, index) => {
           buildSelect(this.sql, [field] as never, {
             strictNames: this.strictNames,
             allowSchema: this.allowSchema,
           });
           const column = this.resolveColumn(field);
+          const source = qualifier
+            ? this.sql`${this.sql(qualifier)}.${this.sql(column)}`
+            : this.sql`${this.sql(column)}`;
           const part =
-            column === field
+            column === field && !qualifier
               ? this.sql`${this.sql(field)}`
-              : this.sql`${this.sql(column)} AS ${this.sql(field)}`;
+              : this.sql`${source} AS ${this.sql(field)}`;
           return index === 0 ? part : this.sql`${acc}, ${part}`;
         }, this.sql``);
 

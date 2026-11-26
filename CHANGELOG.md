@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `db.batch(callback | pending queries)` for true one-round-trip batches; the
   callback must synchronously return pending queries.
 - `db.batchSQL([...])` typed raw statement batch using `sql.batch`.
+- `insertFrom`, `updateFrom`, and `deleteUsing` for `INSERT … SELECT`,
+  `UPDATE … FROM`, and `DELETE … USING`.
+- Typed aggregate `HAVING` conditions via `groupBy(...).having({...})`.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.

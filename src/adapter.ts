@@ -434,6 +434,37 @@ export class ValidatedTable<
     return this.table.prepare() as () => Promise<Array<T>>;
   }
 
+  async updateFrom(
+    data: Partial<I>,
+    from: SqlFragment,
+    options?: { returning?: boolean }
+  ): Promise<T[] | number> {
+    const parsed = parseOrThrow(this.adapter.parsePartial(data), "update data");
+    return (
+      options?.returning === false
+        ? this.table.updateFrom(parsed as UpdateData<T>, from, { returning: false })
+        : this.table.updateFrom(parsed as UpdateData<T>, from)
+    ) as Promise<T[] | number>;
+  }
+
+  async deleteUsing(using: SqlFragment, options?: { returning?: boolean }): Promise<T[] | number> {
+    return (
+      options?.returning === false
+        ? this.table.deleteUsing(using, { returning: false })
+        : this.table.deleteUsing(using)
+    ) as Promise<T[] | number>;
+  }
+
+  async insertFrom(
+    select: SqlFragment,
+    options?: {
+      columns?: readonly (keyof T & string)[];
+      returning?: boolean;
+    }
+  ): Promise<T[] | number> {
+    return this.table.insertFrom(select, options) as Promise<T[] | number>;
+  }
+
   async create(data: I): Promise<T> {
     const parsed = parseOrThrow(this.adapter.parse(data), "data");
     return this.table.create(parsed) as Promise<T>;
