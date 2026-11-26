@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
 - Optional `maxSkip` pagination guard and `stream()` batch-size cap.
 - Runtime validation of transaction isolation modes and flags.
+- Dependency security update: Zod `>=4.6.6` and current tsup tooling; `bun audit`
+  reports no vulnerabilities.
 - Adapter relation keys are inferred from `fields` field lists.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.

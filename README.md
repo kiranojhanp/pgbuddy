@@ -772,6 +772,33 @@ await priceOverrides
 FROM, and USING fragments are raw SQL; identifiers are still escaped by
 postgres.js.
 
+## Performance notes
+
+- `findManyAndCount()` batches the page and filtered count into one round trip.
+- `db.batch(...)` and `db.batchSQL(...)` use postgres.js `sql.batch` for one
+  round trip.
+- `findManyInfinite()` uses keyset predicates and fetches one extra row to
+  determine `hasMore`.
+- `stream(batchSize)` reads through a server-side cursor without buffering the
+  full result.
+- Relations are loaded in batches, not per parent row.
+- `maxTake` caps page and stream batch sizes; `maxSkip` optionally caps offset
+  pagination.
+- Exact totals can be expensive on large tables; use keyset pagination or
+  `hasMore` when a total is not required.
+
+## Security notes
+
+- Values are bound by postgres.js; identifiers are escaped.
+- Raw helpers (`whereRaw`, `orderByRaw`, join `on`, `insertFrom` SELECT,
+  `updateFrom` FROM, `deleteUsing` USING, `prepare`, and `batchSQL`) are trusted
+  SQL and must never receive unvalidated user input.
+- Transaction isolation modes and flags are validated at runtime before being
+  sent to PostgreSQL.
+- The optional `maxSkip` guard bounds offset pagination; `maxTake` bounds page
+  and stream sizes.
+- Zod is the default validator and has a patched minimum of `4.6.6`.
+
 ## Kitchen sink
 
 A runnable ecommerce example exercises the full API end to end:
