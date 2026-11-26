@@ -695,6 +695,7 @@ type TableState<T extends Row> = {
   uniqueKeys?: readonly (readonly string[])[];
   uniqueWhere?: boolean;
   defaultTake?: number;
+  signal?: AbortSignal;
 };
 
 /**
@@ -792,6 +793,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private uniqueKeys?: readonly (readonly string[])[];
   private uniqueWhere: boolean;
   private defaultTake?: number;
+  private signalValue?: AbortSignal;
 
   constructor(sql: Sql<Record<string, unknown>>, tableName: string, state?: TableState<T>) {
     this.sql = sql;
@@ -819,6 +821,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.uniqueKeys = state?.uniqueKeys?.map((columns) => [...columns]);
     this.uniqueWhere = Boolean(state?.uniqueWhere);
     this.defaultTake = state?.defaultTake;
+    this.signalValue = state?.signal;
   }
 
   /** @internal Returns the identifier validation options. */
@@ -834,6 +837,28 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       columnMap: this.columnMap,
       columnCodecs: this.columnCodecs,
     };
+  }
+
+  /** Attach an AbortSignal to SELECT execution. */
+  signal(signal: AbortSignal): Table<T, K, I> {
+    return this.clone({ signal });
+  }
+
+  /**
+   * Stream the current SELECT in batches. Relation includes are not applied;
+   * use `findMany` with includes when you need relation hydration.
+   */
+  async *stream(batchSize = 1): AsyncIterable<Array<SelectFields<T, K>[0]>> {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS("batchSize"), {
+        code: "INVALID_COLUMNS",
+      });
+    }
+    const query = this.buildSelectQuery();
+    if (this.signalValue) query.signal(this.signalValue);
+    for await (const rows of query.cursor(batchSize)) {
+      yield this.decodeRows(rows as Array<Record<string, unknown>>) as Array<SelectFields<T, K>[0]>;
+    }
   }
 
   private resolveColumn(field: string): string {
@@ -936,6 +961,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
       defaultTake: this.defaultTake,
+      signal: this.signalValue,
       ...next,
     });
   }
@@ -2623,7 +2649,9 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private async executeSelect(
     computed?: Record<string, SqlExpression<unknown>>
   ): Promise<Array<SelectFields<T, K>[0]>> {
-    const rows = await this.buildSelectQuery(computed);
+    const query = this.buildSelectQuery(computed);
+    if (this.signalValue) query.signal(this.signalValue);
+    const rows = await query;
     return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<SelectFields<T, K>[0]>;
   }
 

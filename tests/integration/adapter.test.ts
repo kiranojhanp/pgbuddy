@@ -59,6 +59,8 @@ describe("validation adapter table", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql, { adapter });
 
+    await sql`DROP TABLE IF EXISTS user_tags;`;
+    await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
@@ -83,9 +85,24 @@ describe("validation adapter table", () => {
         body TEXT NOT NULL
       );
     `;
+    await sql`
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL
+      );
+    `;
+    await sql`
+      CREATE TABLE user_tags (
+        user_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (user_id, tag_id)
+      );
+    `;
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS user_tags;`;
+    await sql`DROP TABLE IF EXISTS tags;`;
     await sql`DROP TABLE IF EXISTS comments;`;
     await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
@@ -231,5 +248,37 @@ describe("validation adapter table", () => {
 
     const comments = rows[0]?.posts[0]?.comments as Array<Record<string, unknown>> | undefined;
     expect(comments?.[0]?.body).toBe("Nested");
+  });
+
+  test("supports adapter through relations", async () => {
+    const usersWithTags = () =>
+      db.table("users", UserSchema, {
+        adapterRelations: {
+          tags: {
+            table: "tags",
+            fields: ["id", "name"],
+            localKey: "id",
+            relation: "many",
+            through: {
+              table: "user_tags",
+              parentKey: "user_id",
+              relatedKey: "tag_id",
+              targetKey: "id",
+            },
+          },
+        },
+      });
+
+    await usersWithTags().create({
+      id: 1,
+      email: "ada@example.com",
+      status: "active",
+    });
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
+    await sql`INSERT INTO user_tags (user_id, tag_id) VALUES (1, 1)`;
+
+    const rows = await usersWithTags().include("tags").withCount("tags").findMany();
+    expect(rows[0]?.tags[0]?.name).toBe("typescript");
+    expect(rows[0]?.tags_count).toBe(1);
   });
 });

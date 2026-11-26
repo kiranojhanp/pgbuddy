@@ -445,6 +445,14 @@ export class ValidatedTable<
     return this.table.toSQL();
   }
 
+  signal(signal: AbortSignal): ValidatedTable<T, K, I, R> {
+    return new ValidatedTable(this.table.signal(signal), this.adapter, this.adapterRelations);
+  }
+
+  stream(batchSize = 1): AsyncIterable<Array<T>> {
+    return this.table.stream(batchSize) as AsyncIterable<Array<T>>;
+  }
+
   prepare(): () => Promise<Array<T>> {
     return this.table.prepare() as () => Promise<Array<T>>;
   }

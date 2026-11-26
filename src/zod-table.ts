@@ -1706,6 +1706,14 @@ export class ZodTable<
    * Build a reusable prepared executor for the base SELECT. Relation includes
    * are not applied by prepared execution.
    */
+  signal(signal: AbortSignal): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.signal(signal));
+  }
+
+  stream(batchSize = 1): AsyncIterable<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
+    return this.table.stream(batchSize);
+  }
+
   prepare(): () => Promise<Array<SelectFields<RowFromSchema<S>, K>[0]>> {
     return this.table.prepare();
   }

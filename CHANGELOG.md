@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `UPDATE … FROM`, and `DELETE … USING`.
 - Typed aggregate `HAVING` conditions via `groupBy(...).having({...})`.
 - Expression-based grouping via `groupByExpr({ alias: sqlExpr(...) })`.
+- SELECT cancellation via `signal()` and batched streaming via `stream()`.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.

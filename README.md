@@ -738,7 +738,9 @@ a schema toolkit or a full SQL AST.
 - [x] **`INSERT … SELECT`.** `insertFrom(select, { columns, returning })`.
 - [x] **`UPDATE … FROM` / `DELETE … USING`.** `updateFrom(data, from)` and
   `deleteUsing(using)` require existing where conditions.
-- [ ] Query cancellation and streaming access.
+- [x] **SELECT cancellation and streaming.** `signal(abortSignal)` and
+  `stream(batchSize)` cover the base SELECT path; relation hydration is not
+  streamed.
 
 ### P3 — out of scope / use raw SQL
 

@@ -505,6 +505,15 @@ Inspects the current SELECT without executing it. Identifiers are quoted and
 values are returned separately in `parameters`. Covers computed projections on
 `selectExpr(...)`.
 
+#### signal(signal)
+
+Attaches an `AbortSignal` to SELECT execution.
+
+#### stream(batchSize = 1)
+
+Streams the base SELECT as batches of rows. Relation includes are not applied to
+streamed rows.
+
 #### prepare()
 
 ```typescript
