@@ -7,6 +7,7 @@
 - [README](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/README.md): Installation, quick start, schema-first usage, and the main API overview.
 - [Introduction](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/introduction.md): Product philosophy, validation model, and basic querying.
 - [API reference](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/api-reference.md): PgBuddyClient, table builders, filters, writes, relations, batches, and adapters.
+- [Advanced execution](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/advanced.md): Batching, prepared plans, transactions/retry, streaming, EXPLAIN, expressions, and SQL write helpers.
 - [Examples index](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/examples.md): Pointers to runnable examples.
 
 ## Guides
@@ -16,6 +17,7 @@
 - [Chainable API](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/chainable-api.md): How query state and chaining work.
 - [Data transformation](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/data-transformation.md): Column mapping, codecs, and serialization.
 - [Ecommerce kitchen sink](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/kitchen-sink.md): Walkthrough of the full API against a real ecommerce schema.
+- [Roadmap](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/roadmap.md): Completed features and intentional out-of-scope items.
 
 ## Recipes
 
