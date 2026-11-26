@@ -68,7 +68,7 @@ schemas for validation.
 
 ## Schema-first
 
-Zod is required, not an optional add-on:
+Validation is required, and Zod is the default:
 
 - `create`, `createMany`, `update`, and `upsert` validate their payloads before
   executing SQL.
@@ -76,6 +76,8 @@ Zod is required, not an optional add-on:
 - `ZodTable` validates `where`, `orderBy`, `omit`, and relation refinements
   against the schema.
 - `z.object` strips unknown keys; use `z.strictObject` to reject them.
+- Configure a connection-level `ValidatorAdapter` for Valibot, Yup, or another
+  library.
 
 For raw queries or features the typed API does not model, use `db.sql`.
 
@@ -324,29 +326,33 @@ const findUser = db.prepare<{ id: number; email: string }>(
 const prepared = await findUser([id]);
 ```
 
-Run several queries atomically in one transaction with ordered tuple results:
+Batch work in a transaction with a callback, like `db.transaction`:
 
 ```ts
-const [created, found, count] = await db.batch([
-  (tx) => tx.table("users", UserSchema).create({ name: "Alice", email }),
-  (tx) => tx.table("users", UserSchema).where({ email }).findFirst(),
-  (tx) => tx.table("users", UserSchema).count(),
+const [created, found, count] = await db.batch(async (tx) => {
+  const created = await tx.table("users", UserSchema).create({ name: "Alice", email });
+  const found = await tx.table("users", UserSchema).where({ email }).findFirst();
+  const count = await tx.table("users", UserSchema).count();
+  return [created, found, count] as const;
+});
+```
+
+For a true one-round-trip batch, pass pending postgres.js queries:
+
+```ts
+const [updated, count] = await db.batch([
+  db.sql`update users set status = ${status} where id = ${id}`,
+  db.sql`select count(*)::int as count from users`,
 ]);
 ```
 
-`batch` runs thunks sequentially inside one transaction and rolls back
-everything on failure. For a true one-round-trip batch on postgres.js v4, use
-`batchSQL` with raw statements:
+`batchSQL` is the typed statement wrapper for the same true batch path:
 
 ```ts
 const [updated, count] = await db.batchSQL([
   { text: "update users set status = $1 where id = $2", parameters: ["active", id] },
   { text: "select count(*)::int as count from users" },
 ]);
-```
-
-On postgres.js v3.4.5, `batchSQL` falls back to a sequential transaction because
-`sql.batch` is not available there.
 ```
 
 ## Relations
@@ -703,7 +709,7 @@ a schema toolkit or a full SQL AST.
 - [x] **Split the relation runtime out of `src/zod-table.ts`.** The batched
   loader now lives in `src/relations.ts`.
 - [x] **Real-PostgreSQL CI service job.** The hosted PostgreSQL 16 matrix
-  passes for postgres.js 3.4.5 and 4.1.1
+  passes on postgres.js 4.1.1
   ([run 45742549477](https://github.com/kiranojhanp/pgbuddy/actions/runs/45742549477)).
 
 ### P1 — high value, moderate effort
@@ -718,16 +724,16 @@ a schema toolkit or a full SQL AST.
   for direct and through relations, with an optional `where` refinement.
 - [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
   related aggregate.
-- [x] **Sequential atomic batch API.** `db.batch([...])` runs query thunks in
-  one transaction with tuple result types.
+- [x] **Transaction-style batch callback.** `db.batch(async (tx) => ...)`
+  returns the callback result and rolls back on failure.
 - [x] **`toSQL()` inspection** for SELECT builders, including computed
   projections.
 - [x] **Raw prepared statements.** `db.prepare(text)` returns a reusable
   executor using postgres.js named preparation.
 - [x] **Builder-level prepared SELECT plans.** `Table.prepare()` returns a
   reusable executor with fixed parameters.
-- [x] **True protocol batch on postgres.js v4.** `db.batchSQL` uses `sql.batch`
-  for one round trip; v3.4.5 falls back to a sequential transaction.
+- [x] **True protocol batch.** `db.batch([pending queries])` and `db.batchSQL`
+  use postgres.js `sql.batch` for one round trip.
 
 ### P2 — useful, but raw SQL is acceptable
 
@@ -756,9 +762,8 @@ a schema toolkit or a full SQL AST.
 ## Compatibility
 
 - **Zod v4 or newer is required.**
-- **postgres.js v3 (>= 3.4.5) and v4** are supported. CI runs the full suite against both `3.4.5` and `4.1.1` on PGlite and a real PostgreSQL 16 service.
-- pgbuddy imports postgres.js **types only**, so your postgres.js major version does not affect pgbuddy's runtime or module format.
-- postgres.js v4 lets the server decide parameter types, which changes some `Date` / `bigint` / array behaviour compared with v3. See [Upgrading from v3](https://github.com/porsager/postgres#upgrading-from-v3).
+- **postgres.js v4** is required. CI runs the full suite against `4.1.1` on PGlite and a real PostgreSQL 16 service.
+- pgbuddy imports postgres.js **types only**, so pgbuddy stays runtime-agnostic apart from the driver's query objects.
 
 ## Documentation
 

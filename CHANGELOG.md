@@ -8,12 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Breaking:** Zod is now a required peer dependency. `db.table()` requires a
-  Zod object schema, and the plain TypeScript-only table API
-  (`db.table<T>()`, `tableWithInsert`, the `columns` option, and the
-  `Insertable`/`Model`/`Updatable`/`Selectable` helpers) has been removed.
-  `.selectExpr()` and updates can still use SQL fragments; Zod update
-  validation skips fragment-valued fields.
+- **Breaking:** Zod is the default validator and a required peer. Plain
+  TypeScript-only tables (`db.table<T>()`, `tableWithInsert`, `columns`, and
+  `Insertable`/`Model`/`Updatable`/`Selectable`) remain removed. A
+  connection-level `ValidatorAdapter` can validate tables from Valibot, Yup, or
+  a custom library; Zod remains required for relations and schema-derived
+  projections.
 - `findFirstOrThrow()` / `findUniqueOrThrow()` now set
   `QueryError.code = "NO_ROWS"`.
 
@@ -23,9 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orderByRelated` for ordering parents by correlated relation aggregates.
 - Per-field `columnCodecs` for custom encode/decode serialization across writes,
   filters, cursors, and result rows.
-- `db.batch([...])` for sequential atomic query batches with tuple result types.
-- `db.batchSQL([...])` for true one-round-trip batches on postgres.js v4, with
-  a sequential v3 fallback.
+- `db.batch(callback)` transaction-style batch and `db.batch([pending queries])`
+  for true one-round-trip batches.
+- `db.batchSQL([...])` typed raw statement batch using `sql.batch`.
+- postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.
 - `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.

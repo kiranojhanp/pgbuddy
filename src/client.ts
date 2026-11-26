@@ -1,4 +1,4 @@
-import type { Row, Sql } from "postgres";
+import type { PendingQuery, Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
 import {
   type AdapterRelations,
@@ -128,7 +128,8 @@ function assertUniqueOption(unique: readonly (readonly string[])[] | undefined):
   }
 }
 
-export type BatchQuery = (tx: PgBuddyClient) => Promise<unknown>;
+// biome-ignore lint/suspicious/noExplicitAny: postgres.js PendingQuery is invariant per result shape
+export type BatchQuery = PendingQuery<any>;
 
 export type PreparedQuery<T extends Row = Row> = (parameters?: readonly unknown[]) => Promise<T[]>;
 
@@ -145,7 +146,7 @@ export type BatchResults<Q extends readonly BatchQuery[]> = Q extends readonly [
   infer Head extends BatchQuery,
   ...infer Tail extends readonly BatchQuery[],
 ]
-  ? [Awaited<ReturnType<Head>>, ...BatchResults<Tail>]
+  ? [Head extends PendingQuery<infer R> ? NonNullable<Awaited<R>> : never, ...BatchResults<Tail>]
   : [];
 
 /**
@@ -269,7 +270,7 @@ export class PgBuddyClient {
       defaultTake: this.defaultTake,
     };
 
-    // postgres.js v4 exposes nested `begin`; v3 exposes `savepoint` on the
+    // postgres.js v4 exposes nested `begin`;
     // transaction-scoped sql. Support both.
     const runner = this.sql as unknown as {
       begin?: (
@@ -324,12 +325,11 @@ export class PgBuddyClient {
   }
 
   /**
-   * Run raw SQL statements as one postgres.js batch on v4 (one round trip,
-   * one implicit transaction). v3 falls back to a sequential transaction.
+   * Run raw SQL statements as one postgres.js batch (one round trip, one
+   * implicit transaction).
    */
   async batchSQL<Q extends readonly BatchSQLStatement[]>(
-    statements: Q,
-    options?: TransactionOptions
+    statements: Q
   ): Promise<BatchSQLResults<Q>> {
     if (!Array.isArray(statements) || statements.length === 0) {
       throw new TableError("batchSQL requires a non-empty array of statements");
@@ -349,43 +349,36 @@ export class PgBuddyClient {
       this.sql.unsafe(statement.text, (statement.parameters ?? []) as never)
     );
 
-    const driver = this.sql as unknown as {
-      batch?: (items: unknown[]) => Promise<unknown[]>;
-    };
-
-    if (typeof driver.batch === "function") {
-      return (await driver.batch(queries)) as BatchSQLResults<Q>;
-    }
-
-    return this.transaction(async (tx) => {
-      const results: unknown[] = [];
-      for (const statement of statements) {
-        results.push(await tx.sql.unsafe(statement.text, (statement.parameters ?? []) as never));
-      }
-      return results;
-    }, options) as Promise<BatchSQLResults<Q>>;
+    return (await this.sql.batch(queries)) as BatchSQLResults<Q>;
   }
 
   /**
-   * Run several query thunks sequentially inside one transaction. Results are
-   * returned in order. This is atomic, but it is not a single protocol
-   * round-trip; use postgres.js directly if you need a driver-level batch.
+   * Transaction-like callback batch:
+   *
+   * `await db.batch(async (tx) => { ... })`
+   *
+   * Or a true postgres.js batch of pending queries:
+   *
+   * `await db.batch([db.sql`...`, db.sql`...`])`
    */
-  async batch<Q extends readonly BatchQuery[]>(
-    queries: Q,
+  // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
+  batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+  batch<T>(work: (tx: PgBuddyClient) => T | Promise<T>, options?: TransactionOptions): Promise<T>;
+  async batch(
+    // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
+    input: ((tx: PgBuddyClient) => unknown) | readonly PendingQuery<any>[],
     options?: TransactionOptions
-  ): Promise<BatchResults<Q>> {
-    if (!Array.isArray(queries) || queries.some((query) => typeof query !== "function")) {
-      throw new TableError("batch requires an array of query functions");
+  ): Promise<unknown> {
+    if (typeof input === "function") {
+      return this.transaction(async (tx) => input(tx) as Promise<unknown>, options);
     }
 
-    return this.transaction(async (tx) => {
-      const results: unknown[] = [];
-      for (const query of queries) {
-        results.push(await query(tx));
-      }
-      return results;
-    }, options) as Promise<BatchResults<Q>>;
+    if (Array.isArray(input)) {
+      if (input.length === 0) return [];
+      return this.sql.batch(input as never);
+    }
+
+    throw new TableError("batch requires a callback or an array of pending queries");
   }
 
   /**

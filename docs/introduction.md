@@ -36,8 +36,8 @@ npm install pgbuddy postgres zod
 Zod is the default: schema-backed table builders are created from a Zod schema,
 so writes are validated before they reach PostgreSQL. Configure one
 `ValidatorAdapter` on the client (`new PgBuddyClient(sql, { adapter })`) to use
-Valibot, Yup, or a custom library for every table. Both postgres.js v3
-(`>= 3.4.5`) and v4 are supported; the test suite runs against both majors.
+Valibot, Yup, or a custom library for every table. postgres.js **v4** is
+required; the test suite runs against `4.1.1`.
 
 ### Quick start
 
@@ -59,16 +59,18 @@ const UserSchema = z.object({
 const users = db.table("users", UserSchema);
 ```
 
-### Why Zod is required
+### Why validation is required
 
 pgbuddy is a validation-first helper. Plain TypeScript types disappear at
 runtime, so a table built from an interface alone cannot reject unknown columns,
 wrong value types, or malformed input. Every `db.table()` therefore requires a
-Zod object schema. The schema defines the write contract; Zod strips unknown
-keys by default and `z.strictObject` rejects them.
+schema. Zod is the default and strips unknown keys with `z.object`; use
+`z.strictObject` to reject them.
 
-A future release may support other validation libraries through an adapter.
-Plain TypeScript-only tables are intentionally not supported.
+Zod is required for Zod tables, relations, joins, and computed features. A
+connection-level `ValidatorAdapter` supports Valibot, Yup, or a custom library
+for core CRUD and adapter relations. Plain TypeScript-only tables are
+intentionally not supported.
 
 ### Using the chainable API
 

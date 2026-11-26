@@ -78,38 +78,42 @@ await findUser([1]);
 The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
 prepared plans are not supported yet.
 
-### batch(queries, options?)
+### batch(callback | queries)
 
 ```typescript
-batch<Q extends readonly BatchQuery[]>(
-  queries: Q,
-  options?: TransactionOptions
-): Promise<BatchResults<Q>>
+batch<T>(callback: (tx: PgBuddyClient) => T | Promise<T>): Promise<T>;
+batch<Q extends readonly PendingQuery<any>[]>(queries: Q): Promise<BatchResults<Q>>;
 ```
 
-Runs query thunks sequentially inside one transaction and returns their results
-in order. The transaction rolls back if any thunk throws. This is atomic but not
-a single protocol round-trip.
+Transaction-style callback:
 
 ```typescript
-const [created, count] = await db.batch([
-  (tx) => tx.table("users", UserSchema).create(data),
-  (tx) => tx.table("users", UserSchema).count(),
+const [created, count] = await db.batch(async (tx) => {
+  const created = await tx.table("users", UserSchema).create(data);
+  const count = await tx.table("users", UserSchema).count();
+  return [created, count] as const;
+});
+```
+
+Or true postgres.js batch of pending queries:
+
+```typescript
+const [updated, count] = await db.batch([
+  db.sql`update users set status = ${status} where id = ${id}`,
+  db.sql`select count(*)::int as count from users`,
 ]);
 ```
 
-### batchSQL(statements, options?)
+### batchSQL(statements)
 
 ```typescript
 batchSQL<Q extends readonly BatchSQLStatement[]>(
-  statements: Q,
-  options?: TransactionOptions
+  statements: Q
 ): Promise<BatchSQLResults<Q>>
 ```
 
-Runs raw SQL statements through postgres.js `sql.batch` on v4: one round trip
-and one implicit transaction. On v3.4.5 it falls back to a sequential
-transaction because `sql.batch` is unavailable.
+Runs raw SQL statements through postgres.js `sql.batch`: one round trip and one
+implicit transaction.
 
 ```typescript
 const [rows, count] = await db.batchSQL([

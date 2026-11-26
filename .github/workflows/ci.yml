@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: ["3.4.5", "4.1.1"]
+        postgres-version: ["4.1.1"]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: ["3.4.5", "4.1.1"]
+        postgres-version: ["4.1.1"]
     services:
       postgres:
         image: postgres:16
