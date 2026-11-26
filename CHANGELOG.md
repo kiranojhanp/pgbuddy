@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projections, and `omit`.
 - `ValidatorAdapter` + `db.tableWithValidator` (schema + adapter split,
   Prapti-style) with built-in `zodValidator` and schema-inferred types.
+- Tree-shakeable Valibot/Yup adapters at `pgbuddy/adapters/valibot` and
+  `pgbuddy/adapters/yup` (optional peers).
 - Cyclic relation configurations are rejected instead of recursing forever.
 - Relation and join configs accept `columnMap`/`columnCodecs` for includes,
   counts, selected right-side join columns, and relation filters.

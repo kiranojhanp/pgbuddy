@@ -143,8 +143,16 @@ tableWithValidator<S, I extends Row = ValidatedInput<S>>(
 ```
 
 Prapti-style schema + adapter path. `ValidatorAdapter` supplies
-`fields(schema)`, `parse(schema, value)`, and `parsePartial(schema, value)`;
-`zodValidator` is built in. Output/input types are inferred from the schema.
+`fields(schema)`, `parse(schema, value)`, and `parsePartial(schema, value)`.
+Built-ins: `zodValidator`, plus subpath adapters for Valibot and Yup:
+
+```typescript
+import { valibotValidator } from "pgbuddy/adapters/valibot";
+import { yupValidator } from "pgbuddy/adapters/yup";
+```
+
+Output/input types are inferred from the schema. Valibot and Yup are optional
+peer dependencies.
 
 ```typescript
 const users = db.tableWithValidator("users", UserSchema, zodValidator);

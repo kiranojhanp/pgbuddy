@@ -110,9 +110,19 @@ import { zodValidator } from "pgbuddy";
 const users = db.tableWithValidator("users", UserSchema, zodValidator);
 ```
 
-A `ValidatorAdapter` has `fields(schema)`, `parse(schema, value)`, and
-`parsePartial(schema, value)`; implement those three methods for Valibot, Yup,
-ArkType, or another library. Output and input types are inferred from the
+Built-in adapters are available for Valibot and Yup through tree-shakeable
+subpaths:
+
+```ts
+import { valibotValidator } from "pgbuddy/adapters/valibot";
+import { yupValidator } from "pgbuddy/adapters/yup";
+
+const users = db.tableWithValidator("users", ValibotUserSchema, valibotValidator);
+```
+
+Valibot and Yup are optional peer dependencies; install only the one you use.
+A custom `ValidatorAdapter` only needs `fields(schema)`, `parse(schema, value)`,
+and `parsePartial(schema, value)`. Output and input types are inferred from the
 schema.
 
 Both adapter paths support core CRUD and query chaining, including
