@@ -353,32 +353,25 @@ export class PgBuddyClient {
   }
 
   /**
-   * Transaction-like callback batch:
-   *
-   * `await db.batch(async (tx) => { ... })`
-   *
-   * Or a true postgres.js batch of pending queries:
-   *
-   * `await db.batch([db.sql`...`, db.sql`...`])`
+   * True postgres.js batch: one SQL batch, one implicit transaction, one
+   * round trip. Pass pending queries directly or return them from a
+   * transaction-like synchronous callback.
    */
   // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
   batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
-  batch<T>(work: (tx: PgBuddyClient) => T | Promise<T>, options?: TransactionOptions): Promise<T>;
-  async batch(
-    // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
-    input: ((tx: PgBuddyClient) => unknown) | readonly PendingQuery<any>[],
-    options?: TransactionOptions
-  ): Promise<unknown> {
-    if (typeof input === "function") {
-      return this.transaction(async (tx) => input(tx) as Promise<unknown>, options);
-    }
+  // biome-ignore lint/suspicious/noExplicitAny: accepts pending queries of any row shape
+  batch<Q extends readonly PendingQuery<any>[]>(
+    build: (tx: PgBuddyClient) => [...Q]
+  ): Promise<BatchResults<Q>>;
+  async batch(input: unknown): Promise<unknown> {
+    const queries =
+      typeof input === "function" ? (input as (tx: PgBuddyClient) => unknown)(this) : input;
 
-    if (Array.isArray(input)) {
-      if (input.length === 0) return [];
-      return this.sql.batch(input as never);
+    if (!Array.isArray(queries)) {
+      throw new TableError("batch callback must return an array of pending postgres.js queries");
     }
-
-    throw new TableError("batch requires a callback or an array of pending queries");
+    if (queries.length === 0) return [];
+    return this.sql.batch(queries as never);
   }
 
   /**

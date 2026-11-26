@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orderByRelated` for ordering parents by correlated relation aggregates.
 - Per-field `columnCodecs` for custom encode/decode serialization across writes,
   filters, cursors, and result rows.
-- `db.batch(callback)` transaction-style batch and `db.batch([pending queries])`
-  for true one-round-trip batches.
+- `db.batch(callback | pending queries)` for true one-round-trip batches; the
+  callback must synchronously return pending queries.
 - `db.batchSQL([...])` typed raw statement batch using `sql.batch`.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.

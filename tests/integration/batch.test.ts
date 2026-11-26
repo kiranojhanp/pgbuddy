@@ -43,53 +43,38 @@ describe("client batch", () => {
 
   const users = () => db.table("users", UserSchema);
 
-  test("runs callback work in one transaction", async () => {
-    const [created, found, count] = await db.batch(async (tx) => {
-      const created = await tx.table("users", UserSchema).create({
-        id: 1,
-        email: "ada@example.com",
-        status: "active",
-        last_login: null,
-      });
-      const found = await tx
-        .table("users", UserSchema)
-        .where({ email: "ada@example.com" })
-        .findFirst();
-      const count = await tx.table("users", UserSchema).count();
-      return [created, found, count] as const;
-    });
-
-    expect(created.email).toBe("ada@example.com");
-    expect(found?.id).toBe(1);
-    expect(count).toBe(1);
-  });
-
-  test("rolls back the whole callback batch on failure", async () => {
-    await expect(
-      db.batch(async (tx) => {
-        await tx.table("users", UserSchema).create({
-          id: 2,
-          email: "rollback@example.com",
-          status: "active",
-          last_login: null,
-        });
-        throw new Error("boom");
-      })
-    ).rejects.toThrow("boom");
-
-    expect(await users().count()).toBe(0);
-  });
-
-  test("supports a true pending-query batch and empty batches", async () => {
+  test("runs pending queries in one batch", async () => {
     const [one, two] = await db.batch([sql`select 1::int as value`, sql`select 2::int as value`]);
 
     expect(one).toEqual([{ value: 1 }]);
     expect(two).toEqual([{ value: 2 }]);
-    await expect(db.batch([])).resolves.toEqual([]);
   });
 
-  test("rejects invalid batch input", async () => {
+  test("accepts pending queries from a transaction-like callback", async () => {
+    const [one, two] = await db.batch((tx) => [
+      tx.sql`select 1::int as value`,
+      tx.sql`select 2::int as value`,
+    ]);
+
+    expect(one).toEqual([{ value: 1 }]);
+    expect(two).toEqual([{ value: 2 }]);
+  });
+
+  test("rolls back the whole batch on failure", async () => {
+    await expect(
+      db.batch([
+        sql`INSERT INTO users (id, email, status) VALUES (2, 'rollback@example.com', 'active')`,
+        sql`select * from definitely_missing_table`,
+      ])
+    ).rejects.toThrow();
+
+    expect(await users().count()).toBe(0);
+  });
+
+  test("supports empty batches and rejects invalid input", async () => {
+    await expect(db.batch([])).resolves.toEqual([]);
     await expect(db.batch("nope" as never)).rejects.toThrow(TableError);
+    await expect(db.batch((() => Promise.resolve([])) as never)).rejects.toThrow(TableError);
   });
 
   test("batchSQL sends raw statements as a batch", async () => {

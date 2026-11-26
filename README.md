@@ -326,25 +326,19 @@ const findUser = db.prepare<{ id: number; email: string }>(
 const prepared = await findUser([id]);
 ```
 
-Batch work in a transaction with a callback, like `db.transaction`:
+`db.batch` is always one postgres.js batch: one round trip, one implicit
+transaction. Pass pending queries directly, or return them synchronously from a
+callback:
 
 ```ts
-const [created, found, count] = await db.batch(async (tx) => {
-  const created = await tx.table("users", UserSchema).create({ name: "Alice", email });
-  const found = await tx.table("users", UserSchema).where({ email }).findFirst();
-  const count = await tx.table("users", UserSchema).count();
-  return [created, found, count] as const;
-});
-```
-
-For a true one-round-trip batch, pass pending postgres.js queries:
-
-```ts
-const [updated, count] = await db.batch([
-  db.sql`update users set status = ${status} where id = ${id}`,
-  db.sql`select count(*)::int as count from users`,
+const [updated, count] = await db.batch((tx) => [
+  tx.sql`update users set status = ${status} where id = ${id}`,
+  tx.sql`select count(*)::int as count from users`,
 ]);
 ```
+
+Use `db.transaction(async (tx) => ...)` when you need sequential statements that
+depend on earlier results.
 
 `batchSQL` is the typed statement wrapper for the same true batch path:
 
@@ -724,8 +718,8 @@ a schema toolkit or a full SQL AST.
   for direct and through relations, with an optional `where` refinement.
 - [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
   related aggregate.
-- [x] **Transaction-style batch callback.** `db.batch(async (tx) => ...)`
-  returns the callback result and rolls back on failure.
+- [x] **True batch callback.** `db.batch((tx) => [pending queries])` builds one
+  `sql.batch` round trip and rolls back on failure.
 - [x] **`toSQL()` inspection** for SELECT builders, including computed
   projections.
 - [x] **Raw prepared statements.** `db.prepare(text)` returns a reusable

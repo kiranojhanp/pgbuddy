@@ -78,31 +78,27 @@ await findUser([1]);
 The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
 prepared plans are not supported yet.
 
-### batch(callback | queries)
+### batch(queries | callback)
 
 ```typescript
-batch<T>(callback: (tx: PgBuddyClient) => T | Promise<T>): Promise<T>;
-batch<Q extends readonly PendingQuery<any>[]>(queries: Q): Promise<BatchResults<Q>>;
+batch<Q extends readonly PendingQuery<any>[]>(queries: [...Q]): Promise<BatchResults<Q>>;
+batch<Q extends readonly PendingQuery<any>[]>(
+  callback: (tx: PgBuddyClient) => [...Q]
+): Promise<BatchResults<Q>>;
 ```
 
-Transaction-style callback:
+Runs pending postgres.js queries through `sql.batch`: one round trip and one
+implicit transaction. The callback must be synchronous and return pending
+queries.
 
 ```typescript
-const [created, count] = await db.batch(async (tx) => {
-  const created = await tx.table("users", UserSchema).create(data);
-  const count = await tx.table("users", UserSchema).count();
-  return [created, count] as const;
-});
-```
-
-Or true postgres.js batch of pending queries:
-
-```typescript
-const [updated, count] = await db.batch([
-  db.sql`update users set status = ${status} where id = ${id}`,
-  db.sql`select count(*)::int as count from users`,
+const [updated, count] = await db.batch((tx) => [
+  tx.sql`update users set status = ${status} where id = ${id}`,
+  tx.sql`select count(*)::int as count from users`,
 ]);
 ```
+
+Use `db.transaction` for sequential statements that depend on previous results.
 
 ### batchSQL(statements)
 
