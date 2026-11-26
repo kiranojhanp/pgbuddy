@@ -15,7 +15,8 @@ import { PostgresErrorCodes } from "./database-errors";
 import { type DeferredQuery, isDeferredQuery } from "./deferred";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
-import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
+import type { ColumnCodecs, ColumnMap, SelectKeys, SqlExpression, SqlFragment } from "./types";
+import { filteredExpr } from "./types";
 import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
 import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
 
@@ -425,6 +426,11 @@ export class PgBuddyClient {
         }
       }
     }
+  }
+
+  /** Add a FILTER (WHERE ...) clause to an aggregate expression. */
+  filtered<T>(expression: SqlExpression<T>, condition: SqlFragment): SqlExpression<T> {
+    return filteredExpr(this.sql, expression, condition);
   }
 
   /**

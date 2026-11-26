@@ -556,6 +556,11 @@ Fetches the current page and the filtered total in one postgres.js batch.
 Use `db.transaction` when the page and count must share a transaction with
 other work.
 
+#### filtered(expression, condition)
+
+Wraps an aggregate expression with `FILTER (WHERE condition)`. Available on
+`PgBuddyClient` and exported as `filteredExpr(sql, expression, condition)`.
+
 #### whereExpr(expression)
 
 Filters by a typed SQL boolean expression. Equivalent to `whereRaw` for the

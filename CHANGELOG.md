@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one round trip.
 - `explain()` for SELECT plans.
 - `whereExpr()` and `orderByExpr()` for typed SQL expressions.
+- Conditional aggregates via `db.filtered(expression, condition)`.
 - Backward `findManyInfinite({ direction: "backward" })` pages.
 - JSONB and array predicates: `jsonContains`, `jsonHasKey`,
   `jsonHasAnyKey`, `jsonHasAllKeys`, `arrayContains`, `arrayContainedBy`,

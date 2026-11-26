@@ -173,6 +173,19 @@ describe("validation adapter table", () => {
       { status: "inactive", count: 1 },
     ]);
 
+    const filtered = await users()
+      .groupBy(["status"], {
+        activeCount: db.filtered(sqlExpr<number>(sql`count(*)`), sql`status = ${"active"}`),
+      })
+      .orderBy([{ column: "status", direction: "ASC" }])
+      .findMany();
+    expect(
+      filtered.map((row) => ({ status: row.status, activeCount: Number(row.activeCount) }))
+    ).toEqual([
+      { status: "active", activeCount: 2 },
+      { status: "inactive", activeCount: 0 },
+    ]);
+
     const having = await users()
       .groupBy(["status"], { count: sqlExpr<number>(sql`count(*)::int`) })
       .having({ count: { gt: 1 } })

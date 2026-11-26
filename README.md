@@ -681,7 +681,16 @@ const rows = await users
 ```
 
 `having` accepts aggregate conditions (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`)
-or a raw SQL fragment. Group by expressions with `groupByExpr`:
+or a raw SQL fragment. Conditional aggregates use `db.filtered`:
+
+```ts
+const paid = db.filtered(
+  sqlExpr<number>(sql`count(*)`),
+  sql`status = ${"paid"}`
+);
+```
+
+Group by expressions with `groupByExpr`:
 
 ```ts
 const byDomain = await users

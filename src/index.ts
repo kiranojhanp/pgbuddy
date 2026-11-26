@@ -94,7 +94,7 @@ import type {
   WhereCondition,
 } from "./types";
 // Re-export types for external use
-import { sqlExpr } from "./types";
+import { filteredExpr, sqlExpr } from "./types";
 import { ZodAggregatedQuery, ZodJoinQuery, ZodProjectedQuery, ZodTable } from "./zod-table";
 
 // Export the new client and related classes/types
@@ -113,6 +113,7 @@ export {
   QueryError,
   TableError,
   sqlExpr,
+  filteredExpr,
 };
 export type {
   ValidatedInput,
