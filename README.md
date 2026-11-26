@@ -590,6 +590,24 @@ for await (const batch of users
 not hydrated on streamed rows; use `findMany()` when you need relations.
 `signal()` also applies to normal SELECT execution.
 
+## Query plans
+
+```ts
+const plan = await users
+  .where({ status: "active" })
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .explain();
+
+const analyzed = await users.where({ status: "active" }).explain({
+  analyze: true,
+  verbose: true,
+  format: "text",
+});
+```
+
+`explain()` returns the raw postgres.js plan rows. `analyze: true` executes the
+SELECT and should not be used for expensive queries by default.
+
 ## Row locking
 
 ```ts
@@ -605,6 +623,20 @@ await db.transaction(async (tx) => {
 
 `for` supports `"update"`, `"share"`, `"no key update"`, and `"key share"`,
 with `skipLocked` or `noWait`.
+
+Transactions can retry serialization failures and deadlocks:
+
+```ts
+await db.transaction(
+  async (tx) => {
+    // ...
+  },
+  { retry: { max: 3, delayMs: 25 } }
+);
+```
+
+The callback is rerun from the beginning, so it must be safe to repeat. Retry
+defaults to SQLSTATE `40001` and `40P01`; override with `retry.on`.
 
 ## Grouped aggregates
 

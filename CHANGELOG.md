@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `findManyAndCount()` for page rows plus filtered total in one batch.
 - Lazy `findMany()` / `count()` terminals that `db.batch()` can combine into
   one round trip.
+- `explain()` for SELECT plans.
+- Opt-in transaction retry for serialization failures/deadlocks; transaction
+  clients now inherit column mapping/codecs and the connection adapter.
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
 - Optional `maxSkip` pagination guard and `stream()` batch-size cap.
 - Runtime validation of transaction isolation modes and flags.

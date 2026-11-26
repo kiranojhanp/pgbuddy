@@ -2756,6 +2756,30 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   /**
+   * Run EXPLAIN on the current SELECT. `analyze: true` executes the query.
+   */
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    const format = options?.format ?? "json";
+    if (format !== "text" && format !== "json") {
+      throw new QueryError(Errors.SELECT.INVALID_COLUMNS("format"), {
+        code: "INVALID_COLUMNS",
+      });
+    }
+    const parts = [`FORMAT ${format.toUpperCase()}`];
+    if (options?.analyze) parts.push("ANALYZE");
+    if (options?.verbose) parts.push("VERBOSE");
+
+    const select = this.buildSelectQuery();
+    const query = this.sql`EXPLAIN (${this.sql.unsafe(parts.join(", "))}) ${select}`;
+    if (this.signalValue) query.signal(this.signalValue);
+    return (await query) as unknown[];
+  }
+
+  /**
    * Inspect the current SELECT query without executing it. Identifiers are
    * already quoted; values are returned separately in `parameters`.
    */

@@ -11,6 +11,7 @@ import {
   type ValidatorAdapter,
   zodValidator,
 } from "./adapter";
+import { PostgresErrorCodes } from "./database-errors";
 import { type DeferredQuery, isDeferredQuery } from "./deferred";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
@@ -57,10 +58,23 @@ export type PgBuddyClientOptions = {
 /**
  * Options for `db.transaction`.
  */
+export type TransactionRetryOptions = {
+  /** Retries after the first attempt. Defaults to 3 when `retry` is set. */
+  max?: number;
+  /** Base delay between attempts in milliseconds. Defaults to 0. */
+  delayMs?: number;
+  /** Defaults to exponential backoff. */
+  backoff?: "fixed" | "exponential";
+  /** SQLSTATE codes to retry. Defaults to serialization failure and deadlock. */
+  on?: readonly string[];
+};
+
 export type TransactionOptions = {
   isolationLevel?: "read uncommitted" | "read committed" | "repeatable read" | "serializable";
   readOnly?: boolean;
   deferrable?: boolean;
+  /** Retry serialization failures/deadlocks by rerunning the callback. */
+  retry?: TransactionRetryOptions;
 };
 
 function isZodSchema(value: unknown): value is ZodObject<ZodRawShape> {
@@ -288,6 +302,9 @@ export class PgBuddyClient {
       maxSkip: this.maxSkip,
       unique: this.uniqueKeys,
       defaultTake: this.defaultTake,
+      columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
+      adapter: this.adapter,
     };
 
     // postgres.js v4 exposes nested `begin`;
@@ -346,10 +363,68 @@ export class PgBuddyClient {
     }
 
     const run = (txSql: Sql<Record<string, unknown>>) => new PgBuddyClient(txSql, options);
+    const runOnce = async (): Promise<T> =>
+      mode
+        ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
+        : await start.call(this.sql, (txSql) => fn(run(txSql)));
 
-    return mode
-      ? await start.call(this.sql, mode, (txSql) => fn(run(txSql)))
-      : await start.call(this.sql, (txSql) => fn(run(txSql)));
+    const retry = transactionOptions?.retry;
+    if (retry !== undefined) {
+      if (retry.max !== undefined && (!Number.isInteger(retry.max) || retry.max < 0)) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (retry.delayMs !== undefined && (!Number.isInteger(retry.delayMs) || retry.delayMs < 0)) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (
+        retry.backoff !== undefined &&
+        retry.backoff !== "fixed" &&
+        retry.backoff !== "exponential"
+      ) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+      if (
+        retry.on !== undefined &&
+        (!Array.isArray(retry.on) ||
+          retry.on.some((code) => typeof code !== "string" || !/^[0-9A-Z]{5}$/.test(code)))
+      ) {
+        throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, {
+          code: "INVALID_TRANSACTION",
+        });
+      }
+    }
+
+    const maxRetries = retry ? (retry.max ?? 3) : 0;
+    const retryCodes = new Set(
+      retry?.on ?? [PostgresErrorCodes.serializationFailure, PostgresErrorCodes.deadlockDetected]
+    );
+    let attempt = 0;
+
+    while (true) {
+      try {
+        return await runOnce();
+      } catch (error) {
+        attempt += 1;
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? String((error as { code: unknown }).code)
+            : undefined;
+        if (attempt > maxRetries || !code || !retryCodes.has(code)) throw error;
+
+        const baseDelay = retry?.delayMs ?? 0;
+        const multiplier = retry?.backoff === "fixed" ? 1 : 2 ** (attempt - 1);
+        const delay = Math.min(baseDelay * multiplier, 30_000);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
   }
 
   /**

@@ -1707,6 +1707,14 @@ export class ZodTable<
    * Build a reusable prepared executor for the base SELECT. Relation includes
    * are not applied by prepared execution.
    */
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    return this.table.explain(options);
+  }
+
   signal(signal: AbortSignal): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
     return this.wrap(this.table.signal(signal));
   }

@@ -78,6 +78,24 @@ await findUser([1]);
 The SQL text is trusted; pgbuddy does not parse or validate it. Builder-level
 prepared plans are not supported yet.
 
+### transaction(callback, options?)
+
+Transaction options include isolation level, read-only, deferrable, and opt-in
+retry:
+
+```typescript
+await db.transaction(fn, {
+  retry: {
+    max: 3,
+    delayMs: 25,
+    backoff: "exponential",
+    on: ["40001", "40P01"],
+  },
+});
+```
+
+The callback is rerun from the beginning on retryable SQLSTATE errors.
+
 ### batch(queries | callback)
 
 ```typescript
@@ -534,6 +552,19 @@ toSQL(): { text: string; parameters: readonly unknown[] }
 Inspects the current SELECT without executing it. Identifiers are quoted and
 values are returned separately in `parameters`. Covers computed projections on
 `selectExpr(...)`.
+
+#### explain(options?)
+
+```typescript
+explain(options?: {
+  analyze?: boolean;
+  verbose?: boolean;
+  format?: "text" | "json";
+}): Promise<unknown[]>
+```
+
+Runs `EXPLAIN` on the current SELECT and returns raw plan rows. `analyze: true`
+executes the query.
 
 #### signal(signal)
 

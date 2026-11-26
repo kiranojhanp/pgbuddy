@@ -476,6 +476,14 @@ export class ValidatedTable<
     return this.table.toSQL();
   }
 
+  async explain(options?: {
+    analyze?: boolean;
+    verbose?: boolean;
+    format?: "text" | "json";
+  }): Promise<unknown[]> {
+    return this.table.explain(options);
+  }
+
   signal(signal: AbortSignal): ValidatedTable<T, K, I, R> {
     return new ValidatedTable(this.table.signal(signal), this.adapter, this.adapterRelations);
   }
