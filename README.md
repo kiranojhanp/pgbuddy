@@ -380,19 +380,36 @@ Available helpers: `isUniqueViolation`, `isForeignKeyViolation`, `isNotNullViola
 
 ## Joins
 
-Narrow joins nest the right row:
+Narrow joins nest each right row:
 
 ```ts
 const rows = await users
   .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+  .leftJoin("comments", CommentSchema, sql`"comments"."post_id" = "posts"."id"`)
   .findMany();
 
 // rows[0].posts.title
+// rows[0].comments?.body
 ```
 
-`leftJoin` returns `posts: {...} | null`. Use `whereRaw`/`orderByRaw` with
-qualified columns when names are ambiguous. This is a single-table join;
-multiple joins and aliases are not modeled yet.
+`leftJoin` returns `comments: {...} | null`. Joins can be chained, and each
+right-side table can have an alias:
+
+```ts
+const managers = await users
+  .innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+    table: "users",
+    alias: "manager",
+  })
+  .findMany();
+
+// managers[0].manager.name
+```
+
+The alias defaults to the join name, and the table defaults to the join name.
+Use a distinct alias when joining the left table to itself. Use
+`whereRaw`/`orderByRaw` with qualified columns when names are ambiguous.
+Narrow joins are supported; a general join tree is not.
 
 ## Column mapping
 
@@ -426,9 +443,8 @@ a schema toolkit or a full SQL AST.
 
 ### P0 — do next
 
-- [ ] **Join v2: multiple joins, aliases, and self-joins.** The current
-  single-table `innerJoin`/`leftJoin` is the biggest remaining raw-SQL escape.
-  Extend `JoinQuery` rather than building a general join tree.
+- [x] **Join v2: multiple joins, aliases, and self-joins.** Implemented with
+  chained narrow joins and schema-aware `ZodJoinQuery`.
 - [ ] **Relation graph: many-to-many/through tables and nested includes.**
   The relation API is still one-hop. These two should be designed together
   because both need recursive relation metadata and tree-shaped results.
@@ -470,10 +486,11 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Join v2** — highest impact per unit of effort.
-2. **Many-to-many + nested includes** — closes the relation ceiling.
-3. **Per-column mapping** — unblocks production schemas with mixed naming or
+1. **Many-to-many + nested includes** — closes the relation ceiling.
+2. **Per-column mapping** — unblocks production schemas with mixed naming or
    custom types.
+3. **Relation ordering and per-relation aggregates** — rounds out the relation
+   API before moving to lifecycle work.
 
 ## Compatibility
 

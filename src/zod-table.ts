@@ -1627,34 +1627,40 @@ export class ZodTable<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string }
-  ): JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "inner"> {
+    options?: { table?: string; alias?: string }
+  ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
     }
 
-    return this.table.innerJoin<Name, RowFromSchema<S2>>(name, {
-      table: options?.table ?? name,
-      columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
-      on,
-    }) as JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "inner">;
+    return new ZodJoinQuery(
+      this.table.innerJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+      }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }>
+    );
   }
 
   leftJoin<Name extends string, S2 extends ZodSchema>(
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string }
-  ): JoinQuery<RowFromSchema<S>, SelectKeys<RowFromSchema<S>>, I, Name, RowFromSchema<S2>, "left"> {
+    options?: { table?: string; alias?: string }
+  ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
     }
 
-    return this.table.leftJoin<Name, RowFromSchema<S2>>(name, {
-      table: options?.table ?? name,
-      columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
-      on,
-    }) as JoinQuery<RowFromSchema<S>, K, I, Name, RowFromSchema<S2>, "left">;
+    return new ZodJoinQuery(
+      this.table.leftJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+      }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }>
+    );
   }
 
   groupBy<
@@ -1821,6 +1827,115 @@ export class ZodTable<
         ? this.table.delete({ returning: false })
         : this.table.delete({ computed: options?.computed })
     ) as Promise<Array<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>> | number>;
+  }
+}
+
+/**
+ * Schema-aware narrow join query. Use it to add further joins with a schema
+ * instead of a column list.
+ */
+export class ZodJoinQuery<
+  T extends Row,
+  K extends SelectKeys<T>,
+  I extends Row,
+  Joined extends Record<string, unknown>,
+> {
+  private readonly join: JoinQuery<T, K, I, Joined>;
+
+  constructor(join: JoinQuery<T, K, I, Joined>) {
+    this.join = join;
+  }
+
+  innerJoin<Name extends string, S2 extends ZodSchema>(
+    name: Name,
+    schema: S2,
+    on: SqlFragment,
+    options?: { table?: string; alias?: string }
+  ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }> {
+    if (!isZodSchemaLike(schema)) {
+      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+    }
+
+    return new ZodJoinQuery(
+      this.join.innerJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+      }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }>
+    );
+  }
+
+  leftJoin<Name extends string, S2 extends ZodSchema>(
+    name: Name,
+    schema: S2,
+    on: SqlFragment,
+    options?: { table?: string; alias?: string }
+  ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }> {
+    if (!isZodSchemaLike(schema)) {
+      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+    }
+
+    return new ZodJoinQuery(
+      this.join.leftJoin<Name, RowFromSchema<S2>>(name, {
+        table: options?.table ?? name,
+        alias: options?.alias ?? name,
+        columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
+        on,
+      }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }>
+    );
+  }
+
+  where(conditions: WhereInput<T>): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.where(conditions));
+  }
+
+  whereRaw(fragment: SqlFragment): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.whereRaw(fragment));
+  }
+
+  orderBy(spec: SortSpec<T>[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.orderBy(spec));
+  }
+
+  orderByRaw(fragment: SqlFragment): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.orderByRaw(fragment));
+  }
+
+  skip(count: number): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.skip(count));
+  }
+
+  take(count: number): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.take(count));
+  }
+
+  distinct(): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinct());
+  }
+
+  distinctOn(columns: readonly (keyof T & string)[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinctOn(columns));
+  }
+
+  distinctOnExpr(expressions: readonly SqlFragment[]): ZodJoinQuery<T, K, I, Joined> {
+    return new ZodJoinQuery(this.join.distinctOnExpr(expressions));
+  }
+
+  select<K2 extends SelectKeys<T>>(fields: K2): ZodJoinQuery<T, K2, I, Joined> {
+    return new ZodJoinQuery(this.join.select(fields));
+  }
+
+  findMany(): Promise<Array<SelectFields<T, K>[0] & Joined>> {
+    return this.join.findMany();
+  }
+
+  findFirst(): Promise<(SelectFields<T, K>[0] & Joined) | null> {
+    return this.join.findFirst();
+  }
+
+  findFirstOrThrow(): Promise<SelectFields<T, K>[0] & Joined> {
+    return this.join.findFirstOrThrow();
   }
 }
 

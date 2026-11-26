@@ -671,4 +671,42 @@ describe("relations", () => {
     expect(rows[0]?.lowerName).toBe("ada");
     expect(rows[0]?.posts).toHaveLength(1);
   });
+
+  test("multiple joins and aliases nest every right row", async () => {
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada'), (2, 'Grace')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title, published)
+      VALUES (10, 1, 'First', true), (11, 2, 'Second', true), (12, 1, 'Third', true)
+    `;
+
+    const rows = await db
+      .table("users", UserSchema)
+      .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+      .innerJoin(
+        "other_posts",
+        PostSchema,
+        sql`"other_posts"."user_id" = "users"."id" AND "other_posts"."id" = 12`,
+        {
+          table: "posts",
+          alias: "other_posts",
+        }
+      )
+      .whereRaw(sql`"users"."id" = 1 AND "posts"."id" = 10`)
+      .findMany();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.posts.title).toBe("First");
+    expect(rows[0]?.other_posts.title).toBe("Third");
+
+    const aliased = await db
+      .table("users", UserSchema)
+      .innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+        table: "users",
+        alias: "manager",
+      })
+      .whereRaw(sql`"users"."id" = 1`)
+      .findMany();
+
+    expect(aliased[0]?.manager.name).toBe("Ada");
+  });
 });

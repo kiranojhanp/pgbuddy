@@ -232,111 +232,185 @@ export type JoinResult<
   Mode extends "inner" | "left",
 > = T & { [P in Name]: JoinValue<J, Mode> };
 
+/** Options for a single narrow join. */
+export type JoinOptions<J extends Row = Row> = {
+  /** Right-hand table name. Defaults to the join name. */
+  table?: string;
+  /** SQL alias for the right-hand table. Defaults to the join name. */
+  alias?: string;
+  columns: readonly (keyof J & string)[];
+  on: SqlFragment;
+};
+
+type JoinSpec = {
+  name: string;
+  table: string;
+  alias: string;
+  columns: readonly string[];
+  on: SqlFragment;
+  mode: "inner" | "left";
+};
+
+type JoinHost = {
+  getSql(): Sql<Record<string, unknown>>;
+  getNameOptions(): { strictNames: boolean; allowSchema: boolean };
+  getTableName(): string;
+};
+
+function createJoinSpec<J extends Row>(
+  table: JoinHost,
+  name: string,
+  options: JoinOptions<J>,
+  mode: "inner" | "left",
+  existing: readonly JoinSpec[]
+): JoinSpec {
+  const fail = (): never => {
+    throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+  };
+
+  if (typeof name !== "string" || !name.trim()) fail();
+  if (!options || typeof options !== "object") fail();
+
+  const normalizedName = name.trim();
+  if (!isValidIdentifier(normalizedName, { allowSchema: false })) fail();
+
+  const tableName = (options.table ?? normalizedName).trim();
+  const alias = (options.alias ?? normalizedName).trim();
+  const { strictNames, allowSchema } = table.getNameOptions();
+
+  if (!tableName || !alias) fail();
+
+  const validTable = strictNames
+    ? isValidIdentifier(tableName, { allowSchema })
+    : isValidName(tableName) && (allowSchema || !tableName.includes("."));
+
+  if (!validTable || !isValidIdentifier(alias, { allowSchema: false })) fail();
+
+  // A right-side alias must not collide with the left table name, another
+  // join alias, or another nested result key.
+  if (alias === table.getTableName()) fail();
+  if (existing.some((join) => join.alias === alias || join.name === normalizedName)) fail();
+
+  if (
+    !Array.isArray(options.columns) ||
+    options.columns.length === 0 ||
+    options.columns.some((column) => typeof column !== "string" || !column) ||
+    new Set(options.columns).size !== options.columns.length ||
+    !options.on
+  ) {
+    fail();
+  }
+
+  return {
+    name: normalizedName,
+    table: tableName,
+    alias,
+    columns: options.columns,
+    on: options.on,
+    mode,
+  };
+}
+
 /**
- * Narrow single-table join. The joined row is nested under the join name so
+ * Narrow join query. Each joined row is nested under its join name, so
  * duplicate column names never collide with the left row.
  */
 export class JoinQuery<
   T extends Row,
   K extends SelectKeys<T>,
   I extends Row,
-  Name extends string,
-  J extends Row,
-  Mode extends "inner" | "left",
+  Joined extends Record<string, unknown> = Record<never, never>,
 > {
   private readonly table: Table<T, K, I>;
-  private readonly name: Name;
-  private readonly rightTable: string;
-  private readonly columns: readonly (keyof J & string)[];
-  private readonly on: SqlFragment;
-  private readonly mode: "inner" | "left";
+  private readonly joins: readonly JoinSpec[];
 
-  constructor(
+  /** @internal */
+  constructor(table: Table<T, K, I>, joins: readonly JoinSpec[]) {
+    this.table = table;
+    this.joins = joins;
+  }
+
+  private next(table: Table<T, K, I>): JoinQuery<T, K, I, Joined> {
+    return new JoinQuery<T, K, I, Joined>(table, this.joins);
+  }
+
+  private nextJoin<Name extends string, J extends Row, Mode extends "inner" | "left">(
     table: Table<T, K, I>,
     name: Name,
-    rightTable: string,
-    columns: readonly (keyof J & string)[],
-    on: SqlFragment,
-    mode: "inner" | "left"
-  ) {
-    this.table = table;
-    this.name = name;
-    this.rightTable = rightTable;
-    this.columns = columns;
-    this.on = on;
-    this.mode = mode;
+    options: JoinOptions<J>,
+    mode: Mode
+  ): JoinQuery<T, K, I, Joined & { [P in Name]: JoinValue<J, Mode> }> {
+    const spec = createJoinSpec(table, name, options, mode, this.joins);
+    return new JoinQuery<T, K, I, Joined & { [P in Name]: JoinValue<J, Mode> }>(table, [
+      ...this.joins,
+      spec,
+    ]);
   }
 
-  private next(table: Table<T, K, I>): JoinQuery<T, K, I, Name, J, Mode> {
-    return new JoinQuery<T, K, I, Name, J, Mode>(
-      table,
-      this.name,
-      this.rightTable,
-      this.columns,
-      this.on,
-      this.mode
-    );
+  innerJoin<Name extends string, J extends Row = Row>(
+    name: Name,
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, Joined & { [P in Name]: J }> {
+    return this.nextJoin(this.table, name, options, "inner");
   }
 
-  where(conditions: WhereInput<T>): JoinQuery<T, K, I, Name, J, Mode> {
+  leftJoin<Name extends string, J extends Row = Row>(
+    name: Name,
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, Joined & { [P in Name]: J | null }> {
+    return this.nextJoin(this.table, name, options, "left");
+  }
+
+  where(conditions: WhereInput<T>): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.where(conditions));
   }
 
-  whereRaw(fragment: SqlFragment): JoinQuery<T, K, I, Name, J, Mode> {
+  whereRaw(fragment: SqlFragment): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.whereRaw(fragment));
   }
 
-  orderBy(spec: SortSpec<T>[]): JoinQuery<T, K, I, Name, J, Mode> {
+  orderBy(spec: SortSpec<T>[]): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.orderBy(spec));
   }
 
-  orderByRaw(fragment: SqlFragment): JoinQuery<T, K, I, Name, J, Mode> {
+  orderByRaw(fragment: SqlFragment): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.orderByRaw(fragment));
   }
 
-  skip(count: number): JoinQuery<T, K, I, Name, J, Mode> {
+  skip(count: number): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.skip(count));
   }
 
-  take(count: number): JoinQuery<T, K, I, Name, J, Mode> {
+  take(count: number): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.take(count));
   }
 
-  distinct(): JoinQuery<T, K, I, Name, J, Mode> {
+  distinct(): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.distinct());
   }
 
-  distinctOn(columns: readonly (keyof T & string)[]): JoinQuery<T, K, I, Name, J, Mode> {
+  distinctOn(columns: readonly (keyof T & string)[]): JoinQuery<T, K, I, Joined> {
     return this.next(this.table.distinctOn(columns));
   }
 
-  select<K2 extends SelectKeys<T>>(fields: K2): JoinQuery<T, K2, I, Name, J, Mode> {
-    return new JoinQuery<T, K2, I, Name, J, Mode>(
-      this.table.select(fields),
-      this.name,
-      this.rightTable,
-      this.columns,
-      this.on,
-      this.mode
-    );
+  distinctOnExpr(expressions: readonly SqlFragment[]): JoinQuery<T, K, I, Joined> {
+    return this.next(this.table.distinctOnExpr(expressions));
   }
 
-  findMany(): Promise<Array<SelectFields<T, K>[0] & { [P in Name]: JoinValue<J, Mode> }>> {
-    return this.table.executeJoin<Name, J>(
-      this.name,
-      this.rightTable,
-      this.columns,
-      this.on,
-      this.mode
-    ) as Promise<Array<SelectFields<T, K>[0] & { [P in Name]: JoinValue<J, Mode> }>>;
+  select<K2 extends SelectKeys<T>>(fields: K2): JoinQuery<T, K2, I, Joined> {
+    return new JoinQuery<T, K2, I, Joined>(this.table.select(fields), this.joins);
   }
 
-  async findFirst(): Promise<(SelectFields<T, K>[0] & { [P in Name]: JoinValue<J, Mode> }) | null> {
+  findMany(): Promise<Array<SelectFields<T, K>[0] & Joined>> {
+    return this.table.executeJoins(this.joins) as Promise<Array<SelectFields<T, K>[0] & Joined>>;
+  }
+
+  async findFirst(): Promise<(SelectFields<T, K>[0] & Joined) | null> {
     const rows = await this.take(1).findMany();
     return rows[0] ?? null;
   }
 
-  async findFirstOrThrow(): Promise<SelectFields<T, K>[0] & { [P in Name]: JoinValue<J, Mode> }> {
+  async findFirstOrThrow(): Promise<SelectFields<T, K>[0] & Joined> {
     const row = await this.findFirst();
     if (!row) {
       throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
@@ -1862,94 +1936,37 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   /**
-   * Join a single table with `INNER JOIN`. The joined row is nested under
-   * `name`; use `leftJoin` for nullable rows. Right-side columns must be
-   * listed explicitly.
+   * Join a table with `INNER JOIN`. The joined row is nested under `name`;
+   * use `leftJoin` for nullable rows. Right-side columns must be listed
+   * explicitly (or supplied by the ZodTable overload).
    */
   innerJoin<Name extends string, J extends Row = Row>(
     name: Name,
-    options: { table?: string; columns: readonly (keyof J & string)[]; on: SqlFragment }
-  ): JoinQuery<T, K, I, Name, J, "inner"> {
-    const validated = this.validateJoin(name, options);
-    return new JoinQuery<T, K, I, Name, J, "inner">(
-      this,
-      name,
-      validated.table,
-      validated.columns,
-      validated.on,
-      "inner"
-    );
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, { [P in Name]: J }> {
+    const spec = createJoinSpec(this, name, options, "inner", []);
+    return new JoinQuery<T, K, I, { [P in Name]: J }>(this, [spec]);
   }
 
-  /** Join a single table with `LEFT JOIN`; unmatched right rows are `null`. */
+  /** Join a table with `LEFT JOIN`; unmatched right rows are `null`. */
   leftJoin<Name extends string, J extends Row = Row>(
     name: Name,
-    options: { table?: string; columns: readonly (keyof J & string)[]; on: SqlFragment }
-  ): JoinQuery<T, K, I, Name, J, "left"> {
-    const validated = this.validateJoin(name, options);
-    return new JoinQuery<T, K, I, Name, J, "left">(
-      this,
-      name,
-      validated.table,
-      validated.columns,
-      validated.on,
-      "left"
-    );
-  }
-
-  private validateJoin<J extends Row>(
-    name: string,
-    options: { table?: string; columns: readonly (keyof J & string)[]; on: SqlFragment }
-  ): { table: string; columns: readonly (keyof J & string)[]; on: SqlFragment } {
-    if (typeof name !== "string" || !name.trim()) {
-      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
-    }
-
-    if (!options || typeof options !== "object") {
-      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
-    }
-
-    const table = options.table ?? name;
-    if (typeof table !== "string" || !table.trim()) {
-      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
-    }
-
-    const normalizedTable = table.trim();
-    const validTable = this.strictNames
-      ? isValidIdentifier(normalizedTable, { allowSchema: this.allowSchema })
-      : isValidName(normalizedTable) && (this.allowSchema || !normalizedTable.includes("."));
-
-    if (!validTable) {
-      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
-    }
-
-    if (
-      !Array.isArray(options.columns) ||
-      options.columns.length === 0 ||
-      options.columns.some((column) => typeof column !== "string" || !column) ||
-      new Set(options.columns).size !== options.columns.length ||
-      !options.on
-    ) {
-      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
-    }
-
-    return {
-      table: normalizedTable,
-      columns: options.columns,
-      on: options.on,
-    };
+    options: JoinOptions<J>
+  ): JoinQuery<T, K, I, { [P in Name]: J | null }> {
+    const spec = createJoinSpec(this, name, options, "left", []);
+    return new JoinQuery<T, K, I, { [P in Name]: J | null }>(this, [spec]);
   }
 
   /**
-   * Execute a narrow join. Used by `JoinQuery`.
+   * Execute narrow joins. Used by `JoinQuery`.
    */
-  async executeJoin<Name extends string, J extends Row>(
-    name: Name,
-    rightTable: string,
-    columns: readonly (keyof J & string)[],
-    on: SqlFragment,
-    mode: "inner" | "left"
-  ): Promise<Array<Record<string, unknown>>> {
+  async executeJoins<Joined extends Record<string, unknown>>(
+    joins: readonly JoinSpec[]
+  ): Promise<Array<SelectFields<T, K>[0] & Joined>> {
+    if (joins.length === 0) {
+      throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
+    }
+
     const options = { strictNames: this.strictNames, allowSchema: this.allowSchema };
     const selected = this.selectedFields as readonly string[];
     const leftSelection =
@@ -1960,41 +1977,55 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
             const part = this.sql`${this.sql(this.tableName)}.${this.sql(column as never)}`;
             return index === 0 ? part : this.sql`${acc}, ${part}`;
           }, this.sql``);
-    const aliases = columns.map((_column, index) => `__pgbuddy_join_${index}`);
 
-    const rightSelection = columns.reduce((acc, column, index) => {
-      buildSelect(this.sql, [column] as never, options);
-      const part = this
-        .sql`${this.sql(rightTable)}.${this.sql(column as never)} AS ${this.sql(aliases[index] as string)}`;
-      return index === 0 ? part : this.sql`${acc}, ${part}`;
+    const rightSelections = joins.reduce((acc, join, joinIndex) => {
+      const parts = join.columns.map((column, columnIndex) => {
+        buildSelect(this.sql, [column] as never, options);
+        const alias = `__pgbuddy_join_${joinIndex}_${columnIndex}`;
+        return this.sql`${this.sql(join.alias)}.${this.sql(column as never)} AS ${this.sql(alias)}`;
+      });
+      const joined = parts.reduce(
+        (partsAcc, part, index) => (index === 0 ? part : this.sql`${partsAcc}, ${part}`),
+        this.sql``
+      );
+      return joinIndex === 0 ? joined : this.sql`${acc}, ${joined}`;
     }, this.sql``);
 
-    const joinKeyword = this.sql.unsafe(mode === "left" ? "LEFT JOIN" : "INNER JOIN");
+    const joinClauses = joins.reduce((acc, join, index) => {
+      const keyword = this.sql.unsafe(join.mode === "left" ? "LEFT JOIN" : "INNER JOIN");
+      const clause = this
+        .sql`${keyword} ${this.sql(join.table)} AS ${this.sql(join.alias)} ON ${join.on}`;
+      return index === 0 ? clause : this.sql`${acc} ${clause}`;
+    }, this.sql``);
+
     const rows = await this.sql<Array<Record<string, unknown>>>`
-            SELECT ${this.distinctFragment()}${leftSelection}, ${rightSelection}
+            SELECT ${this.distinctFragment()}${leftSelection}, ${rightSelections}
             FROM ${this.sql(this.tableName)}
-            ${joinKeyword} ${this.sql(rightTable)} ON ${on}
+            ${joinClauses}
             ${buildWhereInputs(this.sql, this.whereInputs, options)}
             ${this.orderFragment()}
             ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
         `;
 
     return rows.map((row) => {
-      const right: Record<string, unknown> = {};
-      let hasRight = false;
+      const result = { ...row };
 
-      for (let index = 0; index < columns.length; index += 1) {
-        const alias = aliases[index] as string;
-        const value = row[alias];
-        if (value !== null && value !== undefined) hasRight = true;
-        right[String(columns[index])] = value ?? null;
-        delete row[alias];
-      }
+      joins.forEach((join, joinIndex) => {
+        const right: Record<string, unknown> = {};
+        let hasRight = false;
 
-      return {
-        ...row,
-        [name]: mode === "left" && !hasRight ? null : right,
-      };
+        join.columns.forEach((column, columnIndex) => {
+          const alias = `__pgbuddy_join_${joinIndex}_${columnIndex}`;
+          const value = result[alias];
+          if (value !== null && value !== undefined) hasRight = true;
+          right[column] = value ?? null;
+          delete result[alias];
+        });
+
+        result[join.name] = join.mode === "left" && !hasRight ? null : right;
+      });
+
+      return result as SelectFields<T, K>[0] & Joined;
     });
   }
 

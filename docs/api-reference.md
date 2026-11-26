@@ -407,27 +407,29 @@ grouping such as `FILTER`, `ROLLUP`, or `CUBE`.
 
 ```typescript
 const rows = await users
-  .innerJoin("posts", {
-    columns: ["id", "user_id", "title"],
-    on: sql`"posts"."user_id" = "users"."id"`,
-  })
+  .innerJoin("posts", PostSchema, sql`"posts"."user_id" = "users"."id"`)
+  .leftJoin("comments", CommentSchema, sql`"comments"."post_id" = "posts"."id"`)
   .findMany();
-// Array<User & { posts: { id: number; user_id: number; title: string } }>
+// Array<User & { posts: Post; comments: Comment | null }>
 ```
 
-`leftJoin` has the same shape, but `posts` is `{...} | null` when no
-right-side row matches. The right row is nested under the join name, so
-duplicate column names do not clobber the left row. With a Zod table, pass the
-right schema instead of columns:
+Each right row is nested under its join name. `innerJoin` rows are required;
+`leftJoin` rows are `{...} | null`. Joins can be chained. Use `alias` to join
+the same table more than once:
 
 ```typescript
-await users.innerJoin("posts", PostSchema, on);
+await users.innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`, {
+  table: "users",
+  alias: "manager",
+});
 ```
 
-Right-side columns are explicit. Because both tables can share column names,
-use `whereRaw`/`orderByRaw` with qualified columns for filters or ordering.
-`on` is a trusted SQL fragment. Joins are single-table joins; there is no join
-tree or alias API yet.
+The alias defaults to the join name, and the table defaults to the join name.
+A right-side alias must differ from the left table name and from other join
+aliases. Right-side columns come from the Zod schema. Because tables can share
+column names, use `whereRaw`/`orderByRaw` with qualified columns for filters or
+ordering. `on` is a trusted SQL fragment. Narrow joins are supported; a general
+join tree is not.
 
 ### Mutations
 

@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryError.code = "NO_ROWS"`.
 
 ### Added
+- Chained narrow joins with table aliases and self-joins; schema-aware
+  `ZodJoinQuery` supports multiple `innerJoin`/`leftJoin` calls and nested
+  right-side rows.
 - `allowedColumns` client/table option: an allowlist for `create`, `createMany`
   and `update` payload keys, rejected with a `QueryError` when a key is not
   allowlisted. Mitigates mass assignment when write payloads contain
