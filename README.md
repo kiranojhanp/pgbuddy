@@ -387,6 +387,9 @@ const tagged = await posts.include("tags").withCount("tags").findMany();
 
 Through relations support the same `include` refinement, `withCount`, and
 `whereRelated` / `whereMissing` / `whereEvery` filters as direct relations.
+Relation configs accept `columnMap` and `columnCodecs` for the related table;
+they apply to includes and counts. Relation filter SQL still uses explicit
+database column names.
 
 Per-relation aggregates are available with `withAggregate`:
 
@@ -582,8 +585,17 @@ const managers = await users
 ```
 
 The alias defaults to the join name, and the table defaults to the join name.
-Use a distinct alias when joining the left table to itself. Use
-`whereRaw`/`orderByRaw` with qualified columns when names are ambiguous.
+Use a distinct alias when joining the left table to itself. Right-side joins
+accept `columnMap` and `columnCodecs`:
+
+```ts
+await users.innerJoin("posts", PostSchema, on, {
+  columnMap: { headline: "title" },
+  columnCodecs: { headline: { decode: (value) => String(value) } },
+});
+```
+
+Use `whereRaw`/`orderByRaw` with qualified columns when names are ambiguous.
 Narrow joins are supported; a general join tree is not.
 
 ## Column mapping

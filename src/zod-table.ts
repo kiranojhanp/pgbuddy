@@ -21,6 +21,8 @@ import type { GroupedQuery, JoinQuery, Table } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnCodecs,
+  ColumnMap,
   ComputedMap,
   ComputedOptions,
   ComputedResult,
@@ -329,6 +331,10 @@ export type ZodRelationConfig = {
   schema: ZodObject<ZodRawShape>;
   /** Nested relations loaded automatically when this relation is included. */
   relations?: ZodRelations;
+  /** Related-table schema field → database column map. */
+  columnMap?: ColumnMap;
+  /** Related-table per-field codecs. */
+  columnCodecs?: ColumnCodecs;
 };
 
 export type ZodRelations = Record<string, ZodRelationConfig>;
@@ -556,6 +562,33 @@ function normalizeRelation<S extends ZodSchema>(
   }
   const relatedSchema = raw.schema;
   const relatedShape = relatedSchema.shape as unknown as ZodShape;
+
+  if (raw.columnMap !== undefined) {
+    if (!isPlainObject(raw.columnMap)) {
+      throw new TableError(`${context}: "columnMap" must be an object`);
+    }
+    for (const [field, column] of Object.entries(raw.columnMap)) {
+      if (!Object.hasOwn(relatedShape, field) || typeof column !== "string" || !column.trim()) {
+        throw new TableError(`${context}: invalid "columnMap" entry`);
+      }
+    }
+  }
+  if (raw.columnCodecs !== undefined) {
+    if (!isPlainObject(raw.columnCodecs)) {
+      throw new TableError(`${context}: "columnCodecs" must be an object`);
+    }
+    for (const [field, codec] of Object.entries(raw.columnCodecs)) {
+      if (
+        !Object.hasOwn(relatedShape, field) ||
+        !isPlainObject(codec) ||
+        (codec.encode !== undefined && typeof codec.encode !== "function") ||
+        (codec.decode !== undefined && typeof codec.decode !== "function")
+      ) {
+        throw new TableError(`${context}: invalid "columnCodecs" entry`);
+      }
+    }
+  }
+
   let childRelations: {
     relations: ZodRelations;
     info: Map<string, NormalizedRelation>;
@@ -649,6 +682,8 @@ function normalizeRelation<S extends ZodSchema>(
       relation,
       schema: relatedSchema,
       relations: childRelations.relations,
+      columnMap: raw.columnMap as ColumnMap | undefined,
+      columnCodecs: raw.columnCodecs as ColumnCodecs | undefined,
       through: {
         table: throughTableName,
         parentKey: Array.isArray(raw.through.parentKey)
@@ -693,6 +728,8 @@ function normalizeRelation<S extends ZodSchema>(
     relation,
     schema: relatedSchema,
     relations: childRelations.relations,
+    columnMap: raw.columnMap as ColumnMap | undefined,
+    columnCodecs: raw.columnCodecs as ColumnCodecs | undefined,
   };
 
   return { config, localKeys, foreignKeys, children: childRelations.info };
@@ -1735,7 +1772,12 @@ export class ZodTable<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string; alias?: string }
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
   ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
@@ -1747,6 +1789,8 @@ export class ZodTable<
         alias: options?.alias ?? name,
         columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
         on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
       }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> }>
     );
   }
@@ -1755,7 +1799,12 @@ export class ZodTable<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string; alias?: string }
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
   ): ZodJoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
@@ -1767,6 +1816,8 @@ export class ZodTable<
         alias: options?.alias ?? name,
         columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
         on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
       }) as JoinQuery<RowFromSchema<S>, K, I, { [P in Name]: RowFromSchema<S2> | null }>
     );
   }
@@ -2029,7 +2080,12 @@ export class ZodJoinQuery<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string; alias?: string }
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
   ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
@@ -2041,6 +2097,8 @@ export class ZodJoinQuery<
         alias: options?.alias ?? name,
         columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
         on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
       }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> }>
     );
   }
@@ -2049,7 +2107,12 @@ export class ZodJoinQuery<
     name: Name,
     schema: S2,
     on: SqlFragment,
-    options?: { table?: string; alias?: string }
+    options?: {
+      table?: string;
+      alias?: string;
+      columnMap?: ColumnMap;
+      columnCodecs?: ColumnCodecs;
+    }
   ): ZodJoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }> {
     if (!isZodSchemaLike(schema)) {
       throw new QueryError(Errors.SELECT.INVALID_JOIN, { code: "INVALID_JOIN" });
@@ -2061,6 +2124,8 @@ export class ZodJoinQuery<
         alias: options?.alias ?? name,
         columns: Object.keys(schema.shape) as (keyof RowFromSchema<S2> & string)[],
         on,
+        columnMap: options?.columnMap,
+        columnCodecs: options?.columnCodecs,
       }) as JoinQuery<T, K, I, Joined & { [P in Name]: RowFromSchema<S2> | null }>
     );
   }

@@ -237,6 +237,9 @@ const rows = await users
 - Many-to-many relations use `through: { table, parentKey, relatedKey, targetKey? }`
   instead of `foreignKey`. Through relations support includes, counts, and
   `whereRelated`/`whereMissing`/`whereEvery`.
+- Relation configs accept `columnMap` and `columnCodecs` for the related
+  table; includes and counts honor them. Relation filter SQL still uses
+  explicit database column names.
 - Child `relations` on a relation config are loaded recursively. The parent
   relation's `select` controls its own columns; child relations are always
   included once declared.
@@ -526,7 +529,8 @@ await users.innerJoin("manager", UserSchema, sql`"manager"."id" = "users"."id"`,
 
 The alias defaults to the join name, and the table defaults to the join name.
 A right-side alias must differ from the left table name and from other join
-aliases. Right-side columns come from the Zod schema. Because tables can share
+aliases. Join options accept `columnMap` and `columnCodecs` for the right
+table; they apply to selected right-side columns. Right-side columns come from the Zod schema. Because tables can share
 column names, use `whereRaw`/`orderByRaw` with qualified columns for filters or
 ordering. `on` is a trusted SQL fragment. Narrow joins are supported; a general
 join tree is not.

@@ -242,6 +242,10 @@ export type JoinOptions<J extends Row = Row> = {
   alias?: string;
   columns: readonly (keyof J & string)[];
   on: SqlFragment;
+  /** Schema field → right-table column map. */
+  columnMap?: ColumnMap;
+  /** Per-field right-table codecs. */
+  columnCodecs?: ColumnCodecs;
 };
 
 type JoinSpec = {
@@ -251,6 +255,8 @@ type JoinSpec = {
   columns: readonly string[];
   on: SqlFragment;
   mode: "inner" | "left";
+  columnMap?: ColumnMap;
+  columnCodecs?: ColumnCodecs;
 };
 
 type JoinHost = {
@@ -303,6 +309,34 @@ function createJoinSpec<J extends Row>(
     fail();
   }
 
+  if (options.columnMap) {
+    for (const [field, column] of Object.entries(options.columnMap)) {
+      if (
+        !options.columns.includes(field as keyof J & string) ||
+        typeof column !== "string" ||
+        !column.trim()
+      ) {
+        fail();
+      }
+    }
+    if (new Set(Object.values(options.columnMap)).size !== Object.keys(options.columnMap).length) {
+      fail();
+    }
+  }
+  if (options.columnCodecs) {
+    for (const [field, codec] of Object.entries(options.columnCodecs)) {
+      if (
+        !options.columns.includes(field as keyof J & string) ||
+        typeof codec !== "object" ||
+        codec === null ||
+        (codec.encode !== undefined && typeof codec.encode !== "function") ||
+        (codec.decode !== undefined && typeof codec.decode !== "function")
+      ) {
+        fail();
+      }
+    }
+  }
+
   return {
     name: normalizedName,
     table: tableName,
@@ -310,6 +344,8 @@ function createJoinSpec<J extends Row>(
     columns: options.columns,
     on: options.on,
     mode,
+    columnMap: options.columnMap,
+    columnCodecs: options.columnCodecs,
   };
 }
 
@@ -2154,7 +2190,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       const parts = join.columns.map((column, columnIndex) => {
         buildSelect(this.sql, [column] as never, options);
         const alias = `__pgbuddy_join_${joinIndex}_${columnIndex}`;
-        return this.sql`${this.sql(join.alias)}.${this.sql(column as never)} AS ${this.sql(alias)}`;
+        const mapped = join.columnMap?.[column] ?? column;
+        return this.sql`${this.sql(join.alias)}.${this.sql(mapped as never)} AS ${this.sql(alias)}`;
       });
       const joined = parts.reduce(
         (partsAcc, part, index) => (index === 0 ? part : this.sql`${partsAcc}, ${part}`),
@@ -2190,7 +2227,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
           const alias = `__pgbuddy_join_${joinIndex}_${columnIndex}`;
           const value = result[alias];
           if (value !== null && value !== undefined) hasRight = true;
-          right[column] = value ?? null;
+          const decoded = join.columnCodecs?.[column]?.decode;
+          right[column] = decoded ? decoded(value) : (value ?? null);
           delete result[alias];
         });
 

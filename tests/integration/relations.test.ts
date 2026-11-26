@@ -953,4 +953,68 @@ describe("relations", () => {
       TableError
     );
   });
+
+  test("joins can map and decode right-side columns", async () => {
+    const PostJoinSchema = z.object({
+      id: z.number(),
+      headline: z.string(),
+      published: z.boolean(),
+    });
+
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`
+      INSERT INTO posts (id, user_id, title, published)
+      VALUES (10, 1, 'First', true)
+    `;
+
+    const rows = await users()
+      .innerJoin("posts", PostJoinSchema, sql`"posts"."user_id" = "users"."id"`, {
+        columnMap: { headline: "title" },
+        columnCodecs: {
+          headline: { decode: (value) => `decoded:${String(value)}` },
+        },
+      })
+      .whereRaw(sql`"users"."id" = 1`)
+      .findMany();
+
+    expect(rows[0]?.posts.headline).toBe("decoded:First");
+  });
+
+  test("relation column maps and codecs apply to includes and counts", async () => {
+    const TagMapSchema = z.object({
+      id: z.number(),
+      label: z.string(),
+    });
+
+    const postsMapped = db.table("posts", PostSchema, {
+      relations: {
+        tags: {
+          table: "tags",
+          schema: TagMapSchema,
+          localKey: "id",
+          relation: "many",
+          columnMap: { label: "name" },
+          columnCodecs: {
+            label: { decode: (value) => `mapped:${String(value)}` },
+          },
+          through: {
+            table: "post_tags",
+            parentKey: "post_id",
+            relatedKey: "tag_id",
+            targetKey: "id",
+          },
+        },
+      },
+    });
+
+    await sql`INSERT INTO users (id, name) VALUES (1, 'Ada')`;
+    await sql`INSERT INTO posts (id, user_id, title) VALUES (10, 1, 'First')`;
+    await sql`INSERT INTO tags (id, name) VALUES (1, 'typescript')`;
+    await sql`INSERT INTO post_tags (post_id, tag_id) VALUES (10, 1)`;
+
+    const rows = await postsMapped.include("tags").withCount("tags").findMany();
+
+    expect(rows[0]?.tags[0]?.label).toBe("mapped:typescript");
+    expect(rows[0]?.tags_count).toBe(1);
+  });
 });

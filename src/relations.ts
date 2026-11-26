@@ -76,10 +76,13 @@ function serializeKey(values: readonly unknown[]): string | null {
 function buildKeyFilter(
   sql: Sql<Record<string, unknown>>,
   foreignKeys: readonly string[],
-  keys: readonly (readonly unknown[])[]
+  keys: readonly (readonly unknown[])[],
+  columnMap?: Readonly<Record<string, string>>
 ): SqlFragment {
+  const mappedKeys = foreignKeys.map((key) => columnMap?.[key] ?? key);
+
   if (foreignKeys.length === 1) {
-    const column = foreignKeys[0];
+    const column = mappedKeys[0];
     if (!column) throw new QueryError("Invalid relation configuration");
     return sql`${sql(column)} = ANY(${keys.map((key) => key[0])})`;
   }
@@ -94,7 +97,7 @@ function buildKeyFilter(
     tuples = index === 0 ? fragment : sql`${tuples}, ${fragment}`;
   });
 
-  return sql`(${sql(foreignKeys as string[])}) IN (${tuples})`;
+  return sql`(${sql(mappedKeys as string[])}) IN (${tuples})`;
 }
 
 function setRowValue(row: Record<string, unknown>, key: string, value: unknown): void {
@@ -227,6 +230,42 @@ function aggregateRows(
   }
 
   return values;
+}
+
+function relationNameOptions(relation: NormalizedRelation): {
+  columnMap?: Readonly<Record<string, string>>;
+  columnCodecs?: ZodRelationConfig["columnCodecs"];
+} {
+  return {
+    columnMap: relation.config.columnMap,
+    columnCodecs: relation.config.columnCodecs,
+  };
+}
+
+function selectRelationFields(
+  sql: Sql<Record<string, unknown>>,
+  fields: readonly string[],
+  relation: NormalizedRelation
+): SqlFragment {
+  const map = relation.config.columnMap;
+  return fields.reduce((acc, field, index) => {
+    const mapped = map?.[field] ?? field;
+    const part = mapped === field ? sql`${sql(field)}` : sql`${sql(mapped)} AS ${sql(field)}`;
+    return index === 0 ? part : sql`${acc}, ${part}`;
+  }, sql``);
+}
+
+function decodeRelationRow(
+  relation: NormalizedRelation,
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const codecs = relation.config.columnCodecs;
+  if (!codecs) return row;
+
+  for (const [field, codec] of Object.entries(codecs)) {
+    if (codec.decode && field in row) row[field] = codec.decode(row[field]);
+  }
+  return row;
 }
 
 /**
@@ -458,19 +497,32 @@ export class RelationLoader {
     if (relatedKeys.size === 0) return [];
 
     const fields = [...new Set([...queryFields, ...through.targetKeys])];
+    const nameOptions = relationNameOptions(relation);
     const relatedRows = await sql<Record<string, unknown>[]>`
-      SELECT ${sql(fields)}
+      SELECT ${selectRelationFields(sql, fields, relation)}
       FROM ${sql(relation.config.table)}
-      ${buildWhereInputs(sql, [
-        rawPredicate<Row>(buildKeyFilter(sql, through.targetKeys, [...relatedKeys.values()])),
-        ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
-      ])}
+      ${buildWhereInputs(
+        sql,
+        [
+          rawPredicate<Row>(
+            buildKeyFilter(
+              sql,
+              through.targetKeys,
+              [...relatedKeys.values()],
+              relation.config.columnMap
+            )
+          ),
+          ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
+        ],
+        nameOptions
+      )}
     `;
 
     const children = new Map<string, Record<string, unknown>>();
     for (const row of relatedRows) {
-      const serialized = serializeKey(through.targetKeys.map((key) => row[key]));
-      if (serialized) children.set(serialized, row);
+      const decoded = decodeRelationRow(relation, row);
+      const serialized = serializeKey(through.targetKeys.map((key) => decoded[key]));
+      if (serialized) children.set(serialized, decoded);
     }
 
     const perParent = new Map<string, Array<Record<string, unknown>>>();
@@ -507,12 +559,15 @@ export class RelationLoader {
     queryFields: readonly string[]
   ): Promise<Array<Record<string, unknown>>> {
     const sql = this.sql;
-    const keyFilter = rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys));
+    const nameOptions = relationNameOptions(relation);
+    const keyFilter = rawPredicate<Row>(
+      buildKeyFilter(sql, relation.foreignKeys, keys, relation.config.columnMap)
+    );
     const inputs: WhereInput<Row>[] = [
       ...((refinement?.whereInputs ?? []) as readonly WhereInput<Row>[]),
       keyFilter,
     ];
-    const where = buildWhereInputs(sql, inputs);
+    const where = buildWhereInputs(sql, inputs, nameOptions);
     const orderBy = refinement?.orderBy as SortSpec<Row>[] | undefined;
     const take = refinement?.take;
 
@@ -520,12 +575,13 @@ export class RelationLoader {
       return this.fetchRelatedLimited(relation, queryFields, where, orderBy, take);
     }
 
-    return await sql<Record<string, unknown>[]>`
-      SELECT ${sql(queryFields as string[])}
+    const rows = await sql<Record<string, unknown>[]>`
+      SELECT ${selectRelationFields(sql, queryFields, relation)}
       FROM ${sql(relation.config.table)}
       ${where}
-      ${createSortFragment(sql, orderBy)}
+      ${createSortFragment(sql, orderBy, nameOptions)}
     `;
+    return rows.map((row) => decodeRelationRow(relation, row));
   }
 
   private async fetchRelatedLimited(
@@ -543,20 +599,24 @@ export class RelationLoader {
       );
     }
 
-    const partition = sql`PARTITION BY ${sql(relation.foreignKeys as string[])}`;
-    const order = createSortFragment(sql, orderBy);
+    const nameOptions = relationNameOptions(relation);
+    const mappedForeignKeys = relation.foreignKeys.map(
+      (key) => relation.config.columnMap?.[key] ?? key
+    );
+    const partition = sql`PARTITION BY ${sql(mappedForeignKeys as string[])}`;
+    const order = createSortFragment(sql, orderBy, nameOptions);
     const windowOrder = order ? sql` ${order}` : sql``;
 
     let foreignKeyOrder = sql``;
-    relation.foreignKeys.forEach((key, index) => {
+    mappedForeignKeys.forEach((key, index) => {
       const fragment = sql`${sql(key)} ASC`;
       foreignKeyOrder = index === 0 ? fragment : sql`${foreignKeyOrder}, ${fragment}`;
     });
 
-    return await sql<Record<string, unknown>[]>`
+    const rows = await sql<Record<string, unknown>[]>`
       SELECT ${sql(queryFields as string[])}
       FROM (
-        SELECT ${sql(queryFields as string[])},
+        SELECT ${selectRelationFields(sql, queryFields, relation)},
           row_number() OVER (${partition}${windowOrder}) AS ${sql(RELATION_ROW_NUMBER)}
         FROM ${sql(relation.config.table)}
         ${where}
@@ -564,6 +624,7 @@ export class RelationLoader {
       WHERE ${sql(RELATION_ROW_NUMBER)} <= ${take}
       ORDER BY ${foreignKeyOrder}, ${sql(RELATION_ROW_NUMBER)} ASC
     `;
+    return rows.map((row) => decodeRelationRow(relation, row));
   }
 
   private async fetchAggregates(
@@ -701,19 +762,22 @@ export class RelationLoader {
 
     const where = buildWhereInputs(sql, [
       ...(refinement ?? []),
-      rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys)),
+      rawPredicate<Row>(buildKeyFilter(sql, relation.foreignKeys, keys, relation.config.columnMap)),
     ]);
 
+    const mappedForeignKeys = relation.foreignKeys.map(
+      (key) => relation.config.columnMap?.[key] ?? key
+    );
     const rows = await sql<Record<string, unknown>[]>`
-      SELECT ${sql(relation.foreignKeys as string[])}, COUNT(*) AS ${sql(RELATION_COUNT)}
+      SELECT ${sql(mappedForeignKeys as string[])}, COUNT(*) AS ${sql(RELATION_COUNT)}
       FROM ${sql(relation.config.table)}
       ${where}
-      GROUP BY ${sql(relation.foreignKeys as string[])}
+      GROUP BY ${sql(mappedForeignKeys as string[])}
     `;
 
     const counts = new Map<string, number>();
     for (const row of rows) {
-      const serialized = serializeKey(relation.foreignKeys.map((key) => row[key]));
+      const serialized = serializeKey(mappedForeignKeys.map((key) => row[key]));
       if (serialized) {
         counts.set(serialized, Number(row[RELATION_COUNT] ?? 0));
       }
