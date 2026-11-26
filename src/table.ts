@@ -141,6 +141,13 @@ export type GroupedRow<
   X extends ComputedMap,
 > = Pick<T, G[number]> & ComputedResult<X>;
 
+export type GroupedExprRow<
+  G extends Record<string, SqlExpression<unknown>>,
+  X extends ComputedMap,
+> = {
+  [K in keyof G]: G[K] extends SqlExpression<infer R> ? R : unknown;
+} & ComputedResult<X>;
+
 /**
  * Result of `groupBy`: grouped rows plus typed aggregate aliases.
  */
@@ -298,6 +305,103 @@ export class GroupedQuery<
     if (!row) {
       throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     }
+    return row;
+  }
+}
+
+/**
+ * Grouped query over raw SQL expressions rather than schema columns.
+ */
+export class GroupedExprQuery<
+  T extends Row,
+  K extends SelectKeys<T>,
+  I extends Row,
+  G extends Record<string, SqlExpression<unknown>>,
+  X extends ComputedMap,
+> {
+  private readonly table: Table<T, K, I>;
+  private readonly expressions: G;
+  private readonly aggregates: X;
+  private readonly havingValue?: SqlFragment;
+  private readonly havingConditions?: HavingInput<X>;
+
+  constructor(
+    table: Table<T, K, I>,
+    expressions: G,
+    aggregates: X,
+    having?: SqlFragment,
+    havingConditions?: HavingInput<X>
+  ) {
+    this.table = table;
+    this.expressions = expressions;
+    this.aggregates = aggregates;
+    this.havingValue = having;
+    this.havingConditions = havingConditions;
+  }
+
+  private next(overrides: {
+    table?: Table<T, K, I>;
+    having?: SqlFragment;
+    havingConditions?: HavingInput<X>;
+  }): GroupedExprQuery<T, K, I, G, X> {
+    return new GroupedExprQuery(
+      overrides.table ?? this.table,
+      this.expressions,
+      this.aggregates,
+      overrides.having ?? this.havingValue,
+      overrides.havingConditions ?? this.havingConditions
+    );
+  }
+
+  having(fragment: SqlFragment): GroupedExprQuery<T, K, I, G, X>;
+  having(conditions: HavingInput<X>): GroupedExprQuery<T, K, I, G, X>;
+  having(input: SqlFragment | HavingInput<X>): GroupedExprQuery<T, K, I, G, X> {
+    return isSqlFragment(input)
+      ? this.next({ having: input })
+      : this.next({ havingConditions: input as HavingInput<X> });
+  }
+
+  where(conditions: WhereInput<T>): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.where(conditions) });
+  }
+
+  whereRaw(fragment: SqlFragment): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.whereRaw(fragment) });
+  }
+
+  orderBy(spec: SortSpec<T>[]): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.orderBy(spec) });
+  }
+
+  orderByRaw(fragment: SqlFragment): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.orderByRaw(fragment) });
+  }
+
+  skip(count: number): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.skip(count) });
+  }
+
+  take(count: number): GroupedExprQuery<T, K, I, G, X> {
+    return this.next({ table: this.table.take(count) });
+  }
+
+  findMany(): Promise<Array<GroupedExprRow<G, X>>> {
+    const having =
+      this.havingValue ??
+      (this.havingConditions
+        ? buildHavingFragment(this.table.getSql(), this.aggregates, this.havingConditions)
+        : undefined);
+    return this.table.executeGroupedExpr(this.expressions, this.aggregates, having);
+  }
+
+  async findFirst(): Promise<GroupedExprRow<G, X> | null> {
+    const rows = await this.take(1).findMany();
+    return rows[0] ?? null;
+  }
+
+  async findFirstOrThrow(): Promise<GroupedExprRow<G, X>> {
+    const row = await this.findFirst();
+    if (!row) throw new QueryError(Errors.QUERY.NO_ROWS, { code: "NO_ROWS" });
     return row;
   }
 }
@@ -1371,6 +1475,58 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }
 
     return new GroupedQuery<T, K, I, G, X>(this, columns, (aggregates ?? {}) as X);
+  }
+
+  groupByExpr<
+    G extends Record<string, SqlExpression<unknown>>,
+    X extends ComputedMap = Record<never, never>,
+  >(expressions: G, aggregates?: X): GroupedExprQuery<T, K, I, G, X> {
+    if (!expressions || Object.keys(expressions).length === 0) {
+      throw new QueryError(Errors.SELECT.INVALID_GROUP, { code: "INVALID_GROUP" });
+    }
+    return new GroupedExprQuery<T, K, I, G, X>(this, expressions, (aggregates ?? {}) as X);
+  }
+
+  /**
+   * Execute a grouped SELECT over expressions. Used by `GroupedExprQuery`.
+   */
+  async executeGroupedExpr<G extends Record<string, SqlExpression<unknown>>, X extends ComputedMap>(
+    expressions: G,
+    aggregates: X,
+    having?: SqlFragment
+  ): Promise<Array<GroupedExprRow<G, X>>> {
+    const groupParts = Object.entries(expressions).map(
+      ([alias, expression]) => this.sql`${expression.fragment} AS ${this.sql(alias)}`
+    );
+    const groupSelection = groupParts.reduce(
+      (acc, part, index) => (index === 0 ? part : this.sql`${acc}, ${part}`),
+      this.sql``
+    );
+    const groupColumns = Object.entries(expressions).reduce(
+      (acc, [, expression], index) =>
+        index === 0 ? expression.fragment : this.sql`${acc}, ${expression.fragment}`,
+      this.sql``
+    );
+    const aggregateParts = Object.entries(aggregates).map(
+      ([alias, expression]) => this.sql`${expression.fragment} AS ${this.sql(alias)}`
+    );
+    const aggregateList = aggregateParts.reduce(
+      (acc, part, index) => (index === 0 ? part : this.sql`${acc}, ${part}`),
+      this.sql``
+    );
+    const selection =
+      aggregateParts.length > 0 ? this.sql`${groupSelection}, ${aggregateList}` : groupSelection;
+
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      SELECT ${selection}
+      FROM ${this.sql(this.tableName)}
+      ${buildWhereInputs(this.sql, this.whereInputs, this.nameOptions())}
+      GROUP BY ${groupColumns}
+      ${having ? this.sql`HAVING ${having}` : this.sql``}
+      ${this.orderFragment()}
+      ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
+    `;
+    return this.decodeRows(rows) as unknown as Array<GroupedExprRow<G, X>>;
   }
 
   /**

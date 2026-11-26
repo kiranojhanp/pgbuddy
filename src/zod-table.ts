@@ -17,7 +17,7 @@ import {
   RelationLoader,
   type RelationRefinement,
 } from "./relations";
-import type { GroupedQuery, JoinQuery, Table } from "./table";
+import type { GroupedExprQuery, GroupedQuery, JoinQuery, Table } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
@@ -1875,6 +1875,13 @@ export class ZodTable<
       G,
       X
     >;
+  }
+
+  groupByExpr<
+    G extends Record<string, SqlExpression<unknown>>,
+    X extends ComputedMap = Record<never, never>,
+  >(expressions: G, aggregates?: X): GroupedExprQuery<RowFromSchema<S>, K, I, G, X> {
+    return this.table.groupByExpr(expressions, aggregates);
   }
 
   async aggregate(options: AggregateOptions<RowFromSchema<S>>): Promise<AggregateResult> {

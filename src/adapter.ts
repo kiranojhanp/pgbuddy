@@ -2,7 +2,14 @@ import type { Row } from "postgres";
 import { type ZodObject, type ZodRawShape, z } from "zod";
 import { Errors, QueryError } from "./errors";
 import type { WhereInput } from "./predicates";
-import type { GroupedQuery, JoinOptions, JoinQuery, ProjectedQuery, Table } from "./table";
+import type {
+  GroupedExprQuery,
+  GroupedQuery,
+  JoinOptions,
+  JoinQuery,
+  ProjectedQuery,
+  Table,
+} from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
@@ -12,6 +19,7 @@ import type {
   CreateManyOptions,
   SelectKeys,
   SortSpec,
+  SqlExpression,
   SqlFragment,
   UpdateData,
   UpsertOptions,
@@ -334,6 +342,13 @@ export class ValidatedTable<
     aggregates?: X
   ): GroupedQuery<T, K, I, G, X> {
     return this.table.groupBy(columns, aggregates);
+  }
+
+  groupByExpr<
+    G extends Record<string, SqlExpression<unknown>>,
+    X extends ComputedMap = Record<never, never>,
+  >(expressions: G, aggregates?: X): GroupedExprQuery<T, K, I, G, X> {
+    return this.table.groupByExpr(expressions, aggregates);
   }
 
   aggregate(options: AggregateOptions<T>): Promise<AggregateResult> {

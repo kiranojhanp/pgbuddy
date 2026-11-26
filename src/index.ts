@@ -69,7 +69,7 @@ import type {
 } from "./client";
 import { PgBuddyClient } from "./client";
 import { Errors, QueryError, type QueryErrorCode, TableError } from "./errors";
-import { GroupedQuery, JoinQuery, ProjectedQuery } from "./table";
+import { GroupedExprQuery, GroupedQuery, JoinQuery, ProjectedQuery } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
@@ -103,6 +103,7 @@ export {
   ZodTable,
   ValidatedTable,
   ProjectedQuery,
+  GroupedExprQuery,
   GroupedQuery,
   JoinQuery,
   ZodAggregatedQuery,
@@ -156,7 +157,16 @@ export {
   or,
   startsWith,
 } from "./predicates";
-export type { GroupedRow, JoinOptions, JoinResult, JoinValue, Table } from "./table";
+export type {
+  GroupedExprRow,
+  GroupedRow,
+  HavingInput,
+  HavingValue,
+  JoinOptions,
+  JoinResult,
+  JoinValue,
+  Table,
+} from "./table";
 export type {
   IncludedRelations,
   RelationAggregate,

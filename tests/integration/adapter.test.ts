@@ -162,6 +162,15 @@ describe("validation adapter table", () => {
       .findMany();
     expect(having).toEqual([{ status: "active", count: 2 }]);
 
+    const groupedExpr = await users()
+      .groupByExpr(
+        { statusLower: sqlExpr<string>(sql`lower(status)`) },
+        { count: sqlExpr<number>(sql`count(*)::int`) }
+      )
+      .having({ count: { gt: 1 } })
+      .findMany();
+    expect(groupedExpr).toEqual([{ statusLower: "active", count: 2 }]);
+
     const computed = await users()
       .where({ id: 1 })
       .selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })

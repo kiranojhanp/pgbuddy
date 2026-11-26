@@ -731,7 +731,8 @@ a schema toolkit or a full SQL AST.
 
 ### P2 — useful, but raw SQL is acceptable
 
-- [ ] Expression columns in `groupBy`.
+- [x] **Expression columns in `groupBy`.** `groupByExpr({ alias: sqlExpr(...) })`
+  groups by raw SQL expressions.
 - [x] **Typed `HAVING`.** `GroupedQuery.having()` accepts aggregate conditions such
   as `{ count: { gt: 1 } }`; raw fragments still work.
 - [x] **`INSERT … SELECT`.** `insertFrom(select, { columns, returning })`.
