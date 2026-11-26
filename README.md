@@ -940,6 +940,14 @@ a schema toolkit or a full SQL AST.
   executor using postgres.js named preparation.
 - [x] **Builder-level prepared SELECT plans.** `Table.prepare()` returns a
   reusable executor with fixed parameters.
+- [x] **Typed deferred batching.** Lazy `findMany()` / `count()` terminals can
+  be combined by `db.batch` into one round trip.
+- [x] **Parameterized prepared SELECT plans.** `db.param()` + `prepareParams()`.
+- [x] **Transaction retry.** Opt-in serialization/deadlock retries.
+- [x] **EXPLAIN.** `explain()` for SELECT plans.
+- [x] **Typed expression filters/order.** `whereExpr()` / `orderByExpr()`.
+- [x] **JSONB/array predicates.** `jsonContains`, `jsonHasKey`, `arrayContains`,
+  `arrayOverlaps`, and related helpers.
 - [x] **True protocol batch.** `db.batch([pending queries])` and `db.batchSQL`
   use postgres.js `sql.batch` for one round trip.
 
@@ -955,6 +963,10 @@ a schema toolkit or a full SQL AST.
 - [x] **SELECT cancellation and streaming.** `signal(abortSignal)` and
   `stream(batchSize)` cover the base SELECT path; relation hydration is not
   streamed.
+- [x] **Backward infinite pagination.** `findManyInfinite({ direction:
+  "backward" })`.
+- [x] **Conditional aggregates.** `db.filtered(expression, condition)` for
+  `FILTER (WHERE ...)`.
 
 ### P3 — out of scope / use raw SQL
 
@@ -974,7 +986,7 @@ and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 
 ## Compatibility
 
-- **Zod v4 or newer is required.**
+- **Zod `>=4.6.6` is required.**
 - **postgres.js v4** is required. CI runs the full suite against `4.1.1` on PGlite and a real PostgreSQL 16 service.
 - pgbuddy imports postgres.js **types only**, so pgbuddy stays runtime-agnostic apart from the driver's query objects.
 
