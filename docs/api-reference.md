@@ -496,6 +496,21 @@ Returns the first matching record, or throws `QueryError` (`No record found`).
 
 Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
 
+#### findManyInfinite()
+
+```typescript
+findManyInfinite(options?: ComputedOptions): Promise<{
+  rows: Array<T>;
+  nextCursor: Partial<T> | null;
+  hasMore: boolean;
+}>
+```
+
+Fetches a keyset page and returns the cursor for the next page. Requires an
+explicit `orderBy` of schema columns and a `take()` limit. `nextCursor` is
+derived from the order columns of the last returned row. The helper fetches one
+extra row to determine `hasMore`; it does not return a total.
+
 #### findManyAndCount()
 
 ```typescript

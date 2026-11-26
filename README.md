@@ -547,6 +547,24 @@ does not parse HTTP params or decide the response envelope; see the
 [app-level paginated-table recipe](docs/recipes/paginated-tables.md) for a
 Zod-validated helper with sort/filter allowlists.
 
+For infinite/keyset pages, use `findManyInfinite()`:
+
+```ts
+const first = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .take(20)
+  .findManyInfinite();
+
+const next = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .cursor(first.nextCursor!)
+  .take(20)
+  .findManyInfinite();
+```
+
+It returns `{ rows, nextCursor, hasMore }` and requires an explicit `orderBy`
+and `take()`; it does not fetch a total.
+
 ## Streaming and cancellation
 
 ```ts

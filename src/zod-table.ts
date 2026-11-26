@@ -1753,6 +1753,30 @@ export class ZodTable<
     };
   }
 
+  async findManyInfinite<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<{
+    rows: Array<
+      WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+    >;
+    nextCursor: Partial<RowFromSchema<S>> | null;
+    hasMore: boolean;
+  }> {
+    const prepared = this.prepareQuery();
+    const page = await prepared.table.findManyInfinite(options);
+    const enriched = await this.finalize(
+      page.rows as Array<Record<string, unknown>>,
+      prepared.stripKeys
+    );
+    return {
+      rows: enriched as unknown as Array<
+        WithRelations<SelectFields<RowFromSchema<S>, K>[0] & ComputedResult<X>, R, Inc, Sel, Cnt>
+      >,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
+  }
+
   async findFirst<X extends Record<string, SqlExpression<unknown>> = Record<never, never>>(
     options?: ComputedOptions<X>
   ): Promise<WithRelations<

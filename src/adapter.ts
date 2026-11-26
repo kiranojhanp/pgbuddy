@@ -433,6 +433,20 @@ export class ValidatedTable<
     return { rows: rows as Array<T>, total };
   }
 
+  async findManyInfinite(
+    options?: ComputedOptions<Record<string, SqlExpression<unknown>>>
+  ): Promise<{
+    rows: Array<T>;
+    nextCursor: Partial<T> | null;
+    hasMore: boolean;
+  }> {
+    return this.table.findManyInfinite(options) as Promise<{
+      rows: Array<T>;
+      nextCursor: Partial<T> | null;
+      hasMore: boolean;
+    }>;
+  }
+
   findFirst(): Promise<T | null> {
     return this.table.findFirst() as Promise<T | null>;
   }

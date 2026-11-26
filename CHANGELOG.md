@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expression-based grouping via `groupByExpr({ alias: sqlExpr(...) })`.
 - SELECT cancellation via `signal()` and batched streaming via `stream()`.
 - `findManyAndCount()` for page rows plus filtered total in one batch.
+- `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
 - Adapter relation keys are inferred from `fields` field lists.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.

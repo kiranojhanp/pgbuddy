@@ -74,6 +74,38 @@ export async function listUsers(db: PgBuddyClient, input: unknown) {
 The sort and status maps are deliberately explicit. Do not pass arbitrary
 query-string values into `orderBy` or `where`.
 
+## Infinite queries
+
+Keyset pagination is the right fit for infinite scrolling:
+
+```ts
+const first = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .take(20)
+  .findManyInfinite();
+
+const next = await users
+  .orderBy([{ column: "id", direction: "ASC" }])
+  .cursor(first.nextCursor!)
+  .take(20)
+  .findManyInfinite();
+```
+
+`findManyInfinite()` returns:
+
+```ts
+{
+  rows,
+  nextCursor, // Partial<T> | null
+  hasMore,
+}
+```
+
+It fetches one extra row to determine `hasMore`, so use a deterministic,
+unique ordering (or a composite cursor) to avoid duplicates/skips. It requires
+an explicit `orderBy` of schema columns and a `take()` limit; raw `orderByRaw`
+is not supported for cursor derivation. It does not fetch a total.
+
 ## Choosing a pagination mode
 
 - **Offset pages** (`skip`/`take` + `findManyAndCount`) work well for

@@ -473,6 +473,19 @@ export async function run(sql: Sql<Record<string, unknown>>, db: PgBuddyClient):
     rows: pageResult.rows,
   });
 
+  let infiniteCursor: Partial<User> | null = null;
+  const infinitePages: User[] = [];
+  for (let page = 0; page < 2; page += 1) {
+    let infiniteQuery = users.orderBy([{ column: "id", direction: "ASC" }]).take(2);
+    if (infiniteCursor) infiniteQuery = infiniteQuery.cursor(infiniteCursor);
+    const result = await infiniteQuery.findManyInfinite();
+    infinitePages.push(...result.rows);
+    infiniteCursor = result.nextCursor;
+    if (!result.hasMore) break;
+  }
+
+  console.log("infinite", { pages: infinitePages, nextCursor: infiniteCursor });
+
   console.log("batch", { batchOrders, batchCount, streamedUsers });
 
   // --- Filtering -----------------------------------------------------------

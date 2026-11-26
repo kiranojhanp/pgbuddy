@@ -162,6 +162,7 @@ export type {
   GroupedRow,
   HavingInput,
   HavingValue,
+  InfinitePage,
   JoinOptions,
   JoinResult,
   JoinValue,

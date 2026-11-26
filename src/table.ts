@@ -39,6 +39,12 @@ import {
 /**
  * Result of `selectExpr`: a terminal query with typed computed fields.
  */
+export type InfinitePage<T extends Row, R extends Row = T> = {
+  rows: Array<R>;
+  nextCursor: Partial<T> | null;
+  hasMore: boolean;
+};
+
 export class ProjectedQuery<
   T extends Row,
   K extends SelectKeys<T>,
@@ -1771,6 +1777,45 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         `;
 
     return parseInt(result[0]?.count ?? "0", 10);
+  }
+
+  /**
+   * Fetch a keyset page and the cursor for the next page. Requires an explicit
+   * `orderBy` of schema columns and a `take()` limit.
+   */
+  async findManyInfinite<X extends ComputedMap = Record<never, never>>(
+    options?: ComputedOptions<X>
+  ): Promise<InfinitePage<T, SelectFields<T, K>[0] & ComputedResult<X>>> {
+    if (this.orderByRawValue || !this.orderByValue?.length) {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+
+    const take = this.takeValue ?? this.defaultTake;
+    if (!take) {
+      throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+    }
+
+    const rows = (await this.clone({ takeValue: take + 1 }).findMany(options)) as Array<
+      SelectFields<T, K>[0] & ComputedResult<X>
+    >;
+    const pageRows = rows.slice(0, take);
+    const hasMore = rows.length > take;
+    const last = pageRows.at(-1);
+
+    if (!hasMore || !last) {
+      return { rows: pageRows, nextCursor: null, hasMore: false };
+    }
+
+    const nextCursor: Partial<T> = {};
+    for (const spec of this.orderByValue) {
+      const value = last[spec.column];
+      if (value === undefined || value === null) {
+        throw new QueryError(Errors.SELECT.INVALID_CURSOR, { code: "INVALID_CURSOR" });
+      }
+      nextCursor[spec.column] = value;
+    }
+
+    return { rows: pageRows, nextCursor, hasMore: true };
   }
 
   /**
