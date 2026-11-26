@@ -543,6 +543,15 @@ Fetches the current page and the filtered total in one postgres.js batch.
 Use `db.transaction` when the page and count must share a transaction with
 other work.
 
+#### whereExpr(expression)
+
+Filters by a typed SQL boolean expression. Equivalent to `whereRaw` for the
+expression's fragment, with expression typing at the call site.
+
+#### orderByExpr(expression, options?)
+
+Orders by a typed SQL expression with optional `direction` and `nulls`.
+
 #### toSQL()
 
 ```typescript

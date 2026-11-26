@@ -352,4 +352,15 @@ describe("limits, counts, and transactions", () => {
     const analyzed = await users.where({ status: "active" }).explain({ analyze: true });
     expect(analyzed.length).toBeGreaterThan(0);
   });
+
+  test("whereExpr and orderByExpr use typed SQL expressions", async () => {
+    const users = db.table("users", UserSchema);
+    const rows = await users
+      .whereExpr(sqlExpr<boolean>(sql`lower(email) LIKE ${"%@example.com"}`))
+      .orderByExpr(sqlExpr<string>(sql`lower(email)`), { direction: "DESC" })
+      .findMany();
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]?.email).toBe("d@example.com");
+  });
 });

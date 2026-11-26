@@ -167,6 +167,15 @@ Available predicates:
 
 Repeated `.where()` calls are combined with `AND`.
 
+Typed SQL expressions compose with the normal builder:
+
+```ts
+const rows = await users
+  .whereExpr(sqlExpr<boolean>(sql`lower(email) = ${email.toLowerCase()}`))
+  .orderByExpr(sqlExpr<string>(sql`lower(full_name)`), { direction: "ASC" })
+  .findMany();
+```
+
 For raw conditions, use `whereRaw` with a postgres.js fragment:
 
 ```ts

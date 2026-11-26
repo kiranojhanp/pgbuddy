@@ -380,6 +380,17 @@ export class ValidatedTable<
     return this.wrap(this.table.where(conditions));
   }
 
+  whereExpr(expression: SqlExpression<boolean>): ValidatedTable<T, K, I, R> {
+    return this.wrap(this.table.whereExpr(expression));
+  }
+
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): ValidatedTable<T, K, I, R> {
+    return this.wrap(this.table.orderByExpr(expression, options));
+  }
+
   whereRaw(fragment: SqlFragment): ValidatedTable<T, K, I, R> {
     return this.wrap(this.table.whereRaw(fragment));
   }

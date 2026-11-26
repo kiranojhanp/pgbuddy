@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lazy `findMany()` / `count()` terminals that `db.batch()` can combine into
   one round trip.
 - `explain()` for SELECT plans.
+- `whereExpr()` and `orderByExpr()` for typed SQL expressions.
 - Opt-in transaction retry for serialization failures/deadlocks; transaction
   clients now inherit column mapping/codecs and the connection adapter.
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.

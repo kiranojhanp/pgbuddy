@@ -1605,6 +1605,17 @@ export class ZodTable<
    * Add a raw postgres.js fragment to the WHERE clause. This bypasses schema
    * validation; only pass trusted SQL.
    */
+  whereExpr(expression: SqlExpression<boolean>): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.whereExpr(expression));
+  }
+
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
+    return this.wrap(this.table.orderByExpr(expression, options));
+  }
+
   whereRaw(fragment: SqlFragment): ZodTable<S, K, I, R, Inc, Sel, Cnt> {
     return this.wrap(this.table.whereRaw(fragment));
   }

@@ -1124,6 +1124,30 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    * Add a raw postgres.js fragment to the WHERE clause. This is an escape
    * hatch: identifiers and values are not validated, so only pass trusted SQL.
    */
+  /** Filter by a typed SQL boolean expression. */
+  whereExpr(expression: SqlExpression<boolean>): Table<T, K, I> {
+    return this.whereRaw(expression.fragment);
+  }
+
+  /** Order by a typed SQL expression. */
+  orderByExpr(
+    expression: SqlExpression<unknown>,
+    options?: { direction?: "ASC" | "DESC"; nulls?: "first" | "last" }
+  ): Table<T, K, I> {
+    const direction = options?.direction ?? "ASC";
+    if (direction !== "ASC" && direction !== "DESC") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    const nulls = options?.nulls;
+    if (nulls !== undefined && nulls !== "first" && nulls !== "last") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+    const fragment = this.sql`${expression.fragment} ${this.sql.unsafe(direction)}${
+      nulls ? this.sql` NULLS ${this.sql.unsafe(nulls.toUpperCase())}` : this.sql``
+    }`;
+    return this.orderByRaw(fragment);
+  }
+
   whereRaw(fragment: SqlFragment): Table<T, K, I> {
     return this.clone({ whereInputs: [...this.whereInputs, rawPredicate<T>(fragment)] });
   }
