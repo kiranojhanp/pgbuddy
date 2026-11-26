@@ -2,7 +2,7 @@ import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
-import type { ColumnMap, SelectKeys } from "./types";
+import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
 import { DEFAULT_MAX_TAKE, isValidIdentifier, isValidName } from "./utils";
 import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
 
@@ -21,6 +21,7 @@ import { type RowFromSchema, type ZodRelations, ZodTable } from "./zod-table";
  *   `[["email"], ["tenant_id", "slug"]]`).
  * - `defaultTake` — default row limit for `findMany` when no `take()` is set.
  * - `columnMap` — map schema field names to database column names.
+ * - `columnCodecs` — per-field encode/decode hooks for custom database types.
  */
 export type PgBuddyClientOptions = {
   strictNames?: boolean;
@@ -31,6 +32,8 @@ export type PgBuddyClientOptions = {
   defaultTake?: number;
   /** Schema field name → database column name. */
   columnMap?: ColumnMap;
+  /** Per-field encode/decode hooks. */
+  columnCodecs?: ColumnCodecs;
   /** Relations available to `ZodTable.include`. */
   relations?: ZodRelations;
 };
@@ -75,6 +78,24 @@ function assertColumnMap(columnMap: ColumnMap | undefined): void {
   }
   if (new Set(values).size !== values.length) {
     throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+  }
+}
+
+function assertColumnCodecs(codecs: ColumnCodecs | undefined): void {
+  if (codecs === undefined) return;
+  if (typeof codecs !== "object" || codecs === null || Array.isArray(codecs)) {
+    throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+  }
+
+  for (const codec of Object.values(codecs)) {
+    if (
+      typeof codec !== "object" ||
+      codec === null ||
+      (codec.encode !== undefined && typeof codec.encode !== "function") ||
+      (codec.decode !== undefined && typeof codec.decode !== "function")
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+    }
   }
 }
 
@@ -135,6 +156,7 @@ export class PgBuddyClient {
   private uniqueKeys?: readonly (readonly string[])[];
   private defaultTake?: number;
   private columnMap?: ColumnMap;
+  private columnCodecs?: ColumnCodecs;
 
   /**
    * Creates a new PgBuddyClient instance.
@@ -169,6 +191,7 @@ export class PgBuddyClient {
     }
 
     assertColumnMap(options?.columnMap);
+    assertColumnCodecs(options?.columnCodecs);
 
     assertUniqueOption(options?.unique);
     assertDefaultTake(options?.defaultTake);
@@ -181,6 +204,7 @@ export class PgBuddyClient {
     this.uniqueKeys = options?.unique?.map((list) => [...list]);
     this.defaultTake = options?.defaultTake;
     this.columnMap = options?.columnMap ? { ...options.columnMap } : undefined;
+    this.columnCodecs = options?.columnCodecs ? { ...options.columnCodecs } : undefined;
   }
 
   /**
@@ -302,6 +326,7 @@ export class PgBuddyClient {
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
     const columnMap = options?.columnMap ?? this.columnMap;
+    const columnCodecs = options?.columnCodecs ?? this.columnCodecs;
 
     if (typeof tableName !== "string") {
       throw new TableError(Errors.TABLE.INVALID_NAME);
@@ -322,6 +347,15 @@ export class PgBuddyClient {
     assertUniqueOption(uniqueKeys);
     assertDefaultTake(defaultTake);
     assertColumnMap(columnMap);
+    assertColumnCodecs(columnCodecs);
+
+    if (columnCodecs) {
+      for (const field of Object.keys(columnCodecs)) {
+        if (!Object.hasOwn(schema.shape, field)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+        }
+      }
+    }
 
     if (columnMap) {
       for (const [field, column] of Object.entries(columnMap)) {
@@ -363,6 +397,7 @@ export class PgBuddyClient {
       uniqueKeys,
       defaultTake,
       columnMap,
+      columnCodecs,
       selectedFields: schemaColumns.length
         ? (schemaColumns as unknown as SelectKeys<Row>)
         : undefined,

@@ -23,6 +23,7 @@ All options can be set on the client and overridden per table:
 | `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
 | `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
 | `columnMap` | `undefined` | Map schema field names to database column names for this table or the whole client. Values must be unique. |
+| `columnCodecs` | `undefined` | Per-field `{ encode?, decode? }` hooks for custom database representations. |
 | `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
 
 ### sql
@@ -601,10 +602,26 @@ const users = db.table("users", UserSchema, {
 
 Results keep schema field names. The map applies to reads, writes, filters,
 ordering, distinct, cursors, aggregates, and grouping. Set `columnMap` on the
-client to apply a default map to every table. Relation configs and right-side
-join columns still use explicit database names. Per-column codecs are not
-implemented yet; `postgres.camel` remains an alternative for connection-wide
-camelCase mapping.
+client to apply a default map to every table.
+
+`columnCodecs` adds per-field serialization:
+
+```typescript
+const products = db.table("products", ProductSchema, {
+  columnMap: { price: "price_cents" },
+  columnCodecs: {
+    price: {
+      encode: (value) => Math.round(Number(value) * 100),
+      decode: (value) => Number(value) / 100,
+    },
+  },
+});
+```
+
+Codecs apply to writes, filter values, cursors, and decoded rows; SQL-fragment
+values bypass encoding. Relation configs, right-side join columns, and
+relation-loaded child rows do not use table codecs yet. `postgres.camel`
+remains an alternative for connection-wide camelCase mapping.
 
 ## Error types
 

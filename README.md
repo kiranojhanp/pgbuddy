@@ -531,11 +531,29 @@ transforms remain an alternative:
 const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
 ```
 
-Current limitation: relation configs and right-side join columns do not read
-`columnMap` yet; use explicit database column names there.
+Add per-field encode/decode hooks for custom database representations:
 
-Per-column custom serialization (`mapWith`/`$type`-style codecs) is not
-implemented yet.
+```ts
+const products = db.table("products", ProductSchema, {
+  columnMap: { price: "price_cents" },
+  columnCodecs: {
+    price: {
+      encode: (value) => Math.round(Number(value) * 100),
+      decode: (value) => Number(value) / 100,
+    },
+    metadata: {
+      encode: (value) => JSON.stringify(value),
+      decode: (value) => JSON.parse(String(value)),
+    },
+  },
+});
+```
+
+Codecs apply to write payloads, filter values, cursors, and decoded result rows.
+SQL-fragment values bypass encoding. Relation configs, right-side join columns,
+and relation-loaded child rows do not read table codecs yet.
+
+`columnMap` and `columnCodecs` are independent; use one or both.
 
 ## Kitchen sink
 
@@ -567,8 +585,8 @@ a schema toolkit or a full SQL AST.
 
 - [x] **Per-column name mapping.** `columnMap` maps schema fields to database
   columns across reads, writes, filters, ordering, aggregates, and grouping.
-- [ ] **Per-column custom serialization** (`mapWith`/`$type`-style codecs).
-  Mixed naming is covered by `columnMap`; custom DB types still need codecs.
+- [x] **Per-column custom serialization.** `columnCodecs` provides per-field
+  encode/decode hooks for writes, filters, cursors, and result rows.
 - [ ] **Validator adapter for non-Zod libraries.** Zod is required today; a
   small adapter interface should be designed before a second validator is
   added, without weakening validation.
@@ -599,8 +617,9 @@ a schema toolkit or a full SQL AST.
 ### Recommended next three
 
 1. **Validator adapter** — prepare for validation libraries beyond Zod.
-2. **Per-column custom serialization** — codecs for custom DB types.
-3. **Prepared statements / batch / `toSQL()`** — the remaining lifecycle work.
+2. **Prepared statements / batch / `toSQL()`** — the remaining lifecycle work.
+3. **Relation/join codec mapping** — extend `columnMap`/`columnCodecs` to those
+   paths.
 
 ## Compatibility
 

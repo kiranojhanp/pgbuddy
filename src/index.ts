@@ -64,6 +64,8 @@ import { GroupedQuery, JoinQuery, ProjectedQuery } from "./table";
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnCodec,
+  ColumnCodecs,
   ColumnMap,
   ComputedMap,
   ComputedOptions,
@@ -165,6 +167,8 @@ export type {
   SqlExpression,
   SqlFragment,
   ColumnMap,
+  ColumnCodec,
+  ColumnCodecs,
   ComputedResult,
   ComputedOptions,
   ComputedMap,

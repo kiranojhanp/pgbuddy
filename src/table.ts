@@ -4,6 +4,7 @@ import { gt, isPredicate, lt, rawPredicate, type WhereInput } from "./predicates
 import type {
   AggregateOptions,
   AggregateResult,
+  ColumnCodecs,
   ColumnMap,
   ComputedMap,
   ComputedOptions,
@@ -468,6 +469,7 @@ type TableState<T extends Row> = {
   allowSchema?: boolean;
   allowedColumns?: readonly string[];
   columnMap?: ColumnMap;
+  columnCodecs?: ColumnCodecs;
   maxTake?: number;
   uniqueKeys?: readonly (readonly string[])[];
   uniqueWhere?: boolean;
@@ -520,6 +522,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private allowSchema: boolean;
   private allowedColumns?: readonly string[];
   private columnMap?: ColumnMap;
+  private columnCodecs?: ColumnCodecs;
   private maxTake: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private uniqueWhere: boolean;
@@ -546,6 +549,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.allowSchema = Boolean(state?.allowSchema);
     this.allowedColumns = state?.allowedColumns ? [...state.allowedColumns] : undefined;
     this.columnMap = state?.columnMap ? { ...state.columnMap } : undefined;
+    this.columnCodecs = state?.columnCodecs ? { ...state.columnCodecs } : undefined;
     this.maxTake = state?.maxTake ?? DEFAULT_MAX_TAKE;
     this.uniqueKeys = state?.uniqueKeys?.map((columns) => [...columns]);
     this.uniqueWhere = Boolean(state?.uniqueWhere);
@@ -553,11 +557,17 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   }
 
   /** @internal Returns the identifier validation options. */
-  getNameOptions(): { strictNames: boolean; allowSchema: boolean; columnMap?: ColumnMap } {
+  getNameOptions(): {
+    strictNames: boolean;
+    allowSchema: boolean;
+    columnMap?: ColumnMap;
+    columnCodecs?: ColumnCodecs;
+  } {
     return {
       strictNames: this.strictNames,
       allowSchema: this.allowSchema,
       columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
     };
   }
 
@@ -565,10 +575,42 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     return this.columnMap?.[field] ?? field;
   }
 
+  private encodeValue(field: string, value: unknown): unknown {
+    if (
+      typeof value === "function" ||
+      (typeof value === "object" &&
+        value !== null &&
+        Array.isArray((value as { strings?: unknown }).strings) &&
+        Array.isArray((value as { args?: unknown }).args))
+    ) {
+      return value;
+    }
+
+    const encode = this.columnCodecs?.[field]?.encode;
+    return encode ? encode(value) : value;
+  }
+
+  private decodeRow(row: Record<string, unknown>): Record<string, unknown> {
+    const decoded = { ...row };
+    if (!this.columnCodecs) return decoded;
+
+    for (const [field, codec] of Object.entries(this.columnCodecs)) {
+      if (codec.decode && field in decoded) {
+        decoded[field] = codec.decode(decoded[field]);
+      }
+    }
+    return decoded;
+  }
+
+  private decodeRows(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+    if (!this.columnCodecs) return rows;
+    return rows.map((row) => this.decodeRow(row));
+  }
+
   private mapRecord(record: Record<string, unknown>): Record<string, unknown> {
     const mapped: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(record)) {
-      mapped[this.resolveColumn(key)] = value;
+      mapped[this.resolveColumn(key)] = this.encodeValue(key, value);
     }
     return mapped;
   }
@@ -577,11 +619,13 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     strictNames: boolean;
     allowSchema: boolean;
     columnMap?: ColumnMap;
+    columnCodecs?: ColumnCodecs;
   } {
     return {
       strictNames: this.strictNames,
       allowSchema: this.allowSchema,
       columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
     };
   }
 
@@ -622,6 +666,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
       columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
@@ -684,6 +729,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
       columnMap: this.columnMap,
+      columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
@@ -909,6 +955,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         allowSchema: this.allowSchema,
         allowedColumns: this.allowedColumns,
         columnMap: this.columnMap,
+        columnCodecs: this.columnCodecs,
         maxTake: this.maxTake,
         uniqueKeys: this.uniqueKeys,
         uniqueWhere: this.uniqueWhere,
@@ -1222,7 +1269,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
             ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
         `;
 
-    return rows as unknown as Array<GroupedRow<T, G, X>>;
+    return this.decodeRows(rows) as unknown as Array<GroupedRow<T, G, X>>;
   }
 
   /**
@@ -1436,7 +1483,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       if (options?.onConflict === "nothing") return null;
       throw new QueryError(Errors.QUERY.INSERT_RETURNED_EMPTY, { code: "INSERT_RETURNED_EMPTY" });
     }
-    return created as SelectFields<T, K>[0] & ComputedResult<X>;
+    return this.decodeRow(created) as SelectFields<T, K>[0] & ComputedResult<X>;
   }
 
   /**
@@ -1493,7 +1540,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         : [[target[0] as string, create[target[0] as keyof I]]];
 
     const assignments = updateEntries.reduce((acc, [column, value], index) => {
-      const assignment = this.sql`${this.sql(this.resolveColumn(column) as never)} = ${value}`;
+      const assignment = this
+        .sql`${this.sql(this.resolveColumn(column) as never)} = ${this.encodeValue(column, value)}`;
       return index === 0 ? assignment : this.sql`${acc}, ${assignment}`;
     }, this.sql``);
 
@@ -1511,7 +1559,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     if (!row) {
       throw new QueryError(Errors.QUERY.INSERT_RETURNED_EMPTY, { code: "INSERT_RETURNED_EMPTY" });
     }
-    return row as SelectFields<T, K>[0] & ComputedResult<X>;
+    return this.decodeRow(row) as SelectFields<T, K>[0] & ComputedResult<X>;
   }
 
   /**
@@ -1632,7 +1680,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     }) as Promise<Array<SelectFields<T, K>[0] & ComputedResult<X>>>;
   }
 
-  private insertMany(
+  private async insertMany(
     records: I[],
     columns: string[],
     options?: CreateManyOptions & { computed?: ComputedMap }
@@ -1670,11 +1718,12 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     const mappedColumns = columns.map((column) => this.resolveColumn(column));
     const mappedRecords = records.map((record) => this.mapRecord(record));
 
-    return this.sql<SelectFields<T, K>>`
+    const result = await this.sql<SelectFields<T, K>>`
             INSERT INTO ${this.sql(this.tableName)}
             ${this.sql(mappedRecords as Row[], mappedColumns)}
             ${conflict}RETURNING ${this.buildSelection(options?.computed)}
         `;
+    return this.decodeRows(result as Array<Record<string, unknown>>) as SelectFields<T, K>;
   }
 
   private async inTransaction<R>(fn: (table: Table<T, K, I>) => Promise<R>): Promise<R> {
@@ -1704,6 +1753,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
           allowSchema: this.allowSchema,
           allowedColumns: this.allowedColumns,
           columnMap: this.columnMap,
+          columnCodecs: this.columnCodecs,
           maxTake: this.maxTake,
           uniqueKeys: this.uniqueKeys,
           uniqueWhere: this.uniqueWhere,
@@ -1766,7 +1816,8 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.assertAllowedColumns(Object.keys(cleaned), "update");
 
     const assignments = Object.entries(cleaned).reduce((acc, [column, value], index) => {
-      const assignment = this.sql`${this.sql(this.resolveColumn(column) as never)} = ${value}`;
+      const assignment = this
+        .sql`${this.sql(this.resolveColumn(column) as never)} = ${this.encodeValue(column, value)}`;
       return index === 0 ? assignment : this.sql`${acc}, ${assignment}`;
     }, this.sql``);
 
@@ -1781,12 +1832,15 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       return (result as unknown as { count?: number }).count ?? 0;
     }
 
-    return this.sql<Array<SelectFields<T, K>[0]>>`
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
                 UPDATE ${this.sql(this.tableName)}
                 SET ${assignments}
                 ${where}
                 RETURNING ${this.buildSelection(options?.computed)}
-            ` as unknown as Array<SelectFields<T, K>[0] & ComputedResult<X>>;
+            `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+      SelectFields<T, K>[0] & ComputedResult<X>
+    >;
   }
 
   /**
@@ -1839,11 +1893,14 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       return (result as unknown as { count?: number }).count ?? 0;
     }
 
-    return this.sql<Array<SelectFields<T, K>[0]>>`
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
                 DELETE FROM ${this.sql(this.tableName)}
                 ${where}
                 RETURNING ${this.buildSelection(options?.computed)}
-            ` as unknown as Array<SelectFields<T, K>[0] & ComputedResult<X>>;
+            `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<
+      SelectFields<T, K>[0] & ComputedResult<X>
+    >;
   }
 
   private distinctFragment(): SqlFragment {
@@ -2096,14 +2153,14 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
         result[join.name] = join.mode === "left" && !hasRight ? null : right;
       });
 
-      return result as SelectFields<T, K>[0] & Joined;
+      return this.decodeRow(result) as SelectFields<T, K>[0] & Joined;
     });
   }
 
   private async executeSelect(
     computed?: Record<string, SqlExpression<unknown>>
   ): Promise<Array<SelectFields<T, K>[0]>> {
-    return this.sql<Array<SelectFields<T, K>[0]>>`
+    const rows = await this.sql<Array<SelectFields<T, K>[0]>>`
             SELECT ${this.distinctFragment()}${this.buildSelection(computed)}
             FROM ${this.sql(this.tableName)}
             ${buildWhereInputs(this.sql, this.selectWhereInputs(), this.nameOptions())}
@@ -2111,5 +2168,6 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
             ${createLimitFragment(this.sql, this.takeValue ?? this.defaultTake, this.skipValue)}
             ${this.lockFragment()}
         `;
+    return this.decodeRows(rows as Array<Record<string, unknown>>) as Array<SelectFields<T, K>[0]>;
   }
 }

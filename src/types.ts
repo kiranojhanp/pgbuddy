@@ -230,6 +230,14 @@ export type ComputedResult<X extends Record<string, SqlExpression<unknown>>> = {
 /** Schema field name to database column name. */
 export type ColumnMap = Readonly<Record<string, string>>;
 
+/** Optional per-column serialization hooks. */
+export type ColumnCodec = {
+  encode?: (value: unknown) => unknown;
+  decode?: (value: unknown) => unknown;
+};
+
+export type ColumnCodecs = Readonly<Record<string, ColumnCodec>>;
+
 /** A map of aliases to typed SQL expressions. */
 export type ComputedMap = Record<string, SqlExpression<unknown>>;
 
