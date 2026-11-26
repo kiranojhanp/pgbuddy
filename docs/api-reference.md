@@ -124,59 +124,34 @@ table<S extends ZodObject<any>>(
 )
 ```
 
-Creates a chainable table query builder with Zod validation.
+Creates a chainable table query builder using the client's configured
+validation adapter. Zod is the default; configure `new PgBuddyClient(sql, {
+adapter })` for another library.
 
 - `tableName` — table name
-- `schema` — Zod schema for input validation (unknown keys are stripped)
-- `options` — optional `PgBuddyClientOptions`
-- Returns `ZodTable<S>`
+- `schema` — schema for the configured adapter
+- `options` — optional `PgBuddyClientOptions`; `relations` is Zod-only,
+  `adapterRelations` is for adapter tables
+- Returns `ZodTable<S>` for Zod or `ValidatedTable` for another adapter
 
-### tableWithValidator(tableName, schema, adapter, options?)
+### Validation adapters
+
+Configure one adapter on the client. Zod is the default.
 
 ```typescript
-tableWithValidator<S, I extends Row = ValidatedInput<S>>(
-  tableName: string,
-  schema: S,
-  adapter: ValidatorAdapter,
-  options?: PgBuddyClientOptions
-): ValidatedTable<ValidatedRow<S>, ["*"], I>
+const db = new PgBuddyClient(sql, { adapter: valibotValidator });
+const users = db.table("users", ValibotUserSchema);
 ```
 
-Prapti-style schema + adapter path. `ValidatorAdapter` supplies
+Built-ins: `zodValidator`, `pgbuddy/adapters/valibot`, and
+`pgbuddy/adapters/yup`. A custom `ValidatorAdapter` supplies
 `fields(schema)`, `parse(schema, value)`, and `parsePartial(schema, value)`.
-Built-ins: `zodValidator`, plus subpath adapters for Valibot and Yup:
+Output/input types are inferred from the schema.
 
-```typescript
-import { valibotValidator } from "pgbuddy/adapters/valibot";
-import { yupValidator } from "pgbuddy/adapters/yup";
-```
-
-Output/input types are inferred from the schema. Valibot and Yup are optional
-peer dependencies.
-
-```typescript
-const users = db.tableWithValidator("users", UserSchema, zodValidator);
-```
-
-### tableWithAdapter(tableName, adapter, options?)
-
-```typescript
-tableWithAdapter<T extends Row, I extends Row = T>(
-  tableName: string,
-  adapter: ValidationAdapter<T, I>,
-  options?: PgBuddyClientOptions
-): ValidatedTable<T, ["*"], I>
-```
-
-Creates a table backed by a non-Zod validation adapter. The adapter provides
-`fields`, `parse`, and `parsePartial`; pgbuddy calls them before writes. Core
-CRUD, query chaining, joins, aggregates, grouped queries, computed projections,
-and `omit` are supported.
-
-`options.adapterRelations` declares relations with field lists. Includes,
-counts, nested/through relations, filters, and mapping reuse the relation
-runtime; child rows are typed `Record<string, unknown>`. Schema-derived
-projections and typed relation selection remain Zod-only.
+Adapter tables support core CRUD, joins, aggregates, grouped queries, computed
+projections, `omit`, and `prepare`. `options.adapterRelations` declares
+field-list relations; child rows are typed `Record<string, unknown>`. Relations
+and schema-derived projections remain Zod-only.
 
 ---
 

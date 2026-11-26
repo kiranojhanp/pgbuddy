@@ -17,7 +17,7 @@ A no-nonsense, type-safe, tiny query builder wrapping [postgres.js](https://gith
 npm install pgbuddy postgres zod
 ```
 
-Zod is the default and is required for schema-backed tables, relations, joins, and computed features. `tableWithValidator` / `tableWithAdapter` can bridge other validation libraries for core CRUD.
+Zod is the default. Configure one `ValidatorAdapter` on the connection to use Valibot, Yup, or a custom validation library for every table.
 
 ---
 
@@ -79,45 +79,25 @@ Zod is required, not an optional add-on:
 
 For raw queries or features the typed API does not model, use `db.sql`.
 
-### Other validation libraries
+### Validation adapters
 
-Zod remains the default and the only path with relations, joins, computed
-fields, and schema-derived projections. A minimal adapter path exists for other
-validators:
+Configure one adapter on the client; every table on that connection uses it.
+Zod is the default, so no adapter is needed for Zod schemas.
 
 ```ts
-import type { ValidationAdapter } from "pgbuddy";
+import { PgBuddyClient } from "pgbuddy";
+import { valibotValidator } from "pgbuddy/adapters/valibot";
 
-const adapter: ValidationAdapter<User, UserInput> = {
-  __pgbuddyAdapter: true,
-  fields: ["id", "email", "status"],
-  parse(value) {
-    // return { success: true, data } or { success: false, error }
-  },
-  parsePartial(value) {
-    // validate an update payload
-  },
-};
-
-const users = db.tableWithAdapter("users", adapter);
+const db = new PgBuddyClient(sql, { adapter: valibotValidator });
+const users = db.table("users", ValibotUserSchema);
 ```
 
-For a Prapti-style split between schema and validator bridge, pass both:
+Built-in adapters are available for Zod, Valibot, and Yup:
 
 ```ts
 import { zodValidator } from "pgbuddy";
-
-const users = db.tableWithValidator("users", UserSchema, zodValidator);
-```
-
-Built-in adapters are available for Valibot and Yup through tree-shakeable
-subpaths:
-
-```ts
 import { valibotValidator } from "pgbuddy/adapters/valibot";
 import { yupValidator } from "pgbuddy/adapters/yup";
-
-const users = db.tableWithValidator("users", ValibotUserSchema, valibotValidator);
 ```
 
 Valibot and Yup are optional peer dependencies; install only the one you use.
@@ -125,7 +105,7 @@ A custom `ValidatorAdapter` only needs `fields(schema)`, `parse(schema, value)`,
 and `parsePartial(schema, value)`. Output and input types are inferred from the
 schema.
 
-Both adapter paths support core CRUD and query chaining, including
+Adapter tables support core CRUD and query chaining, including
 `where`/`orderBy`/`select`/`cursor`, writes, counts, `toSQL`, joins, aggregates,
 grouped queries, computed projections, and `omit`.
 
@@ -134,7 +114,7 @@ typed as `Record<string, unknown>` because adapters expose field names, not
 schemas:
 
 ```ts
-const users = db.tableWithAdapter("users", adapter, {
+const users = db.table("users", UserSchema, {
   adapterRelations: {
     posts: {
       table: "posts",
@@ -722,9 +702,8 @@ a schema toolkit or a full SQL AST.
   columns across reads, writes, filters, ordering, aggregates, and grouping.
 - [x] **Per-column custom serialization.** `columnCodecs` provides per-field
   encode/decode hooks for writes, filters, cursors, and result rows.
-- [x] **Validator adapter.** `db.tableWithAdapter` supports core CRUD/query
-  chaining through a `ValidationAdapter`; relations and computed features
-  remain Zod-only.
+- [x] **Validator adapter.** One `ValidatorAdapter` is configured on the
+  connection; `db.table` uses it for every table, including adapter relations.
 - [x] **Per-relation aggregates.** `withAggregate` supports count/sum/avg/min/max
   for direct and through relations, with an optional `where` refinement.
 - [x] **Relation ordering.** `orderByRelated` orders parents by a correlated

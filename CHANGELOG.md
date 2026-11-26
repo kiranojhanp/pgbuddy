@@ -27,11 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toSQL()` inspection for SELECT builders, including computed projections.
 - `db.prepare(text)` for reusable raw prepared statements.
 - `Table.prepare()` for reusable prepared SELECT plans with fixed parameters.
-- `ValidationAdapter` + `db.tableWithAdapter` for core CRUD/query chaining with
-  non-Zod validators, including joins, aggregates, grouped queries, computed
-  projections, `omit`, and field-list adapter relations.
-- `ValidatorAdapter` + `db.tableWithValidator` (schema + adapter split,
-  Prapti-style) with built-in `zodValidator` and schema-inferred types.
+- Connection-level `ValidatorAdapter` support: configure one adapter on
+  `PgBuddyClient` and use `db.table` for every table, including joins,
+  aggregates, grouped queries, computed projections, `omit`, and field-list
+  adapter relations.
+- Prapti-style schema + adapter split with built-in `zodValidator` and
+  schema-inferred types.
 - Tree-shakeable Valibot/Yup adapters at `pgbuddy/adapters/valibot` and
   `pgbuddy/adapters/yup` (optional peers).
 - Cyclic relation configurations are rejected instead of recursing forever.

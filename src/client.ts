@@ -9,6 +9,7 @@ import {
   ValidatedTable,
   type ValidationAdapter,
   type ValidatorAdapter,
+  zodValidator,
 } from "./adapter";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
@@ -46,6 +47,8 @@ export type PgBuddyClientOptions = {
   columnCodecs?: ColumnCodecs;
   /** Relations available to `ZodTable.include`. */
   relations?: ZodRelations;
+  /** Validation library adapter for all tables on this connection. */
+  adapter?: ValidatorAdapter;
 };
 
 /**
@@ -178,6 +181,7 @@ export class PgBuddyClient {
   private defaultTake?: number;
   private columnMap?: ColumnMap;
   private columnCodecs?: ColumnCodecs;
+  private adapter: ValidatorAdapter;
 
   /**
    * Creates a new PgBuddyClient instance.
@@ -218,6 +222,7 @@ export class PgBuddyClient {
     assertDefaultTake(options?.defaultTake);
 
     this.sql = sql;
+    this.adapter = options?.adapter ?? zodValidator;
     this.strictNames = Boolean(options?.strictNames);
     this.allowSchema = Boolean(options?.allowSchema);
     this.allowedColumns = options?.allowedColumns ? [...options.allowedColumns] : undefined;
@@ -360,28 +365,7 @@ export class PgBuddyClient {
    *   .findMany();
    * ```
    */
-  /**
-   * Create a table backed by a non-Zod validation adapter. Relations and
-   * schema-derived projections are only available on Zod-backed tables.
-   */
-  /**
-   * Create a table from a schema and a library-level validator adapter.
-   * This is the Prapti-style split: one adapter can serve many schemas.
-   */
-  tableWithValidator<S, I extends Row = ValidatedInput<S>>(
-    tableName: string,
-    schema: S,
-    validator: ValidatorAdapter,
-    options?: PgBuddyClientOptions
-  ): ValidatedTable<ValidatedRow<S>, ["*"], I> {
-    const adapter = bindValidator(schema, validator) as unknown as ValidationAdapter<
-      ValidatedRow<S>,
-      I
-    >;
-    return this.tableWithAdapter(tableName, adapter, options);
-  }
-
-  tableWithAdapter<
+  private buildAdapterTable<
     T extends Row,
     I extends Row = T,
     AR extends AdapterRelations = Record<string, never>,
@@ -391,7 +375,7 @@ export class PgBuddyClient {
     options?: PgBuddyClientOptions & { adapterRelations?: AR }
   ): ValidatedTable<T, ["*"], I, AR> {
     if (!isValidationAdapter(adapter)) {
-      throw new TableError("tableWithAdapter requires a ValidationAdapter");
+      throw new TableError("Adapter tables require a ValidationAdapter");
     }
     if (
       !Array.isArray(adapter.fields) ||
@@ -483,11 +467,29 @@ export class PgBuddyClient {
     schema: S,
     options?: PgBuddyClientOptions
   ): ZodTable<S>;
-  table<S extends ZodObject<ZodRawShape>>(
+  table<S, AR extends AdapterRelations = Record<string, never>>(
     tableName: string,
     schema: S,
-    options?: PgBuddyClientOptions
-  ): ZodTable<S> {
+    options?: PgBuddyClientOptions & { adapterRelations?: AR }
+  ): ValidatedTable<ValidatedRow<S>, ["*"], ValidatedInput<S>, AR>;
+  table(
+    tableName: string,
+    schema: unknown,
+    options?: PgBuddyClientOptions & { adapterRelations?: AdapterRelations }
+  ): ZodTable<ZodObject<ZodRawShape>> | ValidatedTable<Row, ["*"], Row, AdapterRelations> {
+    if (this.adapter !== zodValidator) {
+      if (options?.relations) {
+        throw new TableError("Relations require the Zod adapter");
+      }
+      const bound = bindValidator(schema, this.adapter) as unknown as ValidationAdapter<Row, Row>;
+      return this.buildAdapterTable(tableName, bound, options) as unknown as ValidatedTable<
+        Row,
+        ["*"],
+        Row,
+        AdapterRelations
+      >;
+    }
+
     if (!isZodSchema(schema)) {
       throw new TableError(Errors.TABLE.INVALID_SCHEMA);
     }
@@ -577,11 +579,15 @@ export class PgBuddyClient {
     });
 
     const zodTable = new ZodTable(
-      table as unknown as Table<RowFromSchema<S>, ["*"], RowFromSchema<S>>,
+      table as unknown as Table<
+        RowFromSchema<ZodObject<ZodRawShape>>,
+        ["*"],
+        RowFromSchema<ZodObject<ZodRawShape>>
+      >,
       schema,
       options?.relations
     );
 
-    return zodTable as unknown as ZodTable<S>;
+    return zodTable as unknown as ZodTable<ZodObject<ZodRawShape>>;
   }
 }

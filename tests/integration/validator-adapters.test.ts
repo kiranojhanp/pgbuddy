@@ -9,13 +9,15 @@ import { startPglite } from "../helpers/pglite";
 describe("Valibot and Yup adapters", () => {
   let sql: Sql<Record<string, unknown>>;
   let stop: () => Promise<void>;
-  let db: PgBuddyClient;
+  let valibotDb: PgBuddyClient;
+  let yupDb: PgBuddyClient;
 
   beforeAll(async () => {
     const started = await startPglite();
     sql = started.sql;
     stop = started.stop;
-    db = new PgBuddyClient(sql);
+    valibotDb = new PgBuddyClient(sql, { adapter: valibotValidator });
+    yupDb = new PgBuddyClient(sql, { adapter: yupValidator });
 
     await sql`DROP TABLE IF EXISTS valibot_users;`;
     await sql`DROP TABLE IF EXISTS yup_users;`;
@@ -36,7 +38,7 @@ describe("Valibot and Yup adapters", () => {
       status: v.picklist(["active", "inactive"]),
     });
 
-    const users = db.tableWithValidator("valibot_users", schema, valibotValidator);
+    const users = valibotDb.table("valibot_users", schema);
 
     const created = await users.create({ id: 1, email: "ada@example.com", status: "active" });
     expect(created.email).toBe("ada@example.com");
@@ -58,7 +60,7 @@ describe("Valibot and Yup adapters", () => {
       status: yup.string().oneOf(["active", "inactive"]).required(),
     });
 
-    const users = db.tableWithValidator("yup_users", schema, yupValidator);
+    const users = yupDb.table("yup_users", schema);
 
     const created = await users.create({ id: 1, email: "grace@example.com", status: "active" });
     expect(created.email).toBe("grace@example.com");

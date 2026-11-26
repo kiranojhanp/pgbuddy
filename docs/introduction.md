@@ -34,9 +34,10 @@ npm install pgbuddy postgres zod
 ```
 
 Zod is the default: schema-backed table builders are created from a Zod schema,
-so writes are validated before they reach PostgreSQL. `tableWithValidator` /
-`tableWithAdapter` can bridge other validation libraries for core CRUD. Both postgres.js v3 (`>= 3.4.5`) and v4
-are supported; the test suite runs against both majors.
+so writes are validated before they reach PostgreSQL. Configure one
+`ValidatorAdapter` on the client (`new PgBuddyClient(sql, { adapter })`) to use
+Valibot, Yup, or a custom library for every table. Both postgres.js v3
+(`>= 3.4.5`) and v4 are supported; the test suite runs against both majors.
 
 ### Quick start
 

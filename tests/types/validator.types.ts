@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type PgBuddyClient, zodValidator } from "../../src";
+import type { PgBuddyClient } from "../../src";
 
 declare const db: PgBuddyClient;
 
@@ -9,7 +9,7 @@ const UserSchema = z.object({
 });
 
 async function check() {
-  const users = db.tableWithValidator("users", UserSchema, zodValidator);
+  const users = db.table("users", UserSchema);
   const rows = await users.findMany();
   const _rows: Array<{ id: number; email: string }> = rows;
 

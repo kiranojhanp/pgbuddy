@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { PgBuddyClient, QueryError, sqlExpr, type ValidationAdapter } from "../../src";
+import { PgBuddyClient, QueryError, sqlExpr, type ValidatorAdapter } from "../../src";
 import { startPglite } from "../helpers/pglite";
 
 interface User {
@@ -8,41 +8,44 @@ interface User {
   status: "active" | "inactive";
 }
 
-type UserInput = User;
+const UserSchema = {
+  _output: {} as User,
+  _input: {} as User,
+};
 
-const adapter: ValidationAdapter<User, UserInput> = {
-  __pgbuddyAdapter: true,
-  fields: ["id", "email", "status"],
-  parse(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return { success: false, error: "expected an object" };
-    }
-    const input = value as Partial<User>;
-    if (typeof input.id !== "number") return { success: false, error: "id must be a number" };
-    if (typeof input.email !== "string" || !input.email.includes("@")) {
-      return { success: false, error: "email must be an email" };
-    }
-    if (input.status !== "active" && input.status !== "inactive") {
-      return { success: false, error: "status must be active or inactive" };
-    }
-    return {
-      success: true,
-      data: { id: input.id, email: input.email, status: input.status },
-    };
-  },
-  parsePartial(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return { success: false, error: "expected an object" };
-    }
-    const input = value as Partial<User>;
-    if (input.email !== undefined && typeof input.email !== "string") {
-      return { success: false, error: "email must be a string" };
-    }
-    if (input.status !== undefined && input.status !== "active" && input.status !== "inactive") {
-      return { success: false, error: "status must be active or inactive" };
-    }
-    return { success: true, data: input };
-  },
+function parseFull(value: unknown): User {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("expected an object");
+  }
+  const input = value as Partial<User>;
+  if (typeof input.id !== "number") throw new Error("id must be a number");
+  if (typeof input.email !== "string" || !input.email.includes("@")) {
+    throw new Error("email must be an email");
+  }
+  if (input.status !== "active" && input.status !== "inactive") {
+    throw new Error("status must be active or inactive");
+  }
+  return { id: input.id, email: input.email, status: input.status };
+}
+
+function parsePartial(value: unknown): Partial<User> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("expected an object");
+  }
+  const input = value as Partial<User>;
+  if (input.email !== undefined && typeof input.email !== "string") {
+    throw new Error("email must be a string");
+  }
+  if (input.status !== undefined && input.status !== "active" && input.status !== "inactive") {
+    throw new Error("status must be active or inactive");
+  }
+  return input;
+}
+
+const adapter: ValidatorAdapter = {
+  fields: () => ["id", "email", "status"],
+  parse: (_schema, value) => parseFull(value),
+  parsePartial: (_schema, value) => parsePartial(value),
 };
 
 describe("validation adapter table", () => {
@@ -54,7 +57,7 @@ describe("validation adapter table", () => {
     const started = await startPglite();
     sql = started.sql;
     stop = started.stop;
-    db = new PgBuddyClient(sql);
+    db = new PgBuddyClient(sql, { adapter });
 
     await sql`DROP TABLE IF EXISTS posts;`;
     await sql`DROP TABLE IF EXISTS users;`;
@@ -84,7 +87,7 @@ describe("validation adapter table", () => {
     await sql`TRUNCATE users;`;
   });
 
-  const users = () => db.tableWithAdapter("users", adapter, { unique: [["email"]] });
+  const users = () => db.table("users", UserSchema, { unique: [["email"]] });
 
   test("validates and runs CRUD through a custom adapter", async () => {
     const created = await users().create({
@@ -167,7 +170,7 @@ describe("validation adapter table", () => {
 
   test("supports adapter relations and counts", async () => {
     const usersWithRelations = () =>
-      db.tableWithAdapter("users", adapter, {
+      db.table("users", UserSchema, {
         unique: [["email"]],
         adapterRelations: {
           posts: {

@@ -1,25 +1,25 @@
-import type { PgBuddyClient, ValidationAdapter } from "../../src";
+import type { PgBuddyClient, ValidatorAdapter } from "../../src";
 
 interface User {
   id: number;
   email: string;
 }
 
-const adapter: ValidationAdapter<User, User> = {
-  __pgbuddyAdapter: true,
-  fields: ["id", "email"],
-  parse(value) {
-    return { success: true, data: value as User };
-  },
-  parsePartial(value) {
-    return { success: true, data: value as Partial<User> };
-  },
+const UserSchema = {
+  _output: {} as User,
+  _input: {} as User,
+};
+
+const adapter: ValidatorAdapter = {
+  fields: () => ["id", "email"],
+  parse: (_schema, value) => value as User,
+  parsePartial: (_schema, value) => value as Partial<User>,
 };
 
 declare const db: PgBuddyClient;
 
 async function check() {
-  const users = db.tableWithAdapter("users", adapter);
+  const users = db.table("users", UserSchema);
   const rows = await users.where({ email: "a@example.com" }).findMany();
   const _rows: User[] = rows;
 
@@ -29,7 +29,7 @@ async function check() {
   const [updated] = (await users.where({ id: 1 }).update({ email: "b@example.com" })) as User[];
   const _updated: User | undefined = updated;
 
-  const withPosts = db.tableWithAdapter("users", adapter, {
+  const withPosts = db.table("users", UserSchema, {
     adapterRelations: {
       posts: {
         table: "posts",
@@ -45,7 +45,7 @@ async function check() {
   const _posts: Array<Record<string, unknown>> = included[0]?.posts ?? [];
   const _postCount: number | undefined = included[0]?.posts_count;
 
-  return [_rows, _created, _updated, _posts, _postCount];
+  return [_rows, _created, _updated, _posts, _postCount, adapter];
 }
 
 export { check };

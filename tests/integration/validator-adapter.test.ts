@@ -18,7 +18,7 @@ describe("schema + validator adapter", () => {
     const started = await startPglite();
     sql = started.sql;
     stop = started.stop;
-    db = new PgBuddyClient(sql);
+    db = new PgBuddyClient(sql, { adapter: zodValidator });
 
     await sql`DROP TABLE IF EXISTS users;`;
     await sql`
@@ -40,7 +40,7 @@ describe("schema + validator adapter", () => {
   });
 
   const users = () =>
-    db.tableWithValidator("users", UserSchema, zodValidator, {
+    db.table("users", UserSchema, {
       unique: [["email"]],
     });
 
