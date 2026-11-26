@@ -1,5 +1,6 @@
 import type { Row, Sql } from "postgres";
 import type { ZodObject, ZodRawShape } from "zod";
+import { isValidationAdapter, ValidatedTable, type ValidationAdapter } from "./adapter";
 import { Errors, QueryError, TableError } from "./errors";
 import { Table } from "./table";
 import type { ColumnCodecs, ColumnMap, SelectKeys } from "./types";
@@ -350,6 +351,94 @@ export class PgBuddyClient {
    *   .findMany();
    * ```
    */
+  /**
+   * Create a table backed by a non-Zod validation adapter. Relations and
+   * schema-derived projections are only available on Zod-backed tables.
+   */
+  tableWithAdapter<T extends Row, I extends Row = T>(
+    tableName: string,
+    adapter: ValidationAdapter<T, I>,
+    options?: PgBuddyClientOptions
+  ): ValidatedTable<T, ["*"], I> {
+    if (!isValidationAdapter(adapter)) {
+      throw new TableError("tableWithAdapter requires a ValidationAdapter");
+    }
+    if (
+      !Array.isArray(adapter.fields) ||
+      adapter.fields.length === 0 ||
+      adapter.fields.some((field) => typeof field !== "string" || !field)
+    ) {
+      throw new TableError("ValidationAdapter.fields must be a non-empty array of column names");
+    }
+
+    const strictNames = options?.strictNames ?? this.strictNames ?? false;
+    const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
+    const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
+    const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const uniqueKeys = options?.unique ?? this.uniqueKeys;
+    const defaultTake = options?.defaultTake ?? this.defaultTake;
+    const columnMap = options?.columnMap ?? this.columnMap;
+    const columnCodecs = options?.columnCodecs ?? this.columnCodecs;
+
+    if (typeof tableName !== "string" || !tableName.trim()) {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
+    }
+    if (
+      allowedColumns !== undefined &&
+      (!Array.isArray(allowedColumns) ||
+        !allowedColumns.every((column) => typeof column === "string"))
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_ALLOWED_COLUMNS);
+    }
+    if (!Number.isInteger(maxTake) || maxTake <= 0) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    assertUniqueOption(uniqueKeys);
+    assertDefaultTake(defaultTake);
+    assertColumnMap(columnMap);
+    assertColumnCodecs(columnCodecs);
+    if (defaultTake !== undefined && defaultTake > maxTake) {
+      throw new TableError(Errors.TABLE.INVALID_DEFAULT_TAKE);
+    }
+
+    if (columnMap) {
+      for (const field of Object.keys(columnMap)) {
+        if (!adapter.fields.includes(field as keyof T & string)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_MAP);
+        }
+      }
+    }
+    if (columnCodecs) {
+      for (const field of Object.keys(columnCodecs)) {
+        if (!adapter.fields.includes(field as keyof T & string)) {
+          throw new TableError(Errors.TABLE.INVALID_COLUMN_CODECS);
+        }
+      }
+    }
+
+    const trimmedName = tableName.trim();
+    const isValid = strictNames
+      ? isValidIdentifier(trimmedName, { allowSchema })
+      : isValidName(trimmedName) && (allowSchema || !trimmedName.includes("."));
+    if (!isValid) {
+      throw new TableError(Errors.TABLE.INVALID_NAME);
+    }
+
+    const table = new Table<Row, ["*"], Row>(this.sql, trimmedName, {
+      strictNames,
+      allowSchema,
+      allowedColumns,
+      maxTake,
+      uniqueKeys,
+      defaultTake,
+      columnMap,
+      columnCodecs,
+      columns: adapter.fields as readonly string[],
+    });
+
+    return new ValidatedTable(table as unknown as Table<T, ["*"], I>, adapter);
+  }
+
   table<S extends ZodObject<ZodRawShape>, R extends ZodRelations>(
     tableName: string,
     schema: S,

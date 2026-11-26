@@ -79,6 +79,33 @@ Zod is required, not an optional add-on:
 
 For raw queries or features the typed API does not model, use `db.sql`.
 
+### Other validation libraries
+
+Zod remains the default and the only path with relations, joins, computed
+fields, and schema-derived projections. A minimal adapter path exists for other
+validators:
+
+```ts
+import type { ValidationAdapter } from "pgbuddy";
+
+const adapter: ValidationAdapter<User, UserInput> = {
+  __pgbuddyAdapter: true,
+  fields: ["id", "email", "status"],
+  parse(value) {
+    // return { success: true, data } or { success: false, error }
+  },
+  parsePartial(value) {
+    // validate an update payload
+  },
+};
+
+const users = db.tableWithAdapter("users", adapter);
+```
+
+`tableWithAdapter` supports core CRUD and query chaining, including
+`where`/`orderBy`/`select`/`cursor`, writes, counts, and `toSQL`. It does not
+support relations, joins, aggregates, or computed fields yet.
+
 ## Filtering
 
 Simple equality conditions:
@@ -626,9 +653,9 @@ a schema toolkit or a full SQL AST.
   columns across reads, writes, filters, ordering, aggregates, and grouping.
 - [x] **Per-column custom serialization.** `columnCodecs` provides per-field
   encode/decode hooks for writes, filters, cursors, and result rows.
-- [ ] **Validator adapter for non-Zod libraries.** Zod is required today; a
-  small adapter interface should be designed before a second validator is
-  added, without weakening validation.
+- [x] **Validator adapter.** `db.tableWithAdapter` supports core CRUD/query
+  chaining through a `ValidationAdapter`; relations and computed features
+  remain Zod-only.
 - [x] **Per-relation aggregates.** `withAggregate` supports count/sum/avg/min/max
   for direct and through relations, with an optional `where` refinement.
 - [x] **Relation ordering.** `orderByRelated` orders parents by a correlated
@@ -660,10 +687,11 @@ a schema toolkit or a full SQL AST.
 
 ### Recommended next three
 
-1. **Validator adapter** — prepare for validation libraries beyond Zod.
-2. **Prepared statements / batch / `toSQL()`** — the remaining lifecycle work.
-3. **Relation/join codec mapping** — extend `columnMap`/`columnCodecs` to those
+1. **Builder-level prepared plans and true protocol batch** — the remaining
+   deferred-query work.
+2. **Relation/join codec mapping** — extend `columnMap`/`columnCodecs` to those
    paths.
+3. **Adapter parity** — relations/joins/aggregates for non-Zod validators.
 
 ## Compatibility
 

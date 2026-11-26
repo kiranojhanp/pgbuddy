@@ -56,6 +56,7 @@
  * @packageDocumentation
  */
 
+import { ValidatedTable } from "./adapter";
 // Export the new client
 import type {
   BatchQuery,
@@ -98,6 +99,7 @@ import { ZodAggregatedQuery, ZodJoinQuery, ZodProjectedQuery, ZodTable } from ".
 export {
   PgBuddyClient,
   ZodTable,
+  ValidatedTable,
   ProjectedQuery,
   GroupedQuery,
   JoinQuery,
@@ -109,6 +111,7 @@ export {
   TableError,
   sqlExpr,
 };
+export type { ValidationAdapter, ValidationResult } from "./adapter";
 export type { PostgresErrorLike } from "./database-errors";
 export {
   constraintName,

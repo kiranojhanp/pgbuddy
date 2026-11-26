@@ -131,11 +131,26 @@ Creates a chainable table query builder with Zod validation.
 - `options` — optional `PgBuddyClientOptions`
 - Returns `ZodTable<S>`
 
+### tableWithAdapter(tableName, adapter, options?)
+
+```typescript
+tableWithAdapter<T extends Row, I extends Row = T>(
+  tableName: string,
+  adapter: ValidationAdapter<T, I>,
+  options?: PgBuddyClientOptions
+): ValidatedTable<T, ["*"], I>
+```
+
+Creates a table backed by a non-Zod validation adapter. The adapter provides
+`fields`, `parse`, and `parsePartial`; pgbuddy calls them before writes. Core
+CRUD and query chaining are supported. Relations, joins, aggregates, computed
+fields, and schema-derived projections remain Zod-only.
+
 ---
 
 ## ZodTable\<S\>
 
-`ZodTable` is the only table builder, with runtime validation built in:
+`ZodTable` is the default schema-backed table builder, with runtime validation built in:
 
 - `where` validates field names and values against the schema
 - `select` validates projected columns against the schema; `"*"` means every
