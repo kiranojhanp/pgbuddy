@@ -982,6 +982,8 @@ and multi-dialect support. Raw join `ON` clauses remain explicit SQL by design.
 
 - [Introduction](docs/introduction.md)
 - [Paginated tables recipe](docs/recipes/paginated-tables.md)
+- [Soft deletes recipe](docs/recipes/soft-deletes.md)
+- [Tenant scoping and RLS recipe](docs/recipes/tenant-scoping.md)
 - [CRUD operations](docs/crud-operations.md)
 - [Select operations](docs/select-operations.md)
 - [Chainable API](docs/chainable-api.md)
