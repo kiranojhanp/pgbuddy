@@ -5,6 +5,110 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `allowedColumns` client/table option: an allowlist for `create`, `createMany`
+  and `update` payload keys, rejected with a `QueryError` when a key is not
+  allowlisted. Mitigates mass assignment when write payloads contain
+  user-controlled keys.
+- `maxTake` client/table option and a default `take()` cap of 10,000 rows to
+  prevent caller-controlled limits from requesting unbounded result sets.
+- `PgBuddyClientOptions` is exported from the public API.
+- Composable predicate helpers: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`,
+  `inArray`, `notInArray`, `isNull`, `isNotNull`, `like`, `ilike`, `contains`,
+  `startsWith`, `endsWith`, `between`, `notBetween`, `and`, `or`, `not`.
+  They support OR/NOT conditions, column/value composition, and are validated
+  by `ZodTable` against the schema.
+- `whereRaw(fragment)` adds a postgres.js fragment to the WHERE clause.
+- `db.transaction(async (tx) => ...)` with nested savepoint support.
+- The underlying postgres.js instance is exposed as `db.sql`.
+- `findFirstOrThrow()` and `findUniqueOrThrow()`.
+- Database error helpers: `isPostgresError`, `isUniqueViolation`,
+  `isForeignKeyViolation`, `isNotNullViolation`, `isCheckViolation`,
+  `isSerializationFailure`, `isDeadlock`, `constraintName`, and
+  `PostgresErrorCodes`.
+- `upsert({ where, create, update })` (INSERT ... ON CONFLICT DO UPDATE).
+- `createMany(records, { skipDuplicates })` (ON CONFLICT DO NOTHING).
+- `distinct()` / `distinctOn(columns)` and keyset pagination with `cursor()`.
+- `ZodTable` now selects its schema columns explicitly instead of `SELECT *`
+  (so columns outside the schema are not returned), and supports `omit()` for
+  schema-derived projections.
+- `unique` table option and `whereUnique()` for validated unique lookups.
+- Read-only relations for `ZodTable`: declare `relations` and use
+  `include(name)` on `find*` methods. Supports `relation: "one" | "many"`,
+  composite keys, per-relation `where`/`orderBy`/`take`/`select` refinements,
+  `withCount`, and `whereRelated`/`whereMissing` (`EXISTS`/`NOT EXISTS`).
+  Relation rows are fetched in batched queries and typed from the related Zod
+  schema.
+- `defaultTake` for bounding `findMany`, `columns` for explicit plain-Table
+  projections, and `omit()` on plain tables.
+- `exists()`, `aggregate()` (count/countDistinct/sum/avg/min/max), and
+  count-returning `update`/`delete` via `{ returning: false }`.
+- `orderByRaw()` and `NULLS FIRST/LAST` ordering.
+- SQL fragment values in `update()`, chunked `createMany`, and generalized
+  conflict options (`onConflict`, `targetWhere`, `setWhere`, find-or-create
+  upsert).
+- `QueryError.code` for programmatic handling, and a real-PostgreSQL CI job.
+- Computed select fields via `findMany({ computed: { alias: sqlExpr<T>(sql`...`) } })`
+  and the chainable `selectExpr({...})`, with typed results.
+- Composite keyset cursors (lexicographic conditions over the leading
+  `orderBy` columns).
+- camelCase ↔ snake_case column mapping through postgres.js `transform`
+  (`postgres.camel`), verified end to end.
+- `withCount` accepts a relation refinement (counts matching rows only), and
+  relation table names respect `strictNames`/`allowSchema`.
+- `orderByRaw` now combines with `orderBy`; added `distinctOnExpr`, row-locking
+  (`for("update" | "share" | ...)`, `SKIP LOCKED`/`NOWAIT`), and `whereEvery`.
+- Writes omit `undefined` values; `create` supports `onConflict: "nothing"`;
+  bulk `onConflict` accepts arbitrary `SET` expressions; `RETURNING` supports
+  computed fields on create/update/delete/upsert.
+- Added `groupBy(columns, aggregates)` with `having()`, typed grouped rows, and
+  `orderBy`/`take` composition.
+- `include` accepts a declarative `{ where, orderBy, take, select }` options
+  object in addition to the builder callback.
+- Added a runnable ecommerce kitchen-sink example covering the full public API.
+- Added narrow `innerJoin`/`leftJoin` with nested right-side rows and typed
+  nullable results; schema-derived columns for ZodTable.
+- `createMany` accepts `computed` `RETURNING`; `whereEvery` is optional; relation
+  methods (`include`, `withCount`, `whereRelated`, `whereMissing`,
+  `whereEvery`) compose after `selectExpr`.
+- `ZodTable.select` and `ZodTable.orderBy` now validate their columns against
+  the Zod schema at runtime (`"*"` remains allowed for `select`), and
+  `orderBy` validates the sort direction eagerly.
+- `ZodTable.where` rejects non-plain-object conditions and `ZodTable.createMany`
+  rejects non-array input with a `QueryError` instead of throwing a `TypeError`.
+
+### Changed
+- The `postgres` peer dependency range is widened from `^3.4.5` to
+  `^3.4.5 || ^4.0.0`. postgres.js v4 needed no pgbuddy runtime changes
+  (pgbuddy imports postgres.js types only); the full suite passes against both
+  `3.4.5` and `4.1.1`, and CI now runs a version matrix.
+- **Security**: `allowSchema` is now enforced in non-strict mode too. Dotted
+  table and column names (`public.users`, `users.id`) are rejected unless
+  `allowSchema: true` is set. This is a behaviour change for code relying on
+  dotted names with default options.
+- `where`, `orderBy` and `select` snapshot their inputs, so mutating an array or
+  object after building a query no longer changes the generated SQL (this also
+  closes a `ZodTable` validation TOCTOU).
+- Repeated `.where()` calls now combine with `AND` instead of replacing the
+  previous conditions, which makes conditional query building safe.
+- `create`, `createMany` and `update` reject `undefined` values with a
+  `QueryError` instead of leaking postgres.js's `UNDEFINED_VALUE`. Simple
+  `where` conditions do the same.
+
+### Fixed
+- Error messages escape control characters in user-supplied names, preventing
+  log-line forging through crafted column/table names.
+- `getLikePattern` no longer resolves inherited object properties, so invalid
+  runtime values such as `"__proto__"` cannot throw a `TypeError`.
+- Publish workflow verifies the source commit for `workflow_dispatch` runs
+  (previously the tag/version checks were skipped) and pins every GitHub Action
+  to a commit SHA. CI uses `--frozen-lockfile`.
+- Documentation: corrected the stale README quick start, documented the new
+  options, and replaced the "inputs and outputs" validation claim with the
+  actual input-only behaviour.
+
 ## [0.2.0] - 2026-02-22
 
 ### Added

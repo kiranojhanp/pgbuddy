@@ -1,9 +1,16 @@
 import type { Row, Sql } from "postgres";
 import { Errors, QueryError } from "../errors";
-import type { LikePattern, SelectKeys, SortSpec, SqlOperator, WhereCondition } from "../types";
+import { getPredicateNode, isPredicate, type Predicate, type WhereInput } from "../predicates";
+import type {
+  LikePattern,
+  SelectKeys,
+  SortSpec,
+  SqlFragment,
+  SqlOperator,
+  WhereCondition,
+} from "../types";
 import { isValidIdentifier, isValidName } from "./validators";
 
-type SqlFragment = ReturnType<Sql<Record<string, unknown>>["unsafe"]>;
 type NameOptions = { strictNames?: boolean; allowSchema?: boolean };
 type IdentifierKind = "select" | "where";
 
@@ -18,19 +25,22 @@ function normalizeIdentifier(
       kind === "where"
         ? Errors.WHERE.INVALID_FIELD(String(value))
         : Errors.SELECT.INVALID_COLUMNS(String(value));
-    throw new QueryError(msg);
+    throw new QueryError(msg, { code: kind === "where" ? "INVALID_WHERE" : "INVALID_COLUMNS" });
   }
 
   const isValid = options?.strictNames
     ? isValidIdentifier(trimmed, { allowSchema: options?.allowSchema })
-    : isValidName(trimmed);
+    : // Even without strict name validation, dotted names are schema-qualified
+      // identifiers (postgres.js splits on "."), so reject them unless the
+      // caller opted in to schema-qualified names.
+      isValidName(trimmed) && (options?.allowSchema !== false || !trimmed.includes("."));
 
   if (!isValid) {
     const msg =
       kind === "where"
         ? Errors.WHERE.INVALID_FIELD(trimmed)
         : Errors.SELECT.INVALID_COLUMNS(trimmed);
-    throw new QueryError(msg);
+    throw new QueryError(msg, { code: kind === "where" ? "INVALID_WHERE" : "INVALID_COLUMNS" });
   }
 
   return trimmed;
@@ -103,16 +113,190 @@ export function buildSelect<T extends Row>(
  */
 export function buildWhereConditions<T extends Row>(
   sql: Sql<Record<string, unknown>>,
-  where?: WhereCondition<T>[] | Partial<T>,
+  where?: WhereInput<T>,
   options?: NameOptions
 ): SqlFragment {
   if (!where) return sql``;
 
-  if (Array.isArray(where)) {
-    return createAdvancedWhereFragment(sql, where, options);
-  } else {
-    return createSimpleWhereFragment(sql, where as Partial<T>, options);
+  const expression = buildWhereInputExpression(sql, where, options);
+  return expression ? sql`WHERE ${expression}` : sql``;
+}
+
+/**
+ * Builds a single WHERE clause from one or more inputs, joining them with
+ * `AND`. Used by `Table` so repeated `.where()` calls compose instead of
+ * replacing each other.
+ */
+export function buildWhereExpression<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  inputs: readonly WhereInput<T>[],
+  options?: NameOptions
+): SqlFragment | null {
+  const fragments = inputs
+    .map((input) => buildWhereInputExpression(sql, input, options))
+    .filter((fragment): fragment is SqlFragment => fragment !== null);
+
+  if (!fragments.length) return null;
+
+  return fragments.reduce(
+    (acc, fragment, index) => (index === 0 ? fragment : sql`${acc} AND ${fragment}`),
+    sql``
+  );
+}
+
+export function buildWhereInputs<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  inputs: readonly WhereInput<T>[],
+  options?: NameOptions
+): SqlFragment {
+  const expression = buildWhereExpression(sql, inputs, options);
+  return expression ? sql`WHERE ${expression}` : sql``;
+}
+
+function buildWhereInputExpression<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  input: WhereInput<T>,
+  options?: NameOptions
+): SqlFragment | null {
+  if (isPredicate(input)) {
+    return buildPredicate(sql, input as Predicate<T>, options);
   }
+
+  if (Array.isArray(input)) {
+    if (!input.length) return null;
+    return advancedWhereExpression(sql, input, options);
+  }
+
+  return simpleWhereExpression(sql, input as Partial<T>, options);
+}
+
+function buildPredicate<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  predicate: Predicate<T>,
+  options?: NameOptions
+): SqlFragment {
+  const node = getPredicateNode(predicate);
+
+  switch (node.type) {
+    case "comparison": {
+      if (node.value === null || node.value === undefined) {
+        throw new QueryError(Errors.WHERE.INVALID_COMPARISON(node.field, node.operator), {
+          code: "INVALID_WHERE",
+        });
+      }
+      const field = normalizeIdentifier(node.field, options, "where");
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${node.value}`;
+    }
+
+    case "in": {
+      if (!Array.isArray(node.values) || node.values.length === 0) {
+        throw new QueryError(Errors.WHERE.INVALID_IN(node.field), { code: "INVALID_WHERE" });
+      }
+      const field = normalizeIdentifier(node.field, options, "where");
+      return node.negated
+        ? sql`${sql(field)} <> ALL(${node.values})`
+        : sql`${sql(field)} = ANY(${node.values})`;
+    }
+
+    case "null": {
+      const field = normalizeIdentifier(node.field, options, "where");
+      return node.negated ? sql`${sql(field)} IS NOT NULL` : sql`${sql(field)} IS NULL`;
+    }
+
+    case "like": {
+      const field = normalizeIdentifier(node.field, options, "where");
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${node.value}`;
+    }
+
+    case "stringPattern": {
+      const field = normalizeIdentifier(node.field, options, "where");
+      const escaped = escapeLikeValue(node.value);
+      const pattern = getLikePattern(escaped, node.pattern);
+      return sql`${sql(field)} LIKE ${pattern}`;
+    }
+
+    case "between": {
+      if (
+        node.low === null ||
+        node.low === undefined ||
+        node.high === null ||
+        node.high === undefined
+      ) {
+        throw new QueryError(Errors.WHERE.INVALID_COMPARISON(node.field, "BETWEEN"), {
+          code: "INVALID_WHERE",
+        });
+      }
+      const field = normalizeIdentifier(node.field, options, "where");
+      const operator = node.negated ? sql`NOT BETWEEN` : sql`BETWEEN`;
+      return sql`${sql(field)} ${operator} ${node.low} AND ${node.high}`;
+    }
+
+    case "and":
+    case "or": {
+      if (node.predicates.length === 0) {
+        throw new QueryError(Errors.WHERE.INVALID_CONDITIONS, { code: "INVALID_WHERE" });
+      }
+      const separator = node.type === "and" ? sql` AND ` : sql` OR `;
+      const combined = node.predicates
+        .map((inner) => buildPredicate(sql, inner, options))
+        .reduce(
+          (acc, fragment, index) => (index === 0 ? fragment : sql`${acc} ${separator} ${fragment}`),
+          sql``
+        );
+      return sql`(${combined})`;
+    }
+
+    case "not": {
+      return sql`NOT (${buildPredicate(sql, node.predicate, options)})`;
+    }
+
+    case "raw": {
+      return node.fragment;
+    }
+  }
+}
+
+function escapeLikeValue(value: string): string {
+  return value.replace(/[%_\\]/g, (char) => `\\${char}`);
+}
+
+function simpleWhereExpression<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  conditions?: Partial<T>,
+  options?: NameOptions
+): SqlFragment | null {
+  const entries = Object.entries(conditions ?? {});
+  if (!entries.length) return null;
+
+  return entries.reduce((acc, [key, value], index) => {
+    const normalizedKey = normalizeIdentifier(key, options, "where");
+    if (value === undefined) {
+      throw new QueryError(Errors.WHERE.UNDEFINED_VALUE(key), { code: "INVALID_WHERE" });
+    }
+    const condition =
+      value === null ? sql`${sql(normalizedKey)} IS NULL` : sql`${sql(normalizedKey)} = ${value}`;
+
+    return index === 0 ? condition : sql`${acc} AND ${condition}`;
+  }, sql``);
+}
+
+function advancedWhereExpression<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  conditions: WhereCondition<T>[],
+  options?: NameOptions
+): SqlFragment {
+  return conditions.reduce((acc, condition, index) => {
+    const normalizedField = normalizeIdentifier(condition.field, options, "where");
+    const fragment = createConditionFragment(
+      sql,
+      normalizedField,
+      condition.operator,
+      condition.value,
+      "pattern" in condition ? condition.pattern : undefined
+    );
+
+    return index === 0 ? fragment : sql`${acc} AND ${fragment}`;
+  }, sql``);
 }
 
 /**
@@ -142,18 +326,8 @@ export function createSimpleWhereFragment<T extends Row>(
   conditions?: Partial<T>,
   options?: NameOptions
 ): SqlFragment {
-  const entries = Object.entries(conditions ?? {});
-  if (!entries.length) return sql``;
-
-  const whereClause = entries.reduce((acc, [key, value], index) => {
-    const normalizedKey = normalizeIdentifier(key, options, "where");
-    const condition =
-      value === null ? sql`${sql(normalizedKey)} IS NULL` : sql`${sql(normalizedKey)} = ${value}`;
-
-    return index === 0 ? condition : sql`${acc} AND ${condition}`;
-  }, sql``);
-
-  return sql`WHERE ${whereClause}`;
+  const expression = simpleWhereExpression(sql, conditions, options);
+  return expression ? sql`WHERE ${expression}` : sql``;
 }
 
 /**
@@ -186,20 +360,8 @@ export function createAdvancedWhereFragment<T extends Row>(
 ): SqlFragment {
   if (!conditions?.length) return sql``;
 
-  const whereClause = conditions.reduce((acc, condition, index) => {
-    const normalizedField = normalizeIdentifier(condition.field, options, "where");
-    const fragment = createConditionFragment(
-      sql,
-      normalizedField,
-      condition.operator,
-      condition.value,
-      "pattern" in condition ? condition.pattern : undefined
-    );
-
-    return index === 0 ? fragment : sql`${acc} AND ${fragment}`;
-  }, sql``);
-
-  return sql`WHERE ${whereClause}`;
+  const expression = advancedWhereExpression(sql, conditions, options);
+  return sql`WHERE ${expression}`;
 }
 
 /**
@@ -229,7 +391,7 @@ export function createConditionFragment(
 
   if (operator === "IN") {
     if (!Array.isArray(value) || !value.length) {
-      throw new QueryError(Errors.WHERE.INVALID_IN(field));
+      throw new QueryError(Errors.WHERE.INVALID_IN(field), { code: "INVALID_WHERE" });
     }
     return sql`${sql(field)} = ANY(${value})`;
   }
@@ -242,12 +404,16 @@ export function createConditionFragment(
   // Comparison operators
   if (["=", "!=", ">", "<", ">=", "<="].includes(operator)) {
     if (value == null) {
-      throw new QueryError(Errors.WHERE.INVALID_COMPARISON(field, operator));
+      throw new QueryError(Errors.WHERE.INVALID_COMPARISON(field, operator), {
+        code: "INVALID_WHERE",
+      });
     }
     return sql`${sql(field)} ${sql.unsafe(operator)} ${value}`;
   }
 
-  throw new QueryError(Errors.WHERE.UNSUPPORTED_OPERATOR(field, operator));
+  throw new QueryError(Errors.WHERE.UNSUPPORTED_OPERATOR(field, operator), {
+    code: "INVALID_WHERE",
+  });
 }
 
 /**
@@ -268,12 +434,12 @@ export function createLikeCondition(
   pattern?: LikePattern
 ): SqlFragment {
   if (typeof value !== "string") {
-    throw new QueryError(Errors.WHERE.INVALID_LIKE(field));
+    throw new QueryError(Errors.WHERE.INVALID_LIKE(field), { code: "INVALID_WHERE" });
   }
 
   // Always escape special LIKE characters to prevent unintended wildcard injection.
   // Use the `pattern` option to control wildcard placement explicitly.
-  const escapedValue = value.replace(/[%_\\]/g, (char) => `\\${char}`);
+  const escapedValue = escapeLikeValue(value);
   const likePattern = getLikePattern(escapedValue, pattern);
 
   return sql`${sql(field)} ${sql.unsafe(operator)} ${likePattern}`;
@@ -293,15 +459,18 @@ export function createLikeCondition(
  * - default: Same as exact if no pattern specified
  */
 export function getLikePattern(value: string, pattern?: LikePattern): string {
-  const patterns = {
-    startsWith: () => `${value}%`,
-    endsWith: () => `%${value}`,
-    contains: () => `%${value}%`,
-    exact: () => value,
-    default: () => value,
-  };
-
-  return (pattern ? patterns[pattern] : patterns.default)();
+  // Use a switch rather than an object lookup so inherited keys such as
+  // "constructor" or "__proto__" can never resolve to a prototype member.
+  switch (pattern) {
+    case "startsWith":
+      return `${value}%`;
+    case "endsWith":
+      return `%${value}`;
+    case "contains":
+      return `%${value}%`;
+    default:
+      return value;
+  }
 }
 
 /**
@@ -311,27 +480,39 @@ export function getLikePattern(value: string, pattern?: LikePattern): string {
  * @returns SQL fragment for ORDER BY
  * @throws {QueryError} If direction is invalid
  */
-export function createSortFragment<T extends Row>(
+export function createSortExpression<T extends Row>(
   sql: Sql<Record<string, unknown>>,
   orderBy?: SortSpec<T>[],
   options?: NameOptions
 ): SqlFragment {
   if (!orderBy?.length) return sql``;
 
-  const sortClause = orderBy.reduce((acc, { column, direction }, index) => {
+  return orderBy.reduce((acc, { column, direction, nulls }, index) => {
     // Validate sort direction
     if (!["ASC", "DESC"].includes(direction)) {
-      throw new QueryError(Errors.WHERE.INVALID_SORT);
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
+    }
+
+    if (nulls !== undefined && nulls !== "first" && nulls !== "last") {
+      throw new QueryError(Errors.WHERE.INVALID_SORT, { code: "INVALID_SORT" });
     }
 
     // Validate column name
     const normalizedColumn = normalizeIdentifier(column, options, "select");
-    const sortFragment = sql`${sql(normalizedColumn)} ${sql.unsafe(direction)}`;
+    const base = sql`${sql(normalizedColumn)} ${sql.unsafe(direction)}`;
+    const sortFragment = nulls ? sql`${base} NULLS ${sql.unsafe(nulls.toUpperCase())}` : base;
 
     return index === 0 ? sortFragment : sql`${acc}, ${sortFragment}`;
   }, sql``);
+}
 
-  return sql`ORDER BY ${sortClause}`;
+export function createSortFragment<T extends Row>(
+  sql: Sql<Record<string, unknown>>,
+  orderBy?: SortSpec<T>[],
+  options?: NameOptions
+): SqlFragment {
+  if (!orderBy?.length) return sql``;
+  return sql`ORDER BY ${createSortExpression(sql, orderBy, options)}`;
 }
 
 /**

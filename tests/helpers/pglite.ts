@@ -35,7 +35,25 @@ export const getAvailablePort = async (
     });
   });
 
-export const startPglite = async () => {
+export const startPglite = async (options?: Record<string, unknown>) => {
+  const databaseUrl = process.env.PGBUDDY_TEST_DATABASE_URL;
+
+  if (databaseUrl) {
+    const sql = postgres(databaseUrl, {
+      max: 1,
+      onnotice: () => {},
+      ...options,
+    } as never);
+    await sql`select 1`;
+
+    return {
+      sql,
+      stop: async () => {
+        await sql.end({ timeout: 5 });
+      },
+    };
+  }
+
   const db = await PGlite.create();
   const port = await getAvailablePort();
   const server = new PGLiteSocketServer({
@@ -52,7 +70,8 @@ export const startPglite = async () => {
     database: "template1",
     max: 1,
     onnotice: () => {},
-  });
+    ...options,
+  } as never);
 
   const stop = async () => {
     await sql.end({ timeout: 5 });

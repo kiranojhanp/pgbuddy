@@ -3,3 +3,5 @@ adrs
 dist
 coverage
 .worktrees
+
+.DS_Store

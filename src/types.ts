@@ -1,4 +1,10 @@
-import type { Row } from "postgres";
+import type { Row, Sql } from "postgres";
+
+/**
+ * Opaque postgres.js query fragment. Useful for raw escape hatches such as
+ * `whereRaw`.
+ */
+export type SqlFragment = ReturnType<Sql<Record<string, unknown>>["unsafe"]>;
 
 /**
  * Supported SQL comparison operators for WHERE conditions.
@@ -161,6 +167,8 @@ export interface SortSpec<T extends Row> {
   column: keyof T & string;
   /** The sort direction (ASC or DESC) */
   direction: SortDirection;
+  /** Optional NULLS FIRST / NULLS LAST ordering. */
+  nulls?: "first" | "last";
 }
 
 /**
@@ -202,12 +210,118 @@ export type SelectFields<T extends Row, K extends SelectKeys<T>> = K extends ["*
   : PickFields<T, Extract<K, readonly (keyof T & string)[]>>[];
 
 /**
+ * A typed SQL expression for computed select fields. Wrap a postgres.js
+ * fragment with `sqlExpr<T>(fragment)`; the type parameter is the value type.
+ */
+export type SqlExpression<T> = {
+  readonly fragment: SqlFragment;
+  readonly result?: T;
+};
+
+export function sqlExpr<T>(fragment: SqlFragment): SqlExpression<T> {
+  return { fragment };
+}
+
+/** Maps a record of expressions to the types they produce. */
+export type ComputedResult<X extends Record<string, SqlExpression<unknown>>> = {
+  [K in keyof X]: X[K] extends SqlExpression<infer V> ? V : never;
+};
+
+/** A map of aliases to typed SQL expressions. */
+export type ComputedMap = Record<string, SqlExpression<unknown>>;
+
+/** Row locking mode for SELECT queries. */
+export type LockMode = "update" | "share" | "no key update" | "key share";
+
+/** Options for row locking. `skipLocked` and `noWait` are mutually exclusive. */
+export type LockOptions = {
+  skipLocked?: boolean;
+  noWait?: boolean;
+};
+
+/** Options for computed fields on `find*` methods. */
+export type ComputedOptions<
+  X extends Record<string, SqlExpression<unknown>> = Record<never, never>,
+> = {
+  computed?: X;
+};
+
+/**
+ * Aggregations supported by `aggregate()`.
+ */
+export type AggregateOptions<T extends Row> = {
+  count?: boolean;
+  countDistinct?: readonly (keyof T & string)[];
+  sum?: readonly (keyof T & string)[];
+  avg?: readonly (keyof T & string)[];
+  min?: readonly (keyof T & string)[];
+  max?: readonly (keyof T & string)[];
+};
+
+/**
+ * Result of `aggregate()`. Counts are numbers; `sum`/`avg` are numbers or
+ * null; `min`/`max` keep the database value.
+ */
+export type AggregateResult = {
+  count?: number;
+  countDistinct: Record<string, number>;
+  sum: Record<string, number | null>;
+  avg: Record<string, number | null>;
+  min: Record<string, unknown>;
+  max: Record<string, unknown>;
+};
+
+/**
+ * Options for `createMany`.
+ */
+export type CreateManyOptions = {
+  /** Add `ON CONFLICT DO NOTHING` to skip rows that violate a unique index. */
+  skipDuplicates?: boolean;
+  /**
+   * Update conflicting rows instead of failing. `update` columns are set to
+   * the `EXCLUDED` values from the inserted row.
+   */
+  onConflict?: {
+    target: readonly string[];
+    /** Columns assigned from `EXCLUDED` (the inserted row). */
+    update?: readonly string[];
+    /** Arbitrary `SET` expressions keyed by destination column. */
+    set?: Readonly<Record<string, SqlFragment>>;
+  };
+};
+
+/**
+ * Options for `upsert`.
+ *
+ * `where` identifies the conflict target and must be a plain object; its keys
+ * become the `ON CONFLICT (...)` columns. Its values are not used in the query.
+ */
+export type UpsertOptions<T extends Row, I extends Row = T> = {
+  where: Partial<T>;
+  create: I;
+  /** Columns to update on conflict. Empty means "return the existing row". */
+  update?: Partial<T>;
+  /** Optional WHERE for the conflict target (partial unique indexes). */
+  targetWhere?: SqlFragment;
+  /** Optional WHERE for the DO UPDATE branch. */
+  setWhere?: SqlFragment;
+};
+
+/**
  * Helper type for insertable rows.
  *
  * Marks auto-generated keys as optional.
  */
 export type Insertable<T extends Row, TAuto extends keyof T = never> = Omit<T, TAuto> &
   Partial<Pick<T, TAuto>>;
+
+/**
+ * Values accepted by `update`: either the column type or a postgres.js SQL
+ * fragment (for `now()`, arithmetic, JSON operators, ...).
+ */
+export type UpdateData<T extends Row> = {
+  [K in keyof T]?: T[K] | SqlFragment;
+};
 
 /**
  * Helper type for update payloads.

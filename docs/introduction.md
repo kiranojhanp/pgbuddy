@@ -2,9 +2,9 @@
 
 ## Introduction
 
-`postgres.js` has TypeScript support, but it's built around raw SQL strings. There's no structured query API, no runtime validation of results against a schema, and result types have to be written by hand and kept in sync with your actual table.
+`postgres.js` has TypeScript support, but it's built around raw SQL strings. PgBuddy wraps it with a chainable, schema-backed API: queries know the shape of your table, inputs are validated before they hit the database, and result types are inferred from your Zod schema.
 
-PgBuddy wraps postgres.js with a chainable, schema-backed API. Your queries know the shape of your table, inputs are validated before they hit the database, and result types are inferred from your Zod schema.
+PgBuddy stays deliberately small. It models the common single-table operations, one-hop relations, narrow joins, grouped aggregates, and typed SQL expressions. Everything else remains available through the underlying postgres.js instance.
 
 ### Source of truth
 
@@ -12,29 +12,38 @@ PgBuddy defaults to Zod: you define the shape in code, the database is expected 
 
 ### Features
 
-- Structured query API — no raw SQL strings for common operations
-- Runtime schema validation via Zod (inputs and outputs)
+- Structured query API for common CRUD operations
+- Runtime schema validation via Zod (inputs)
 - Result types inferred from your schema
-- SQL injection prevention via parameterized queries
-- Filtering, sorting, and pagination built in
-- Full access to postgres.js when you need it
+- Parameterized values and escaped identifiers
+- Composable predicates (`eq`, `and`, `or`, `not`, `inArray`, `contains`, ...)
+- Projections, `DISTINCT`, `DISTINCT ON` expressions, `NULLS FIRST/LAST`, and keyset cursors
+- Computed SQL expressions in selects and writes
+- Transactions with isolation/read-only/deferrable options
+- Read-only relations with `include`, `withCount`, and relation filters
+- Narrow `innerJoin`/`leftJoin` with nested right-side rows
+- `groupBy` / `having` with typed aggregate aliases
+- Row locking (`FOR UPDATE`, `FOR SHARE`, `SKIP LOCKED`, `NOWAIT`)
+- Stable `QueryError.code` values and PostgreSQL error helpers
+- Raw SQL through `db.sql` whenever the typed surface stops
 
 ### Installation
 
 ```bash
-npm install pgbuddy postgres
-# or
-yarn add pgbuddy postgres
+npm install pgbuddy postgres zod
 ```
+
+Zod is optional if you use the plain `Table` API. Both postgres.js v3
+(`>= 3.4.5`) and v4 are supported; the test suite runs against both majors.
 
 ### Quick start
 
 ```typescript
-import postgres from 'postgres';
-import { z } from 'zod';
-import { PgBuddyClient } from 'pgbuddy';
+import postgres from "postgres";
+import { z } from "zod";
+import { PgBuddyClient } from "pgbuddy";
 
-const sql = postgres('postgres://username:password@localhost:5432/dbname');
+const sql = postgres("postgres://username:password@localhost:5432/dbname");
 const db = new PgBuddyClient(sql);
 
 const UserSchema = z.object({
@@ -44,19 +53,19 @@ const UserSchema = z.object({
   created_at: z.date(),
 });
 
-const users = db.table('users', UserSchema);
+const users = db.table("users", UserSchema);
 ```
 
 ### Without Zod
 
-If you want to skip runtime validation, you can provide TypeScript types directly.
+If you want to skip runtime validation, provide TypeScript types directly.
 
 ```typescript
-import postgres from 'postgres';
-import { PgBuddy, Insertable } from 'pgbuddy';
+import postgres from "postgres";
+import { PgBuddyClient, Insertable } from "pgbuddy";
 
 const sql = postgres(process.env.DATABASE_URL);
-const db = new PgBuddy(sql);
+const db = new PgBuddyClient(sql);
 
 interface User {
   id: number;
@@ -64,19 +73,20 @@ interface User {
   email: string;
 }
 
-type UserInsert = Insertable<User, 'id'>;
+type UserInsert = Insertable<User, "id">;
 
-const users = db.table<User, UserInsert>('users');
+const users = db.table<User, UserInsert>("users");
 ```
 
-Tip: Use [Kanel](https://github.com/kristiandupont/kanel) to auto-generate TypeScript interfaces directly from your database schema.
+Tip: use [Kanel](https://github.com/kristiandupont/kanel) to generate TypeScript interfaces from a live database schema.
 
 ### Using the chainable API
 
 ```typescript
 const activeUsers = await users
-  .where({ status: 'active' })
-  .orderBy([{ column: 'created_at', direction: 'DESC' }])
+  .where({ status: "active" })
+  .orderBy([{ column: "created_at", direction: "DESC" }])
+  .take(20)
   .findMany();
 ```
 
@@ -84,21 +94,40 @@ See the [Chainable API](chainable-api.md) guide for the full reference.
 
 ### Advanced usage
 
-PgBuddy is a thin TypeScript layer over postgres.js. For anything beyond CRUD, use the `sql` instance directly:
+PgBuddy is a thin TypeScript layer over postgres.js. For anything beyond its
+typed surface, use the `sql` instance directly:
 
-- Transactions: `sql.begin(...)` reserves a connection and rolls back on errors automatically.
-- Ordering: row order is only guaranteed inside `sql.begin()` or with `max: 1`.
-- Raw SQL: `sql.unsafe(...)` skips injection protection if misused.
+- Transactions: `db.transaction(...)` or `sql.begin(...)`.
+- Raw SQL: `db.sql` (values are still parameterized) or `sql.unsafe(...)`.
 - Case transforms: `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`.
 - Diagnostics: `error.query` / `error.parameters`, or `debug: true` on the connection.
 
 For all postgres.js features, see the [postgres.js documentation](https://github.com/porsager/postgres).
 
+### Security
+
+PgBuddy binds all values as query parameters and relies on postgres.js to
+escape identifiers, so user-supplied values cannot break out of SQL. Two
+footguns remain at the call site:
+
+- **Write payloads are column maps.** `create`, `createMany` and `update` write
+  every non-`undefined` key in the object they are given. Do not pass an
+  unvalidated request body — an attacker could set columns such as `role` or
+  `is_admin`. Use a Zod schema, a `z.strictObject` schema, or the
+  `allowedColumns` option.
+- **`select`/`orderBy` column names are not user input.** With a plain `Table`,
+  treat them as developer-controlled; `ZodTable` checks them against the schema.
+
+See the [API reference](api-reference.md#options) for `allowedColumns`,
+`maxTake`, `strictNames`, and `allowSchema`.
+
 ### Next steps
 
 - [CRUD Operations](crud-operations.md)
 - [Select Operations](select-operations.md)
+- [Chainable API](chainable-api.md)
 - [Data Transformation](data-transformation.md)
 - [API Reference](api-reference.md)
 - [Examples](examples.md)
+- [Ecommerce kitchen sink](kitchen-sink.md)
 - [postgres.js documentation](https://github.com/porsager/postgres)

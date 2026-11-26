@@ -4,6 +4,7 @@ These examples assume `db` is a `PgBuddyClient` instance. See the [Introduction]
 
 ```typescript
 import { z } from 'zod';
+import { contains, sqlExpr } from 'pgbuddy';
 
 const UserSchema = z.object({
   id: z.number().int(),
@@ -44,14 +45,7 @@ async function deactivateInactiveUsers(daysInactive: number) {
 
 async function searchUsers(query: string) {
   return userTable
-    .where([
-      {
-        field: 'name',
-        operator: 'LIKE',
-        value: query,
-        pattern: 'contains'
-      }
-    ])
+    .where(contains('name', query))
     .orderBy([{ column: 'name', direction: 'ASC' }])
     .findMany();
 }
@@ -193,13 +187,7 @@ async function updateStock(productId: number, quantity: number) {
 
 async function getLowStockProducts() {
   return productTable
-    .where([
-      {
-        field: 'stock_quantity',
-        operator: '<=',
-        value: sql`low_stock_threshold`
-      }
-    ])
+    .whereRaw(sql`stock_quantity <= low_stock_threshold`)
     .orderBy([{ column: 'stock_quantity', direction: 'ASC' }])
     .findMany();
 }
@@ -275,6 +263,49 @@ async function getEventStats(startDate: Date, endDate: Date) {
     ])
     .findMany();
 }
+```
+
+## Relationships, joins, and grouped reports
+
+```typescript
+const PostSchema = z.object({
+  id: z.number().int(),
+  user_id: z.number().int(),
+  title: z.string(),
+  published: z.boolean(),
+  created_at: z.date(),
+});
+
+const users = db.table('users', UserSchema, {
+  relations: {
+    posts: {
+      table: 'posts',
+      schema: PostSchema,
+      localKey: 'id',
+      foreignKey: 'user_id',
+      relation: 'many',
+    },
+  },
+});
+
+// One hop, filtered and counted
+const authors = await users
+  .include('posts', { where: { published: true }, take: 3 })
+  .withCount('posts', (posts) => posts.where({ published: true }))
+  .findMany();
+
+// Narrow join with a typed nested row
+const rows = await users
+  .innerJoin('posts', PostSchema, sql`"posts"."user_id" = "users"."id"`)
+  .whereRaw(sql`"posts"."published" = true`)
+  .findMany();
+
+// Grouped aggregate
+const perAuthor = await db
+  .table('posts', PostSchema)
+  .groupBy(['user_id'], { count: sqlExpr<number>(sql`count(*)::int`) })
+  .having(sql`count(*) > 1`)
+  .findMany();
 ```
 
 For error handling, see [Error types](api-reference.md#error-types) in the API reference.

@@ -5,10 +5,74 @@
 ### Constructor
 
 ```typescript
-constructor(sql: Sql<{}>, options?: { strictNames?: boolean; allowSchema?: boolean })
+constructor(sql: Sql<{}>, options?: PgBuddyClientOptions)
 ```
 
 Creates a new `PgBuddyClient` instance with a postgres.js connection.
+
+#### Options
+
+All options can be set on the client and overridden per table:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `strictNames` | `false` | When `true`, table and column names must match `^[A-Za-z_][A-Za-z0-9_]*$`. |
+| `allowSchema` | `false` | Allow schema-qualified (dotted) names such as `public.users` or `users.id`. Dotted names are rejected otherwise, even in non-strict mode. |
+| `allowedColumns` | `undefined` | Allowlist of columns accepted by `create`, `createMany` and `update`. Any other key throws a `QueryError`. Without it, every key is treated as a column. |
+| `maxTake` | `10000` | Upper bound for `take()`. A larger value throws a `QueryError`. |
+| `unique` | `undefined` | Unique column sets for `whereUnique`, e.g. `[["email"], ["tenant_id", "slug"]]`. ZodTable validates them against the schema. |
+| `defaultTake` | `undefined` | Default row limit for `findMany` when no `take()` is set. Must be <= `maxTake`. |
+| `columns` | `undefined` | Explicit column list for a plain `Table`. Avoids `SELECT *` and enables `omit()`. |
+| `relations` | `undefined` | Relation definitions for `ZodTable.include` (see below). |
+
+### sql
+
+The underlying postgres.js instance. Use it as the escape hatch for raw SQL
+when pgbuddy does not model what you need:
+
+```typescript
+await db.sql`select * from users where id = ${id}`;
+```
+
+### transaction(fn, options?)
+
+```typescript
+transaction<T>(
+  fn: (tx: PgBuddyClient) => Promise<T>,
+  options?: TransactionOptions
+): Promise<T>
+```
+
+Run `fn` inside a transaction. Use `tx` for every query inside the callback.
+The transaction commits when the callback resolves and rolls back when it
+throws. Nested calls use savepoints.
+
+`TransactionOptions` supports `isolationLevel` (`"read uncommitted"`,
+`"read committed"`, `"repeatable read"`, `"serializable"`), `readOnly`, and
+`deferrable`.
+
+```typescript
+await db.transaction(async (tx) => {
+  const users = tx.table<User>("users");
+  await users.create({ email });
+});
+```
+
+### Security: write payloads
+
+`create`, `createMany` and `update` insert or update **every key** in the
+payload, so passing an unvalidated object (for example `req.body`) lets a
+caller choose which columns are written — including columns you never meant to
+expose, such as `role` or `is_admin`.
+
+Mitigate this with one of:
+
+- a Zod schema passed to `table(name, schema)` — `z.object` strips unknown keys
+  by default; use `z.strictObject` to reject them instead. Avoid
+  `.passthrough()` on schemas used for writes, since it re-enables arbitrary
+  columns;
+- the `allowedColumns` option, which rejects any key outside the allowlist;
+- explicit mapping of user input to a fixed object before calling the method.
 
 ### table(tableName, schema, options?)
 
@@ -16,15 +80,15 @@ Creates a new `PgBuddyClient` instance with a postgres.js connection.
 table<S extends ZodObject<any>>(
   tableName: string,
   schema: S,
-  options?: { strictNames?: boolean; allowSchema?: boolean }
+  options?: PgBuddyClientOptions
 )
 ```
 
 Creates a chainable table query builder with Zod validation.
 
 - `tableName` — table name
-- `schema` — Zod schema for input/output validation
-- `options` — optional name validation flags
+- `schema` — Zod schema for input validation (unknown keys are stripped)
+- `options` — optional `PgBuddyClientOptions`
 - Returns `ZodTable<S>`
 
 ### table(tableName, options?)
@@ -32,7 +96,7 @@ Creates a chainable table query builder with Zod validation.
 ```typescript
 table<T extends Row, I extends Row = T>(
   tableName: string,
-  options?: { strictNames?: boolean; allowSchema?: boolean }
+  options?: PgBuddyClientOptions
 )
 ```
 
@@ -41,7 +105,7 @@ Creates a chainable table query builder without Zod validation.
 - `tableName` — table name
 - `T` — full row type
 - `I` — insertable row type (defaults to `T`)
-- `options` — optional name validation flags
+- `options` — optional `PgBuddyClientOptions`
 - Returns `Table<T, ["*"], I>`
 
 ### tableWithInsert(tableName, options?)
@@ -49,7 +113,7 @@ Creates a chainable table query builder without Zod validation.
 ```typescript
 tableWithInsert<T extends Row, AutoKeys extends keyof T>(
   tableName: string,
-  options?: { strictNames?: boolean; allowSchema?: boolean }
+  options?: PgBuddyClientOptions
 )
 ```
 
@@ -58,7 +122,7 @@ Creates a table query builder where auto-generated keys are optional on insert.
 - `tableName` — table name
 - `T` — full row type
 - `AutoKeys` — keys in `T` that are auto-generated and optional on insert
-- `options` — optional name validation flags
+- `options` — optional `PgBuddyClientOptions`
 - Returns `Table<T, ["*"], Insertable<T, AutoKeys>>`
 - Throws `TableError` if the table name is invalid
 
@@ -69,8 +133,74 @@ Creates a table query builder where auto-generated keys are optional on insert.
 `ZodTable` has the same chainable API as `Table`, with runtime validation added:
 
 - `where` validates field names and values against the schema
+- `select` validates projected columns against the schema; `"*"` means every
+  schema column (never `SELECT *`), and results are returned in schema order
+- `omit` removes columns from that schema projection
+- `orderBy` validates sort columns and directions against the schema
 - `create` / `createMany` validate input data
 - `update` validates partial updates
+
+### Relations
+
+Declare relations in the table options and load them with `include`. Includes
+are read-only, populated by `find*` methods, and fetched in batched queries.
+
+```typescript
+const users = db.table("users", UserSchema, {
+  relations: {
+    posts: {
+      table: "posts",
+      schema: PostSchema,
+      localKey: "id",
+      foreignKey: "user_id",
+      relation: "many", // or "one"
+    },
+  },
+});
+
+const rows = await users
+  .include("posts", (posts) =>
+    posts
+      .where({ published: true })
+      .orderBy([{ column: "created_at", direction: "DESC" }])
+      .take(5)
+      .select(["id", "title"])
+  )
+  .findMany();
+
+// Equivalent declarative form
+const rows = await users
+  .include("posts", {
+    where: { published: true },
+    orderBy: [{ column: "created_at", direction: "DESC" }],
+    take: 5,
+    select: ["id", "title"],
+  })
+  .findMany();
+```
+
+- `relation: "many"` returns an array; `"one"` returns a record or `null`.
+- `include` accepts a refinement callback or a declarative options object:
+  `{ where, orderBy, take, select }`. `take` applies per parent row.
+- `withCount("posts")` adds `posts_count: number` to each row. It accepts a
+  refinement: `withCount("posts", (posts) => posts.where({ published: true }))`
+  counts matching rows only (order/take/select are ignored for counts).
+- `whereRelated("posts", (posts) => posts.where(...))` filters parents with
+  `EXISTS`; `whereMissing("posts")` uses `NOT EXISTS`; `whereEvery(...)` uses
+  `NOT EXISTS (... WHERE NOT (refinement))`. `whereEvery("posts")` without a
+  refinement is a no-op (vacuously true).
+- `localKey`/`foreignKey` accept arrays for composite keys.
+- The parent key is selected automatically and stripped if it was not
+  requested.
+- Relation table names are validated with the table's `strictNames` /
+  `allowSchema` options; identifiers are still escaped.
+- Count refinements ignore `orderBy`/`take`/`select`.
+- Computed fields compose with relations: `.selectExpr({...}).findMany()`
+  and relation methods can follow `selectExpr`.
+- Narrow joins: `users.innerJoin("posts", PostSchema, on)` and `leftJoin`;
+  see the Joins section.
+- Mutations do not populate includes, and nested includes are not supported;
+  use `db.sql` for those.
 
 ---
 
@@ -88,13 +218,52 @@ select<K extends (keyof T)[]>(fields: K)
 
 Specify which columns to return. Applies to `find*`, `create`, `createMany`, `update`, and `delete`.
 
+#### omit(columns)
+
+```typescript
+omit(columns: readonly (keyof T & string)[])
+```
+
+Remove columns from the schema projection. `omit` re-selects from the full
+schema, so prefer `select` for inclusive subsets.
+
+```typescript
+const safeUsers = await users.omit(["password_hash"]).findMany();
+```
+
 #### where(conditions)
 
 ```typescript
-where(conditions: WhereCondition<T>[] | Partial<T>)
+where(conditions: WhereInput<T>)
 ```
 
-Filter results with field-value equality or advanced `WhereCondition` operators.
+Filter results with field-value equality, an array of `WhereCondition`
+operators, or a composable `Predicate` from `eq`/`or`/`and`/... Repeated
+`.where()` calls are combined with `AND`.
+
+#### whereUnique(where)
+
+```typescript
+whereUnique(where: Partial<T>)
+```
+
+Filter by a unique column set declared in the `unique` table option. Throws
+`QueryError` when the keys do not match a configured unique key (or when no
+unique option is configured). `findUnique()` then fetches a single row.
+
+```typescript
+const users = db.table<User>("users", { unique: [["email"]] });
+const user = await users.whereUnique({ email }).findUnique();
+```
+
+#### whereRaw(fragment)
+
+```typescript
+whereRaw(fragment: SqlFragment)
+```
+
+Escape hatch: add a raw postgres.js fragment to the `WHERE` clause. No
+identifier or schema validation is performed, so only pass trusted SQL.
 
 #### skip(count)
 
@@ -118,13 +287,94 @@ Limit the number of records returned. Throws `QueryError` if the value is invali
 orderBy(spec: SortSpec<T>[])
 ```
 
-Sort results by one or more columns.
+Sort results by one or more columns. Supports `nulls: "first" | "last"`.
+
+#### orderByRaw(fragment)
+
+Raw `ORDER BY` expression, for functions or relevance ordering. Combines with
+`orderBy`: column sorts come first, then the raw expression.
+
+#### selectExpr(expressions)
+
+```typescript
+selectExpr({ lowerEmail: sqlExpr<string>(sql`lower(email)`) })
+  .findMany()
+```
+
+Chainable computed projection. The returned query exposes `findMany`,
+`findFirst`, `findUnique`, `find*OrThrow`, `count`, and `exists` with the
+computed fields added to the result type.
+
+#### distinct()
+
+Adds `DISTINCT` to the SELECT clause.
+
+#### distinctOnExpr(expressions)
+
+```typescript
+distinctOnExpr(expressions: readonly SqlFragment[])
+```
+
+Adds `DISTINCT ON (expressions)`. PostgreSQL requires the leading `ORDER BY`
+expressions to match.
+
+#### for(mode, options)
+
+```typescript
+for(mode: "update" | "share" | "no key update" | "key share", options?: {
+  skipLocked?: boolean;
+  noWait?: boolean;
+})
+```
+
+Adds a row-locking clause to `find*` queries. `skipLocked` and `noWait` are
+mutually exclusive.
+
+#### distinctOn(columns)
+
+```typescript
+distinctOn(columns: readonly (keyof T & string)[])
+```
+
+Adds `DISTINCT ON (columns)` to the SELECT clause. PostgreSQL requires the
+leading `ORDER BY` expressions to match.
+
+#### cursor(value)
+
+```typescript
+cursor(value: Partial<T>)
+```
+
+Keyset pagination: filters rows after (ASC) or before (DESC) the given cursor.
+A cursor may contain multiple columns; they must match the leading `orderBy`
+columns in order and produce lexicographic keyset conditions. Without
+`orderBy`, a single cursor column assumes ascending order.
 
 ### Query execution
 
-#### findMany()
+#### findMany(options?)
 
-Returns all matching records.
+```typescript
+findMany<X extends Record<string, SqlExpression<unknown>>>(
+  options?: { computed?: X }
+)
+```
+
+Returns all matching records. `computed` adds aliased SQL expressions to the
+projection; wrap postgres.js fragments with `sqlExpr<T>()`:
+
+```typescript
+import { sqlExpr } from "pgbuddy";
+
+const rows = await users.findMany({
+  computed: {
+    lowerEmail: sqlExpr<string>(sql`lower(email)`),
+  },
+});
+```
+
+`findFirst`, `findUnique`, and the `*OrThrow` variants accept the same
+`{ computed }` option. `.selectExpr({...})` is the chainable form.
 
 #### findFirst()
 
@@ -134,39 +384,172 @@ Returns the first matching record, or `null`.
 
 Returns the only matching record, or `null`. Throws `QueryError` if more than one record matches.
 
+#### findFirstOrThrow()
+
+Returns the first matching record, or throws `QueryError` (`No record found`).
+
+#### findUniqueOrThrow()
+
+Returns the only matching record, or throws `QueryError` (`No record found` or `NOT_UNIQUE`).
+
 #### count()
 
 Returns the number of matching records.
 
+#### exists()
+
+Returns `true` when at least one record matches.
+
+#### groupBy(columns, aggregates)
+
+```typescript
+const rows = await users
+  .groupBy(["status"], {
+    count: sqlExpr<number>(sql`count(*)::int`),
+    total: sqlExpr<number>(sql`sum(amount)`),
+  })
+  .having(sql`count(*) > 1`)
+  .orderBy([{ column: "status", direction: "ASC" }])
+  .findMany();
+```
+
+Groups matching rows and returns the group columns plus typed aggregate
+aliases. `having()` takes a raw SQL fragment because aggregate aliases are not
+addressable through the predicate builders. `where`, `orderBy`, `orderByRaw`,
+`skip`, and `take` compose on the grouped query; relations are not available.
+Cast aggregates such as `count(*)::int` when you want a JavaScript number.
+
+#### aggregate(options)
+
+```typescript
+aggregate({
+  count?: boolean;
+  countDistinct?: string[];
+  sum?: string[];
+  avg?: string[];
+  min?: string[];
+  max?: string[];
+})
+```
+
+Returns `{ count?, countDistinct: {...}, sum: {...}, avg: {...}, min: {...}, max: {...} }`.
+For grouped aggregates use `groupBy()`/`having()`; use `db.sql` for advanced
+grouping such as `FILTER`, `ROLLUP`, or `CUBE`.
+
+### Joins
+
+```typescript
+const rows = await users
+  .innerJoin("posts", {
+    columns: ["id", "user_id", "title"],
+    on: sql`"posts"."user_id" = "users"."id"`,
+  })
+  .findMany();
+// Array<User & { posts: { id: number; user_id: number; title: string } }>
+```
+
+`leftJoin` has the same shape, but `posts` is `{...} | null` when no
+right-side row matches. The right row is nested under the join name, so
+duplicate column names do not clobber the left row. With a Zod table, pass the
+right schema instead of columns:
+
+```typescript
+await users.innerJoin("posts", PostSchema, on);
+```
+
+Right-side columns are explicit. Because both tables can share column names,
+use `whereRaw`/`orderByRaw` with qualified columns for filters or ordering.
+`on` is a trusted SQL fragment. Joins are single-table joins; there is no join
+tree or alias API yet.
+
 ### Mutations
 
-#### create(data)
+#### create(data, options)
 
 ```typescript
-create(data: I)
+create(data: I, options?: { computed?: X; onConflict?: "nothing" })
 ```
 
-Insert a single record and return it (respects `select`). `I` is the insertable row type (defaults to `T`).
+Insert a single record and return it (respects `select`). `computed` adds
+typed `RETURNING` expressions; `onConflict: "nothing"` adds
+`ON CONFLICT DO NOTHING` and returns `null` when the row was skipped.
+`I` is the insertable row type (defaults to `T`).
 
-#### createMany(records)
+#### createMany(records, options)
 
 ```typescript
-createMany(records: I[])
+createMany(
+  records: I[],
+  options?: {
+    skipDuplicates?: boolean;
+    onConflict?: {
+      target: string[];
+      update?: string[];
+      set?: Record<string, SqlFragment>;
+    };
+    computed?: X;
+  }
+)
 ```
 
-Insert multiple records and return them (respects `select`). Use `Insertable<T, AutoKeys>` to mark auto-generated keys as optional.
+Insert multiple records and return them (respects `select`). Use
+`Insertable<T, AutoKeys>` to mark auto-generated keys as optional.
+`skipDuplicates` adds `ON CONFLICT DO NOTHING`; `onConflict` updates the named
+columns from `EXCLUDED` and/or applies arbitrary `set` expressions. Large
+batches are chunked automatically.
 
-#### update(data)
+#### upsert(options)
 
 ```typescript
-update(data: Partial<T>)
+upsert(options: {
+  where: Partial<T>;
+  create: I;
+  update?: Partial<T>;
+  targetWhere?: SqlFragment;
+  setWhere?: SqlFragment;
+  computed?: X;
+})
 ```
 
-Update records matching `where` and return the updated rows (respects `select`). Requires `where`.
+Insert a record, or update the existing row when it conflicts with the unique
+columns named in `where`. `update` values are applied via `DO UPDATE SET`; an
+omitted `update` returns the existing row (`find or create`). `targetWhere`
+and `setWhere` support partial indexes.
 
-#### delete()
+```typescript
+const user = await users.upsert({
+  where: { email: "ada@example.com" },
+  create: { email: "ada@example.com", name: "Ada" },
+  update: { name: "Ada Lovelace" },
+});
+```
 
-Delete records matching `where` and return the deleted rows (respects `select`). Requires `where`.
+#### update(data, options)
+
+```typescript
+update(
+  data: UpdateData<T>,
+  options?: { returning?: true; computed?: X } | { returning: false }
+)
+```
+
+Update records matching `where` and return the updated rows (respects
+`select`). `UpdateData` allows SQL fragments for expressions such as
+`sql\`now()\`` or `sql\`views + 1\``; `undefined` values are omitted.
+`computed` adds typed `RETURNING` expressions. With `{ returning: false }` it
+returns the affected-row count instead. Requires `where`.
+
+#### delete(options)
+
+```typescript
+delete(
+  options?: { returning?: true; computed?: X } | { returning: false }
+)
+```
+
+Delete records matching `where` and return the deleted rows (respects
+`select`). `computed` adds typed `RETURNING` expressions. With
+`{ returning: false }` it returns the affected-row count. Requires `where`.
 
 ---
 
@@ -200,6 +583,31 @@ type Model<T extends Row, AutoKeys extends keyof T = never> = {
 ```
 
 Groups `Insert`, `Update`, and `Select` types — a Prisma-style type bundle without Zod.
+
+### CreateManyOptions
+
+```typescript
+type CreateManyOptions = {
+  skipDuplicates?: boolean;
+  onConflict?: {
+    target: readonly string[];
+    update?: readonly string[];
+    set?: Readonly<Record<string, SqlFragment>>;
+  };
+};
+```
+
+### UpsertOptions\<T, I\>
+
+```typescript
+type UpsertOptions<T extends Row, I extends Row = T> = {
+  where: Partial<T>;
+  create: I;
+  update?: Partial<T>;
+  targetWhere?: SqlFragment;
+  setWhere?: SqlFragment;
+};
+```
 
 ### WhereCondition\<T\>
 
@@ -243,17 +651,64 @@ type LikePattern = "startsWith" | "endsWith" | "contains" | "exact";
 interface SortSpec<T> {
   column: keyof T & string;
   direction: "ASC" | "DESC";
+  nulls?: "first" | "last";
 }
 ```
 
 ---
 
+## Column mapping
+
+pgbuddy passes identifiers through postgres.js, so use its `transform` for
+camelCase fields over snake_case columns:
+
+```typescript
+const sql = postgres(process.env.DATABASE_URL, { transform: postgres.camel });
+
+const UserSchema = z.object({
+  id: z.number(),
+  fullName: z.string(),
+  createdAt: z.date(),
+});
+```
+
+Schema keys map to `full_name` / `created_at` across inserts, filters, ordering,
+projections, aggregates, and results. Mapping is global to the connection;
+there is no per-column `mapWith`/`$type` hook yet.
+
 ## Error types
 
 ### QueryError
 
-Thrown for invalid query parameters, bad pagination values, or unsafe operations (such as `update` or `delete` without a `where` clause).
+Thrown for invalid query parameters, bad pagination values, or unsafe operations (such as `update` or `delete` without a `where` clause). It exposes a
+stable `code` such as `NO_ROWS`, `NO_CONDITIONS`, `INVALID_DATA`,
+`INVALID_CURSOR`, `INVALID_WHERE`, `INVALID_COLUMNS`, `INVALID_AGGREGATE`,
+`INVALID_LOCK`, `INVALID_GROUP`, `INVALID_JOIN`, `COLUMN_NOT_ALLOWED`,
+`INSUFFICIENT_COLUMNS`, or `CONFLICT`.
 
 ### TableError
 
 Thrown when table configuration is invalid (such as an invalid table name).
+
+### PostgreSQL errors
+
+Database errors are the original postgres.js errors, so the SQLSTATE is on
+`error.code` and details such as `constraint_name` are preserved. Use the
+exported helpers instead of comparing codes by hand:
+
+```typescript
+import { constraintName, isUniqueViolation } from "pgbuddy";
+
+try {
+  await users.create({ email });
+} catch (error) {
+  if (isUniqueViolation(error)) {
+    console.log("Duplicate:", constraintName(error));
+  }
+}
+```
+
+Available helpers: `isPostgresError`, `isUniqueViolation`,
+`isForeignKeyViolation`, `isNotNullViolation`, `isCheckViolation`,
+`isSerializationFailure`, `isDeadlock`, `constraintName`, plus the
+`PostgresErrorCodes` map.
