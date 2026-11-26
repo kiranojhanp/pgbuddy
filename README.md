@@ -1,6 +1,6 @@
 # PgBuddy
 
-> PgBuddy is a lightweight, type-safe PostgreSQL query helper for postgres.js v4. The canonical AI index is [llms.txt](https://github.com/kiranojhanp/pgbuddy/blob/master/llms.txt).
+> PgBuddy is a lightweight, type-safe PostgreSQL query helper for postgres.js.
 
 ## Documentation
 
