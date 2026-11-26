@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SELECT cancellation via `signal()` and batched streaming via `stream()`.
 - `findManyAndCount()` for page rows plus filtered total in one batch.
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
+- Optional `maxSkip` pagination guard and `stream()` batch-size cap.
+- Runtime validation of transaction isolation modes and flags.
 - Adapter relation keys are inferred from `fields` field lists.
 - postgres.js v4 is now the only supported major.
 - `toSQL()` inspection for SELECT builders, including computed projections.

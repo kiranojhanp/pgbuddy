@@ -698,6 +698,7 @@ type TableState<T extends Row> = {
   columnMap?: ColumnMap;
   columnCodecs?: ColumnCodecs;
   maxTake?: number;
+  maxSkip?: number;
   uniqueKeys?: readonly (readonly string[])[];
   uniqueWhere?: boolean;
   defaultTake?: number;
@@ -796,6 +797,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
   private columnMap?: ColumnMap;
   private columnCodecs?: ColumnCodecs;
   private maxTake: number;
+  private maxSkip?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private uniqueWhere: boolean;
   private defaultTake?: number;
@@ -824,6 +826,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     this.columnMap = state?.columnMap ? { ...state.columnMap } : undefined;
     this.columnCodecs = state?.columnCodecs ? { ...state.columnCodecs } : undefined;
     this.maxTake = state?.maxTake ?? DEFAULT_MAX_TAKE;
+    this.maxSkip = state?.maxSkip;
     this.uniqueKeys = state?.uniqueKeys?.map((columns) => [...columns]);
     this.uniqueWhere = Boolean(state?.uniqueWhere);
     this.defaultTake = state?.defaultTake;
@@ -858,6 +861,11 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new QueryError(Errors.SELECT.INVALID_COLUMNS("batchSize"), {
         code: "INVALID_COLUMNS",
+      });
+    }
+    if (batchSize > this.maxTake) {
+      throw new QueryError(Errors.SELECT.TAKE_EXCEEDS_MAX(this.maxTake), {
+        code: "INVALID_TAKE",
       });
     }
     const query = this.buildSelectQuery();
@@ -964,6 +972,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       columnMap: this.columnMap,
       columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
       defaultTake: this.defaultTake,
@@ -1028,6 +1037,7 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
       columnMap: this.columnMap,
       columnCodecs: this.columnCodecs,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       uniqueKeys: this.uniqueKeys,
       uniqueWhere: this.uniqueWhere,
       defaultTake: this.defaultTake,
@@ -1135,6 +1145,11 @@ export class Table<T extends Row, K extends SelectKeys<T> = ["*"], I extends Row
    */
   skip(count: number): Table<T, K, I> {
     validatePagination(count, undefined);
+    if (this.maxSkip !== undefined && count > this.maxSkip) {
+      throw new QueryError(Errors.SELECT.SKIP_EXCEEDS_MAX(this.maxSkip), {
+        code: "INVALID_SKIP",
+      });
+    }
     return this.clone({ skipValue: count });
   }
 

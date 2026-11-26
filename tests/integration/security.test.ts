@@ -178,4 +178,36 @@ describe("Security hardening", () => {
       expect(rows[0]?.email).toBe("ada@example.com");
     });
   });
+
+  test("maxSkip caps offsets at client and table level", async () => {
+    const capped = new PgBuddyClient(sql, { maxSkip: 5 });
+    const users = capped.table("users", UserSchema);
+
+    expect(() => users.skip(6)).toThrow(QueryError);
+    await expect(users.skip(5).findMany()).resolves.toBeDefined();
+
+    const tableCapped = db.table("users", UserSchema, { maxSkip: 2 });
+    expect(() => tableCapped.skip(3)).toThrow(QueryError);
+
+    expect(() => new PgBuddyClient(sql, { maxSkip: -1 })).toThrow(TableError);
+  });
+
+  test("stream batch size respects maxTake", async () => {
+    const users = db.table("users", UserSchema);
+    await expect(
+      (async () => {
+        for await (const _batch of users.stream(10_001)) {
+          // consume to trigger validation
+        }
+      })()
+    ).rejects.toBeInstanceOf(QueryError);
+  });
+
+  test("rejects invalid transaction modes at runtime", async () => {
+    await expect(
+      db.transaction(async () => undefined, {
+        isolationLevel: "definitely not sql" as never,
+      })
+    ).rejects.toBeInstanceOf(QueryError);
+  });
 });

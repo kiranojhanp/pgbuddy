@@ -39,6 +39,8 @@ export type PgBuddyClientOptions = {
   allowSchema?: boolean;
   allowedColumns?: readonly string[];
   maxTake?: number;
+  /** Optional upper bound for `skip()` offsets. */
+  maxSkip?: number;
   unique?: readonly (readonly string[])[];
   defaultTake?: number;
   /** Schema field name → database column name. */
@@ -187,6 +189,7 @@ export class PgBuddyClient {
   private allowSchema: boolean;
   private allowedColumns?: readonly string[];
   private maxTake?: number;
+  private maxSkip?: number;
   private uniqueKeys?: readonly (readonly string[])[];
   private defaultTake?: number;
   private columnMap?: ColumnMap;
@@ -224,6 +227,12 @@ export class PgBuddyClient {
     ) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
     }
+    if (
+      options?.maxSkip !== undefined &&
+      (!Number.isInteger(options.maxSkip) || options.maxSkip < 0)
+    ) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
+    }
 
     assertColumnMap(options?.columnMap);
     assertColumnCodecs(options?.columnCodecs);
@@ -237,6 +246,7 @@ export class PgBuddyClient {
     this.allowSchema = Boolean(options?.allowSchema);
     this.allowedColumns = options?.allowedColumns ? [...options.allowedColumns] : undefined;
     this.maxTake = options?.maxTake;
+    this.maxSkip = options?.maxSkip;
     this.uniqueKeys = options?.unique?.map((list) => [...list]);
     this.defaultTake = options?.defaultTake;
     this.columnMap = options?.columnMap ? { ...options.columnMap } : undefined;
@@ -266,6 +276,7 @@ export class PgBuddyClient {
       allowSchema: this.allowSchema,
       allowedColumns: this.allowedColumns,
       maxTake: this.maxTake,
+      maxSkip: this.maxSkip,
       unique: this.uniqueKeys,
       defaultTake: this.defaultTake,
     };
@@ -286,6 +297,31 @@ export class PgBuddyClient {
 
     if (typeof start !== "function") {
       throw new QueryError("Transactions are not supported by this postgres.js instance");
+    }
+
+    const isolationLevels = [
+      "read uncommitted",
+      "read committed",
+      "repeatable read",
+      "serializable",
+    ] as const;
+    if (
+      transactionOptions?.isolationLevel !== undefined &&
+      !isolationLevels.includes(transactionOptions.isolationLevel)
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
+    }
+    if (
+      transactionOptions?.readOnly !== undefined &&
+      typeof transactionOptions.readOnly !== "boolean"
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
+    }
+    if (
+      transactionOptions?.deferrable !== undefined &&
+      typeof transactionOptions.deferrable !== "boolean"
+    ) {
+      throw new QueryError(Errors.QUERY.INVALID_TRANSACTION, { code: "INVALID_TRANSACTION" });
     }
 
     const parts: string[] = [];
@@ -427,6 +463,7 @@ export class PgBuddyClient {
     const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
     const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
     const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const maxSkip = options?.maxSkip ?? this.maxSkip;
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
     const columnMap = options?.columnMap ?? this.columnMap;
@@ -444,6 +481,9 @@ export class PgBuddyClient {
     }
     if (!Number.isInteger(maxTake) || maxTake <= 0) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    if (maxSkip !== undefined && (!Number.isInteger(maxSkip) || maxSkip < 0)) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
     }
     assertUniqueOption(uniqueKeys);
     assertDefaultTake(defaultTake);
@@ -481,6 +521,7 @@ export class PgBuddyClient {
       allowSchema,
       allowedColumns,
       maxTake,
+      maxSkip,
       uniqueKeys,
       defaultTake,
       columnMap,
@@ -536,6 +577,7 @@ export class PgBuddyClient {
     const allowSchema = options?.allowSchema ?? this.allowSchema ?? false;
     const allowedColumns = options?.allowedColumns ?? this.allowedColumns;
     const maxTake = options?.maxTake ?? this.maxTake ?? DEFAULT_MAX_TAKE;
+    const maxSkip = options?.maxSkip ?? this.maxSkip;
     const uniqueKeys = options?.unique ?? this.uniqueKeys;
     const defaultTake = options?.defaultTake ?? this.defaultTake;
     const columnMap = options?.columnMap ?? this.columnMap;
@@ -555,6 +597,9 @@ export class PgBuddyClient {
 
     if (!Number.isInteger(maxTake) || maxTake <= 0) {
       throw new TableError(Errors.TABLE.INVALID_MAX_TAKE);
+    }
+    if (maxSkip !== undefined && (!Number.isInteger(maxSkip) || maxSkip < 0)) {
+      throw new TableError(Errors.TABLE.INVALID_MAX_SKIP);
     }
 
     assertUniqueOption(uniqueKeys);
@@ -607,6 +652,7 @@ export class PgBuddyClient {
       allowSchema,
       allowedColumns,
       maxTake,
+      maxSkip,
       uniqueKeys,
       defaultTake,
       columnMap,

@@ -650,7 +650,9 @@ Available helpers: `isUniqueViolation`, `isForeignKeyViolation`, `isNotNullViola
 - Values are always sent as bound parameters and identifiers are escaped by postgres.js, so user-supplied values cannot break out of SQL.
 - `create`, `createMany` and `update` treat **every non-`undefined` key** of the payload as a column. Never pass an unvalidated request body: an attacker could set columns such as `role` or `is_admin`. Use a Zod schema (which strips unknown keys by default), a `z.strictObject` schema, or the `allowedColumns` option to enforce a write allowlist.
 - `select`/`orderBy` column names are validated against the schema at runtime; still treat dynamic column names as developer-controlled input.
-- `take()` is capped at 10,000 rows by default; raise or lower it with the `maxTake` option.
+- `take()` is capped at 10,000 rows by default; raise or lower it with the `maxTake` option. Stream batch sizes use the same cap.
+- Set `maxSkip` on the client or table options to bound offset pagination. Large offsets are expensive even when the page size is small.
+- Transaction isolation levels and boolean transaction flags are validated at runtime before they are sent to PostgreSQL.
 - Schema-qualified (dotted) table and column names are rejected unless `allowSchema: true` is set.
 
 ## Joins
