@@ -59,6 +59,12 @@ export type PredicateNode<T extends Row> =
       predicate: Predicate<T>;
     }
   | {
+      type: "operator";
+      field: keyof T & string;
+      operator: "@>" | "<@" | "&&" | "?" | "?|" | "?&";
+      value: unknown;
+    }
+  | {
       type: "raw";
       fragment: SqlFragment;
     };
@@ -179,6 +185,87 @@ export function notInArray<T extends Row, K extends keyof T & string>(
     throw new QueryError(Errors.WHERE.INVALID_IN(field), { code: "INVALID_WHERE" });
   }
   return createPredicate({ type: "in", field, values, negated: true });
+}
+
+function arrayPredicate<T extends Row, K extends keyof T & string>(
+  field: K,
+  values: readonly unknown[],
+  operator: "@>" | "<@" | "&&"
+): Predicate<T> {
+  if (!Array.isArray(values)) {
+    throw new QueryError(Errors.WHERE.INVALID_IN(field), { code: "INVALID_WHERE" });
+  }
+  return createPredicate({ type: "operator", field, operator, value: values });
+}
+
+/** PostgreSQL array containment: `field @> values`. */
+export function arrayContains<T extends Row, K extends keyof T & string>(
+  field: K,
+  values: readonly unknown[]
+): Predicate<T> {
+  return arrayPredicate(field, values, "@>");
+}
+
+/** PostgreSQL array containment: `field <@ values`. */
+export function arrayContainedBy<T extends Row, K extends keyof T & string>(
+  field: K,
+  values: readonly unknown[]
+): Predicate<T> {
+  return arrayPredicate(field, values, "<@");
+}
+
+/** PostgreSQL array overlap: `field && values`. */
+export function arrayOverlaps<T extends Row, K extends keyof T & string>(
+  field: K,
+  values: readonly unknown[]
+): Predicate<T> {
+  return arrayPredicate(field, values, "&&");
+}
+
+function keyPredicate<T extends Row, K extends keyof T & string>(
+  field: K,
+  value: string | readonly string[],
+  operator: "?" | "?|" | "?&"
+): Predicate<T> {
+  if (
+    (typeof value === "string" && value.length === 0) ||
+    (Array.isArray(value) && value.length === 0)
+  ) {
+    throw new QueryError(Errors.WHERE.INVALID_IN(field), { code: "INVALID_WHERE" });
+  }
+  return createPredicate({ type: "operator", field, operator, value });
+}
+
+/** JSONB containment: `field @> value`. */
+export function jsonContains<T extends Row, K extends keyof T & string>(
+  field: K,
+  value: unknown
+): Predicate<T> {
+  return createPredicate({ type: "operator", field, operator: "@>", value });
+}
+
+/** JSONB key existence: `field ? key`. */
+export function jsonHasKey<T extends Row, K extends keyof T & string>(
+  field: K,
+  key: string
+): Predicate<T> {
+  return keyPredicate(field, key, "?");
+}
+
+/** JSONB any-key existence: `field ?| keys`. */
+export function jsonHasAnyKey<T extends Row, K extends keyof T & string>(
+  field: K,
+  keys: readonly string[]
+): Predicate<T> {
+  return keyPredicate(field, keys, "?|");
+}
+
+/** JSONB all-keys existence: `field ?& keys`. */
+export function jsonHasAllKeys<T extends Row, K extends keyof T & string>(
+  field: K,
+  keys: readonly string[]
+): Predicate<T> {
+  return keyPredicate(field, keys, "?&");
 }
 
 /** `field IS NULL` */

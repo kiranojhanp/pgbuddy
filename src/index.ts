@@ -137,6 +137,9 @@ export {
 export type { Predicate, WhereInput } from "./predicates";
 export {
   and,
+  arrayContainedBy,
+  arrayContains,
+  arrayOverlaps,
   between,
   contains,
   endsWith,
@@ -147,6 +150,10 @@ export {
   inArray,
   isNotNull,
   isNull,
+  jsonContains,
+  jsonHasAllKeys,
+  jsonHasAnyKey,
+  jsonHasKey,
   like,
   lt,
   lte,

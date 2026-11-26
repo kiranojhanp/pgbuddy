@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
+import { z } from "zod";
 import {
   and,
+  arrayContainedBy,
+  arrayContains,
+  arrayOverlaps,
   between,
   contains,
   eq,
@@ -9,6 +13,10 @@ import {
   inArray,
   isNotNull,
   isNull,
+  jsonContains,
+  jsonHasAllKeys,
+  jsonHasAnyKey,
+  jsonHasKey,
   like,
   lt,
   lte,
@@ -34,6 +42,7 @@ describe("predicates", () => {
     stop = started.stop;
     db = new PgBuddyClient(sql);
 
+    await sql`DROP TABLE IF EXISTS assets;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await sql`
       CREATE TABLE users (
@@ -46,8 +55,25 @@ describe("predicates", () => {
   });
 
   afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS assets;`;
     await sql`DROP TABLE IF EXISTS users;`;
     await stop();
+  });
+
+  beforeAll(async () => {
+    await sql`
+      CREATE TABLE assets (
+        id INTEGER PRIMARY KEY,
+        tags TEXT[] NOT NULL,
+        metadata JSONB NOT NULL
+      )
+    `;
+    await sql`
+      INSERT INTO assets (id, tags, metadata) VALUES
+        (1, ARRAY['typescript','db'], '{"tier":"premium","active":true}'::jsonb),
+        (2, ARRAY['javascript'], '{"tier":"free"}'::jsonb),
+        (3, ARRAY['typescript'], '{"tier":"premium","region":"eu"}'::jsonb)
+    `;
   });
 
   beforeEach(async () => {
@@ -180,5 +206,35 @@ describe("predicates", () => {
     expect(() => eq("email", null as unknown as string)).toThrow();
     expect(() => inArray("email", [])).toThrow();
     expect(() => between("id", null as unknown as number, 3)).toThrow();
+  });
+
+  test("arrays and JSONB use typed predicates", async () => {
+    const AssetSchema = z.object({
+      id: z.number().int(),
+      tags: z.array(z.string()),
+      metadata: z.record(z.string(), z.unknown()),
+    });
+    const assets = db.table("assets", AssetSchema);
+
+    const contains = await assets.where(arrayContains("tags", ["typescript"])).findMany();
+    expect(contains.map((row) => row.id)).toEqual([1, 3]);
+
+    const contained = await assets.where(arrayContainedBy("tags", ["typescript"])).findMany();
+    expect(contained.map((row) => row.id)).toEqual([3]);
+
+    const overlaps = await assets.where(arrayOverlaps("tags", ["db"])).findMany();
+    expect(overlaps.map((row) => row.id)).toEqual([1]);
+
+    const json = await assets.where(jsonContains("metadata", { tier: "premium" })).findMany();
+    expect(json.map((row) => row.id)).toEqual([1, 3]);
+
+    const key = await assets.where(jsonHasKey("metadata", "region")).findMany();
+    expect(key.map((row) => row.id)).toEqual([3]);
+
+    const anyKey = await assets.where(jsonHasAnyKey("metadata", ["region", "missing"])).findMany();
+    expect(anyKey.map((row) => row.id)).toEqual([3]);
+
+    const allKeys = await assets.where(jsonHasAllKeys("metadata", ["tier", "active"])).findMany();
+    expect(allKeys.map((row) => row.id)).toEqual([1]);
   });
 });

@@ -156,6 +156,15 @@ const results = await users
   .findMany();
 ```
 
+JSONB and array predicates are also available:
+
+```ts
+await assets.where(arrayContains("tags", ["typescript"])).findMany();
+await assets.where(arrayOverlaps("tags", ["db"])).findMany();
+await assets.where(jsonContains("metadata", { tier: "premium" })).findMany();
+await assets.where(jsonHasKey("metadata", "region")).findMany();
+```
+
 Available predicates:
 
 - Comparisons: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`

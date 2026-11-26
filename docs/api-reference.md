@@ -230,6 +230,17 @@ Zod-only.
 
 ---
 
+## Predicates
+
+Composable predicate helpers include comparison, null, `in`, LIKE, string
+pattern, between, and JSONB/array operators:
+
+- `arrayContains`, `arrayContainedBy`, `arrayOverlaps`
+- `jsonContains`, `jsonHasKey`, `jsonHasAnyKey`, `jsonHasAllKeys`
+
+JSON/array predicates participate in normal `where` composition and column
+mapping.
+
 ## ZodTable\<S\>
 
 `ZodTable` is the default schema-backed table builder, with runtime validation built in:

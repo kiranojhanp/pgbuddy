@@ -233,6 +233,12 @@ function buildPredicate<T extends Row>(
       return sql`${sql(field)} LIKE ${pattern}`;
     }
 
+    case "operator": {
+      const field = normalizeIdentifier(node.field, options, "where");
+      const value = encodeValue(node.field, node.value, options);
+      return sql`${sql(field)} ${sql.unsafe(node.operator)} ${value}`;
+    }
+
     case "between": {
       if (
         node.low === null ||

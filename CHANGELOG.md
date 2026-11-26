@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one round trip.
 - `explain()` for SELECT plans.
 - `whereExpr()` and `orderByExpr()` for typed SQL expressions.
+- JSONB and array predicates: `jsonContains`, `jsonHasKey`,
+  `jsonHasAnyKey`, `jsonHasAllKeys`, `arrayContains`, `arrayContainedBy`,
+  `arrayOverlaps`.
 - Opt-in transaction retry for serialization failures/deadlocks; transaction
   clients now inherit column mapping/codecs and the connection adapter.
 - `findManyInfinite()` for keyset pages with `nextCursor` and `hasMore`.
