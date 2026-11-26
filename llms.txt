@@ -4,34 +4,34 @@
 
 ## Start here
 
-- [README](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/README.md): Installation, quick start, schema-first usage, and the main API overview.
-- [Introduction](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/introduction.md): Product philosophy, validation model, and basic querying.
-- [API reference](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/api-reference.md): PgBuddyClient, table builders, filters, writes, relations, batches, and adapters.
-- [Advanced execution](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/advanced.md): Batching, prepared plans, transactions/retry, streaming, EXPLAIN, expressions, and SQL write helpers.
-- [Examples index](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/examples.md): Pointers to runnable examples.
+- [README](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/README.md): Installation, quick start, schema-first usage, and the main API overview.
+- [Introduction](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/introduction.md): Product philosophy, validation model, and basic querying.
+- [API reference](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/api-reference.md): PgBuddyClient, table builders, filters, writes, relations, batches, and adapters.
+- [Advanced execution](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/advanced.md): Batching, prepared plans, transactions/retry, streaming, EXPLAIN, expressions, and SQL write helpers.
+- [Examples index](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/examples.md): Pointers to runnable examples.
 
 ## Guides
 
-- [CRUD operations](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/crud-operations.md): Create, read, update, delete, upserts, and conflict handling.
-- [Select operations](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/select-operations.md): Projection, filtering, sorting, pagination, and computed fields.
-- [Chainable API](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/chainable-api.md): How query state and chaining work.
-- [Data transformation](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/data-transformation.md): Column mapping, codecs, and serialization.
-- [Ecommerce kitchen sink](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/kitchen-sink.md): Walkthrough of the full API against a real ecommerce schema.
-- [Roadmap](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/roadmap.md): Completed features and intentional out-of-scope items.
+- [CRUD operations](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/crud-operations.md): Create, read, update, delete, upserts, and conflict handling.
+- [Select operations](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/select-operations.md): Projection, filtering, sorting, pagination, and computed fields.
+- [Chainable API](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/chainable-api.md): How query state and chaining work.
+- [Data transformation](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/data-transformation.md): Column mapping, codecs, and serialization.
+- [Ecommerce kitchen sink](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/kitchen-sink.md): Walkthrough of the full API against a real ecommerce schema.
+- [Roadmap](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/roadmap.md): Completed features and intentional out-of-scope items.
 
 ## Recipes
 
-- [Paginated tables](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/recipes/paginated-tables.md): Offset pages, filtered totals, keyset/infinite pages, and app-level query helpers.
-- [Soft deletes](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/recipes/soft-deletes.md): Explicit soft-delete scopes, partial unique indexes, and restore flows.
-- [Tenant scoping and RLS](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/docs/recipes/tenant-scoping.md): App-level tenant filters, PostgreSQL RLS, and transaction-local settings.
+- [Paginated tables](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/recipes/paginated-tables.md): Offset pages, filtered totals, keyset/infinite pages, and app-level query helpers.
+- [Soft deletes](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/recipes/soft-deletes.md): Explicit soft-delete scopes, partial unique indexes, and restore flows.
+- [Tenant scoping and RLS](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/docs/recipes/tenant-scoping.md): App-level tenant filters, PostgreSQL RLS, and transaction-local settings.
 
 ## Code and package
 
 - [npm registry metadata](https://registry.npmjs.org/pgbuddy): Package versions and install metadata.
 - [GitHub repository](https://github.com/kiranojhanp/pgbuddy): Source, issues, and pull requests.
-- [Kitchen sink source](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/examples/ecommerce-kitchen-sink.ts): Runnable end-to-end example.
-- [Changelog](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/CHANGELOG.md): Release notes and breaking changes.
-- [License](https://raw.githubusercontent.com/kiranojhanp/pgbuddy/dev/LICENSE): MIT.
+- [Kitchen sink source](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/examples/ecommerce-kitchen-sink.ts): Runnable end-to-end example.
+- [Changelog](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/CHANGELOG.md): Release notes and breaking changes.
+- [License](https://cdn.jsdelivr.net/gh/kiranojhanp/pgbuddy@dev/LICENSE): MIT.
 
 ## Optional
 
